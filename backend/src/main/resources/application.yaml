@@ -1,0 +1,32 @@
+spring:
+  application:
+    name: seatlock-backend
+
+  # Local dev: read the repo-root .env as properties. Skipped when absent (Docker/CI).
+  # Real OS environment variables take precedence over values from this file.
+  config:
+    import: "optional:file:../.env[.properties]"
+
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:seatlock}
+    username: ${POSTGRES_USER:seatlock}
+    password: ${POSTGRES_PASSWORD}
+
+  jpa:
+    open-in-view: false          # no lazy-loading during view rendering (anti-pattern)
+    hibernate:
+      ddl-auto: validate         # Flyway owns the schema; Hibernate only checks it
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always       # TEMP: moves to the 'local' profile on Day 2

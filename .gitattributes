@@ -1,0 +1,20 @@
+# Normalize all text to LF in the repo and working tree (Linux containers + CI)
+* text=auto eol=lf
+
+# Windows-only scripts keep CRLF
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# Must be LF or they break on Linux
+mvnw  text eol=lf
+*.sh  text eol=lf
+
+# Binary files: never touch
+*.jar  binary
+*.png  binary
+*.jpg  binary
+*.ico  binary
+*.onnx binary
+*.gz   binary
+*.zip  binary
