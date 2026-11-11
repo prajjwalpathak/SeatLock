@@ -1,0 +1,21 @@
+# Production: activate with SPRING_PROFILES_ACTIVE=prod.
+# Secrets come from real environment variables (no .env file on the server).
+server:
+  shutdown: graceful             # finish in-flight requests before stopping
+
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+
+management:
+  endpoint:
+    health:
+      show-details: never        # never leak DB/Redis details publicly
+
+logging:
+  structured:
+    format:
+      console: ecs                   # one JSON object per line (Elastic Common Schema)
+  level:
+    root: INFO
+    com.seatlock: INFO

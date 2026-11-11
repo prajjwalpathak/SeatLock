@@ -1,0 +1,10 @@
+# Tests: activate with @ActiveProfiles("test")
+management:
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    root: WARN
+    com.seatlock: INFO

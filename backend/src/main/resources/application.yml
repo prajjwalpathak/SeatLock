@@ -2,6 +2,10 @@ spring:
   application:
     name: seatlock-backend
 
+
+  profiles:
+    default: local               # used when SPRING_PROFILES_ACTIVE is not set
+
   # Local dev: read the repo-root .env as properties. Skipped when absent (Docker/CI).
   # Real OS environment variables take precedence over values from this file.
   config:
@@ -13,7 +17,7 @@ spring:
     password: ${POSTGRES_PASSWORD}
 
   jpa:
-    open-in-view: false          # no lazy-loading during view rendering (anti-pattern)
+    open-in-view: false          # no lazy-loading during view rendering (antipattern)
     hibernate:
       ddl-auto: validate         # Flyway owns the schema; Hibernate only checks it
 
@@ -27,6 +31,3 @@ management:
     web:
       exposure:
         include: health,info
-  endpoint:
-    health:
-      show-details: always       # TEMP: moves to the 'local' profile on Day 2
