@@ -40,6 +40,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return problem(HttpStatus.CONFLICT, "Conflict", ex.getMessage(), ex.getCode());
     }
 
+    @ExceptionHandler(InvalidRequestException.class)
+    ProblemDetail handleInvalidRequest(InvalidRequestException ex) {
+        return problem(HttpStatus.BAD_REQUEST, "Invalid request", ex.getMessage(), ex.getCode());
+    }
+
     /**
      * Last-resort handler: log the stack trace, never leak internals to the client.
      * Note: Spring Security exceptions (W2) will need their own handlers so they don't land here.

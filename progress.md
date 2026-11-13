@@ -3,8 +3,8 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 1 · Day 4 (not started): seed data, catalog APIs (event list with filters + keyset pagination, event detail, show seat layout)
-- **Last completed:** Week 1 · Day 3: Data model (Thu, Nov 12, 2026)
+- **Current day:** Week 1 · Day 5 (not started): Swagger UI, Testcontainers, baseline EXPLAIN, full-text search, indexes, JaCoCo
+- **Last completed:** Week 1 · Day 4: Seed data + Catalog APIs (Fri, Nov 13, 2026)
 - **Live URLs:** Backend — · Frontend — · Swagger — · Grafana —
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public)
 - **Carry-overs:** try Oracle Cloud signup with a family Visa/Mastercard credit card (hosting decision by **W2·D4, Fri Nov 20**) · JetBrains student license (via GitHub Student Developer Pack)
@@ -33,6 +33,11 @@
 | 18 | 2026-11-12 | Bookings expose a random `public_id` (UUID); internal keys are `bigint` identity | Booking URLs can't be enumerated |
 | 19 | 2026-11-12 | Enums stored as `varchar` + `CHECK` (no Postgres `ENUM`); money as `bigint` paise with `CHECK`s | Easy to evolve with Flyway; maps cleanly to `@Enumerated(STRING)` |
 | 20 | 2026-11-12 | Persistence tests use `@DataJpaTest` against real Postgres (`replace = NONE`) until Testcontainers on W1·D5 | The guards are Postgres-specific (partial index, composite FK); an in-memory DB can't test them |
+| 21 | 2026-11-13 | Demo data in Flyway `V2__seed.sql`, set-based (`generate_series`, data-modifying CTE); show dates relative to the migration date; seed organizers locked (`'!'` hash) with `.test` e-mails | Realistic data that always has upcoming shows; no usable credentials in seeds |
+| 22 | 2026-11-13 | Keyset pagination on `(next_show_at, event_id)` with an opaque URL-safe Base64 cursor (full `Instant` precision); bad cursor → 400 `INVALID_CURSOR` | Same speed on every page, stable while data changes; clients don't depend on cursor internals |
+| 23 | 2026-11-13 | Read-model queries (event list, upcoming shows, seat map) use `JdbcClient` SQL + `RowMapper`s; JPA entities are for writes | One round trip per query, no N+1; plain SQL is what we `EXPLAIN ANALYZE` |
+| 24 | 2026-11-13 | Unpublished events / unbookable shows return 404 (not 403); listings never return past shows (`startsAfter` clamped to now) | Don't reveal drafts; no stale results |
+| 25 | 2026-11-13 | Integration tests assert properties computed from the DB (no duplicates, sorted, counts from SQL) instead of hard-coded numbers | Seed dates are relative, so hard-coded counts would break as shows pass |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
