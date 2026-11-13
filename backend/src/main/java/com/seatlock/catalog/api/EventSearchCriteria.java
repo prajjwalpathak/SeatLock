@@ -9,10 +9,13 @@ import java.time.Instant;
 
 /**
  * Query parameters for GET /api/v1/events. All filters are optional.
+ * {@code q} is free-text search over title, description, category and language
+ * (Postgres full-text search with English stemming; any user input is safe).
  * Time filters are UTC instants (the UI converts local dates); a show matches if
  * startsAfter <= starts_at < startsBefore.
  */
 public record EventSearchCriteria(
+        @Size(max = 100) String q,
         @Size(max = 80) String city,
         EventCategory category,
         @Size(max = 30) String language,
@@ -24,6 +27,7 @@ public record EventSearchCriteria(
     public static final int DEFAULT_LIMIT = 20;
 
     public EventSearchCriteria {
+        q = blankToNull(q);
         city = blankToNull(city);
         language = blankToNull(language);
         cursor = blankToNull(cursor);

@@ -81,6 +81,11 @@ public class EventSearchRepository {
             showFilters.append(" AND lower(v.city) = lower(:city)");
             params.put("city", criteria.city());
         }
+        if (criteria.q() != null) {
+            // websearch_to_tsquery never throws on user input (quotes, -words, "or")
+            eventFilters.append(" AND e.search_vector @@ websearch_to_tsquery('english', :q)");
+            params.put("q", criteria.q());
+        }
         if (criteria.category() != null) {
             eventFilters.append(" AND e.category = :category");
             params.put("category", criteria.category().name());

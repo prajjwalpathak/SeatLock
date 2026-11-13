@@ -1,15 +1,12 @@
 package com.seatlock;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
+import testsupport.IntegrationTest;
 
-@ActiveProfiles("test")
-@SpringBootTest
+@IntegrationTest
 class SeatLockApplicationTests {
 
 	@Test
 	void contextLoads() {
 	}
-
 }

@@ -19,8 +19,9 @@ class EventSearchCriteriaTest {
 
     @Test
     void defaultsLimitAndTurnsBlanksIntoNull() {
-        EventSearchCriteria c = new EventSearchCriteria("  ", null, "", null, null, " ", null);
+        EventSearchCriteria c = new EventSearchCriteria(" ", "  ", null, "", null, null, " ", null);
         assertThat(c.limit()).isEqualTo(EventSearchCriteria.DEFAULT_LIMIT);
+        assertThat(c.q()).isNull();
         assertThat(c.city()).isNull();
         assertThat(c.language()).isNull();
         assertThat(c.cursor()).isNull();
@@ -28,22 +29,30 @@ class EventSearchCriteriaTest {
 
     @Test
     void acceptsValidCriteria() {
-        EventSearchCriteria c = new EventSearchCriteria("Mumbai", null, "Hindi",
+        EventSearchCriteria c = new EventSearchCriteria("comedy night", "Mumbai", null, "Hindi",
                 Instant.parse("2026-11-20T00:00:00Z"), Instant.parse("2026-11-27T00:00:00Z"), null, 10);
         assertThat(validator.validate(c)).isEmpty();
     }
 
     @Test
     void rejectsLimitAboveMaximum() {
-        EventSearchCriteria c = new EventSearchCriteria(null, null, null, null, null, null, 500);
+        EventSearchCriteria c = new EventSearchCriteria(null, null, null, null, null, null, null, 500);
         assertThat(validator.validate(c))
                 .extracting(v -> v.getPropertyPath().toString())
                 .containsExactly("limit");
     }
 
     @Test
+    void rejectsOverlongSearchText() {
+        EventSearchCriteria c = new EventSearchCriteria("x".repeat(101), null, null, null, null, null, null, null);
+        assertThat(validator.validate(c))
+                .extracting(v -> v.getPropertyPath().toString())
+                .containsExactly("q");
+    }
+
+    @Test
     void rejectsInvertedTimeRange() {
-        EventSearchCriteria c = new EventSearchCriteria(null, null, null,
+        EventSearchCriteria c = new EventSearchCriteria(null, null, null, null,
                 Instant.parse("2026-11-27T00:00:00Z"), Instant.parse("2026-11-20T00:00:00Z"), null, null);
         assertThat(validator.validate(c))
                 .extracting(v -> v.getPropertyPath().toString())

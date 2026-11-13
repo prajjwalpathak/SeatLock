@@ -1,30 +1,12 @@
 package com.seatlock.booking.domain;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-
-import com.seatlock.catalog.domain.Event;
-import com.seatlock.catalog.domain.EventCategory;
-import com.seatlock.catalog.domain.EventRepository;
-import com.seatlock.catalog.domain.Seat;
-import com.seatlock.catalog.domain.SeatRepository;
-import com.seatlock.catalog.domain.Show;
-import com.seatlock.catalog.domain.ShowRepository;
-import com.seatlock.catalog.domain.ShowSeat;
-import com.seatlock.catalog.domain.ShowSeatRepository;
-import com.seatlock.catalog.domain.Venue;
-import com.seatlock.catalog.domain.VenueRepository;
+import com.seatlock.catalog.domain.*;
 import com.seatlock.common.config.JpaAuditingConfig;
 import com.seatlock.identity.domain.AuthProvider;
 import com.seatlock.identity.domain.Role;
 import com.seatlock.identity.domain.User;
 import com.seatlock.identity.domain.UserRepository;
 import jakarta.persistence.EntityManager;
-import java.time.Clock;
-import java.time.Duration;
-import java.time.Instant;
-import java.time.ZoneOffset;
-import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
@@ -35,14 +17,24 @@ import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.context.ActiveProfiles;
+import testsupport.TestcontainersConfiguration;
+
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Runs against the real local Postgres (Testcontainers from W1·D5).
+ * Runs against a throwaway Postgres container (Testcontainers).
  * Every test runs in a transaction that is rolled back.
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import(JpaAuditingConfig.class)
+@Import({JpaAuditingConfig.class, TestcontainersConfiguration.class})
 @ActiveProfiles("test")
 class BookingPersistenceTest {
 

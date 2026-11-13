@@ -1,35 +1,29 @@
 package com.seatlock.catalog.api;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.hamcrest.Matchers.empty;
-import static org.hamcrest.Matchers.equalToIgnoringCase;
-import static org.hamcrest.Matchers.everyItem;
-import static org.hamcrest.Matchers.not;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-
 import com.jayway.jsonpath.JsonPath;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import testsupport.IntegrationTest;
+
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * End-to-end catalog API checks against the seeded database (Testcontainers from W1·D5).
  * Expectations are computed from the DB, because seed show dates are relative to when V2 ran.
  */
-@SpringBootTest
-@AutoConfigureMockMvc
-@ActiveProfiles("test")
+@IntegrationTest
 class CatalogApiIntegrationTest {
 
     @Autowired MockMvc mvc;
@@ -112,5 +106,21 @@ class CatalogApiIntegrationTest {
         mvc.perform(get("/api/v1/events").param("category", "OPERA"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    }
+
+    @Test
+    void fullTextSearchMatchesStemsAndDescriptions() throws Exception {
+        // stemming: "kite" matches the title "Kingdom of Kites"
+        mvc.perform(get("/api/v1/events").param("q", "kite"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[*].title", hasItem("Kingdom of Kites")));
+        // a word that only appears in a description
+        mvc.perform(get("/api/v1/events").param("q", "qawwali"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[*].title", hasItem("Sufi Under the Stars")));
+        // websearch syntax never errors; unknown words simply match nothing
+        mvc.perform(get("/api/v1/events").param("q", "\"unclosed quote -xyzzyplugh"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", empty()));
     }
 }

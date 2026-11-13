@@ -3,9 +3,9 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 1 · Day 5 (not started): Swagger UI, Testcontainers, baseline EXPLAIN, full-text search, indexes, JaCoCo
-- **Last completed:** Week 1 · Day 4: Seed data + Catalog APIs (Fri, Nov 13, 2026)
-- **Live URLs:** Backend — · Frontend — · Swagger — · Grafana —
+- **Current day:** Week 1 · Day 6 (not started): frontend scaffold (Vite + React + TS + Tailwind + TanStack Query + Router), event list + detail + search, CORS, week review
+- **Last completed:** Week 1 · Day 5: API docs, Testcontainers, search & indexes (Sat, Nov 14, 2026)
+- **Live URLs:** Backend — · Frontend — · Swagger — (local: http://localhost:8080/swagger-ui.html) · Grafana —
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public)
 - **Carry-overs:** try Oracle Cloud signup with a family Visa/Mastercard credit card (hosting decision by **W2·D4, Fri Nov 20**) · JetBrains student license (via GitHub Student Developer Pack)
 - **Schedule:** on track (revised target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon)
@@ -38,11 +38,18 @@
 | 23 | 2026-11-13 | Read-model queries (event list, upcoming shows, seat map) use `JdbcClient` SQL + `RowMapper`s; JPA entities are for writes | One round trip per query, no N+1; plain SQL is what we `EXPLAIN ANALYZE` |
 | 24 | 2026-11-13 | Unpublished events / unbookable shows return 404 (not 403); listings never return past shows (`startsAfter` clamped to now) | Don't reveal drafts; no stale results |
 | 25 | 2026-11-13 | Integration tests assert properties computed from the DB (no duplicates, sorted, counts from SQL) instead of hard-coded numbers | Seed dates are relative, so hard-coded counts would break as shows pass |
+| 26 | 2026-11-14 | **springdoc-openapi 3.2.0** instead of the plan's 3.0.x (user-approved) | 3.0.x was built against Boot 4.0, and Boot 4.1 removed the APIs deprecated in 4.0; the latest 3.x minor matches Boot 4.1. Still the springdoc 3 / Boot 4 line |
+| 27 | 2026-11-14 | Tests run on **Testcontainers** (`pgvector/pgvector:pg16` + `redis:7-alpine`) via `@ServiceConnection`; `@IntegrationTest` meta-annotation; dummy datasource values in `application-test.yml` | Isolated and repeatable, no dependency on the local stack, CI-ready; identical config means one cached context |
+| 28 | 2026-11-14 | Full-text search: generated weighted `tsvector` (title A, description B, category/language C; `english` config) + GIN index; `websearch_to_tsquery`; results keep soonest-first order | Always in sync without triggers; never errors on user input; keyset cursor stays valid |
+| 29 | 2026-11-14 | Indexes only from measured plans: `show_seats (show_id, price_paise)` and `shows (event_id, starts_at)` (replaces `ix_shows_event`); `show_seats.status` deliberately unindexed | Measured ~5× faster event list; unindexed status keeps hold/booking updates HOT |
+| 30 | 2026-11-14 | JaCoCo 0.8.15 report on `verify`; the ≥80% gate is deferred to W6·D1 | 0.8.14+ officially supports Java 25; avoid writing tests just for the number now |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
 |---|---|---|---|
-| — | — | — | — |
+| Event list query (Q1) after targeted index | 3.31 → **0.66 ms (~5×)**; buffers 251 → **121 (−52%)** | `EXPLAIN (ANALYZE, BUFFERS)`, seeded DB, warm cache (`docs/explain/`) | 2026-11-14 |
+| Event detail shows query (Q2) | 1.11 → **0.15 ms**; buffers 24 → 10 | same | 2026-11-14 |
+| Test coverage (JaCoCo) | 79% instructions, ~80% lines (309/384), 60% branches; 33 tests | `mvnw verify` | 2026-11-14 |
 
 ## Accounts & Config (no secrets here, only where they live)
 | Item | Status | Where stored |
@@ -191,3 +198,38 @@
 - JPA entity `equals`/`hashCode` with proxies; LAZY associations; cross-module references by ID
 - Spring Data auditing with a custom `DateTimeProvider`; `@DataJpaTest` with a real database, transactional rollback
 **Commit:** `feat(booking): add V1 schema with oversell guard, entities and repos`
+
+### Week 1 · Day 4: Seed data + Catalog APIs (Fri, Nov 13, 2026)
+**Status:** ✅ Done
+**Built:**
+- `V2__seed.sql`: 3 organizers, 4 venues (Delhi, Mumbai, Bengaluru, Pune) with generated layouts (1,008 seats, one aisle gap per row, PLATINUM/GOLD/SILVER by row), 30 events (1 DRAFT), 90 shows (3 per event, a week apart, 19:30 IST), 22,944 `show_seats` with section prices (2× / 1.5× / 1× a per-category base)
+- DTO records: `EventSearchCriteria` (validated query params, default limit 20, UTC time filters), `EventSummaryResponse`, `EventDetailResponse`, `ShowSummaryResponse`, `ShowSeatMapResponse` (+ `VenueRef`, `SectionPrice`, `SeatView`), generic `CursorPage<T>`
+- `GET /api/v1/events`: filters (city, category, language, time range), keyset pagination, `LATERAL` next-show + "from" price; dynamic SQL with bound parameters only
+- `GET /api/v1/events/{id}`: published event + upcoming shows (404 for drafts/unknown)
+- `GET /api/v1/shows/{id}/seats`: grid size, section price legend (most expensive first), every seat with position, aisle flag, price, status
+- `InvalidRequestException` → 400 in `GlobalExceptionHandler`
+- Tests: **30 passing** (new: `EventCursorTest` 6, `EventSearchCriteriaTest` 4, `CatalogApiIntegrationTest` 5)
+**Files created/changed:**
+- `db\migration\V2__seed.sql`
+- `catalog\api\EventController.java`, `ShowController.java`, `EventSearchCriteria.java`, `EventSummaryResponse.java`, `EventDetailResponse.java`, `ShowSummaryResponse.java`, `ShowSeatMapResponse.java`
+- `catalog\application\EventCatalogService.java`, `ShowCatalogService.java`, `EventSearchRepository.java`, `ShowQueryRepository.java`, `EventCursor.java`
+- `catalog\domain\EventRepository.java` (`findByIdAndStatus`)
+- `common\web\CursorPage.java`; `common\exception\InvalidRequestException.java`, `GlobalExceptionHandler.java` (400 mapping)
+- Tests: `catalog\application\EventCursorTest.java`, `catalog\api\EventSearchCriteriaTest.java`, `catalog\api\CatalogApiIntegrationTest.java`
+**Decisions:**
+- See Decisions Log #21–#25
+**Metrics recorded:**
+- Seed size: 1,008 seats, 90 shows, 22,944 show_seats. Query baselines (`EXPLAIN ANALYZE`) on W1·D5
+**Problems & fixes:**
+- Postgres JDBC driver can't bind `java.time.Instant` → bind `OffsetDateTime` at UTC; read with `getObject(..., OffsetDateTime.class).toInstant()`
+- Hard-coded counts in API tests would break as seed shows move into the past → assertions computed from the DB
+- Confirmed Boot 4 package: `org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc`
+**Carry-over:**
+- Oracle signup attempt with a family Visa/Mastercard credit card (hosting decision by W2·D4); JetBrains student license
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- Set-based seeding with `generate_series`; data-modifying CTEs with `RETURNING`; transactional Flyway migrations on Postgres
+- Keyset vs OFFSET pagination; tie-breaker columns; opaque cursors
+- `LATERAL` joins; avoiding N+1 with read-model SQL; `JdbcClient` + `RowMapper`; safe dynamic SQL (fixed fragments + bound params)
+- DTOs vs entities at the API boundary; record constructor binding of query params; cross-field validation with `@AssertTrue`
+- 404 vs 403 for hidden resources; property-based assertions in integration tests
+**Commit:** `feat(catalog): add seed data and event list, detail and seat map APIs`

@@ -9,7 +9,7 @@
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>com.seatlock</groupId>
-	<artifactId>seatlock-backend</artifactId>
+	<artifactId>backend</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
 	<name>SeatLock</name>
 	<description>Flash-sale ticket booking platform with zero oversells</description>
@@ -19,6 +19,8 @@
 		<!-- SECURITY OVERRIDE: CVE-2026-110879 (jackson-databind PTV bypass), fixed in 3.1.8.
      Remove once Spring Boot manages >= 3.1.8. See docs/decisions/ADR-001. -->
 		<jackson-bom.version>3.1.8</jackson-bom.version>
+		<springdoc.version>3.2.0</springdoc.version>
+		<jacoco.version>0.8.15</jacoco.version>
 	</properties>
 	<dependencies>
 		<dependency>
@@ -44,6 +46,11 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-webmvc</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springdoc</groupId>
+			<artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+			<version>${springdoc.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>org.flywaydb</groupId>
@@ -85,6 +92,22 @@
 			<artifactId>spring-boot-starter-webmvc-test</artifactId>
 			<scope>test</scope>
 		</dependency>
+		<!-- Testcontainers (versions managed by the Spring Boot BOM) -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-testcontainers</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>testcontainers-junit-jupiter</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>testcontainers-postgresql</artifactId>
+			<scope>test</scope>
+		</dependency>
 	</dependencies>
 
 	<build>
@@ -92,6 +115,34 @@
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
+			</plugin>
+			<!-- Test coverage: agent during tests, HTML/XML/CSV report in target/site/jacoco on 'verify'.
+     The >= 80% gate is added on W6·D1 (jacoco:check). -->
+			<plugin>
+				<groupId>org.jacoco</groupId>
+				<artifactId>jacoco-maven-plugin</artifactId>
+				<version>${jacoco.version}</version>
+				<configuration>
+					<excludes>
+						<!-- bootstrap only; nothing to test -->
+						<exclude>com/seatlock/SeatLockApplication.class</exclude>
+					</excludes>
+				</configuration>
+				<executions>
+					<execution>
+						<id>prepare-agent</id>
+						<goals>
+							<goal>prepare-agent</goal>
+						</goals>
+					</execution>
+					<execution>
+						<id>report</id>
+						<phase>verify</phase>
+						<goals>
+							<goal>report</goal>
+						</goals>
+					</execution>
+				</executions>
 			</plugin>
 		</plugins>
 	</build>

@@ -8,3 +8,11 @@ logging:
   level:
     root: WARN
     com.seatlock: INFO
+
+# Real connection details come from Testcontainers (@ServiceConnection).
+# These only satisfy placeholders in application.yml when no .env exists (e.g. CI).
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/unused
+    username: unused
+    password: unused

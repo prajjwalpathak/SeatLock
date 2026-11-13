@@ -2,12 +2,15 @@ package com.seatlock.catalog.api;
 
 import com.seatlock.catalog.application.EventCatalogService;
 import com.seatlock.common.web.CursorPage;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+@Tag(name = "Catalog", description = "Browse events, shows and seat maps")
 @RestController
 @RequestMapping("/api/v1/events")
 public class EventController {
@@ -23,7 +26,7 @@ public class EventController {
      * Example: /api/v1/events?city=Mumbai&category=CONCERT&limit=10&cursor=...
      */
     @GetMapping
-    public CursorPage<EventSummaryResponse> search(@Valid EventSearchCriteria criteria) {
+    public CursorPage<EventSummaryResponse> search(@Valid @ParameterObject EventSearchCriteria criteria) {
         return catalogService.search(criteria);
     }
 

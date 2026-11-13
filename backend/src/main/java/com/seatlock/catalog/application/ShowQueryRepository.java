@@ -3,14 +3,15 @@ package com.seatlock.catalog.application;
 import com.seatlock.catalog.api.ShowSeatMapResponse;
 import com.seatlock.catalog.api.ShowSummaryResponse;
 import com.seatlock.catalog.domain.ShowSeatStatus;
+import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.stereotype.Repository;
+
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
-import org.springframework.jdbc.core.RowMapper;
-import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.stereotype.Repository;
 
 /** Read-model queries about shows (one SQL round trip per call, no N+1). */
 @Repository

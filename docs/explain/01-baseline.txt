@@ -1,0 +1,114 @@
+﻿==================== Q1: event list, first page (GET /api/v1/events) ====================
+                                                                QUERY PLAN                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=3.244..3.250 rows=21 loops=1)
+   Buffers: shared hit=250 read=1
+   ->  Sort (actual time=3.243..3.247 rows=21 loops=1)
+         Sort Key: s.starts_at, e.id
+         Sort Method: quicksort  Memory: 28kB
+         Buffers: shared hit=250 read=1
+         ->  Nested Loop (actual time=0.386..3.222 rows=29 loops=1)
+               Buffers: shared hit=250 read=1
+               ->  Seq Scan on events e (actual time=0.008..0.025 rows=29 loops=1)
+                     Filter: ((status)::text = 'PUBLISHED'::text)
+                     Rows Removed by Filter: 1
+                     Buffers: shared hit=2
+               ->  Limit (actual time=0.109..0.109 rows=1 loops=29)
+                     Buffers: shared hit=248 read=1
+                     ->  Result (actual time=0.109..0.109 rows=1 loops=29)
+                           Buffers: shared hit=248 read=1
+                           ->  Sort (actual time=0.024..0.024 rows=1 loops=29)
+                                 Sort Key: s.starts_at, s.id
+                                 Sort Method: top-N heapsort  Memory: 25kB
+                                 Buffers: shared hit=58 read=1
+                                 ->  Hash Join (actual time=0.009..0.022 rows=3 loops=29)
+                                       Hash Cond: (s.venue_id = v.id)
+                                       Buffers: shared hit=58 read=1
+                                       ->  Seq Scan on shows s (actual time=0.004..0.015 rows=3 loops=29)
+                                             Filter: ((event_id = e.id) AND ((status)::text = 'SCHEDULED'::text) AND (starts_at >= now()))
+                                             Rows Removed by Filter: 87
+                                             Buffers: shared hit=58
+                                       ->  Hash (actual time=0.035..0.036 rows=4 loops=1)
+                                             Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                                             Buffers: shared read=1
+                                             ->  Seq Scan on venues v (actual time=0.026..0.027 rows=4 loops=1)
+                                                   Buffers: shared read=1
+                           SubPlan 1
+                             ->  Aggregate (actual time=0.083..0.083 rows=1 loops=29)
+                                   Buffers: shared hit=190
+                                   ->  Bitmap Heap Scan on show_seats ss (actual time=0.022..0.052 rows=257 loops=29)
+                                         Recheck Cond: (show_id = s.id)
+                                         Heap Blocks: exact=104
+                                         Buffers: shared hit=190
+                                         ->  Bitmap Index Scan on uq_show_seats_show_seat (actual time=0.018..0.018 rows=257 loops=29)
+                                               Index Cond: (show_id = s.id)
+                                               Buffers: shared hit=86
+ Planning:
+   Buffers: shared hit=30 read=1
+ Planning Time: 0.512 ms
+ Execution Time: 3.310 ms
+(46 rows)
+
+==================== Q2: upcoming shows of one event (GET /api/v1/events/{id}) ====================
+                                                     QUERY PLAN                                                     
+--------------------------------------------------------------------------------------------------------------------
+ Sort (actual time=0.999..1.002 rows=3 loops=1)
+   Sort Key: s.starts_at, s.id
+   Sort Method: quicksort  Memory: 25kB
+   Buffers: shared hit=15 read=9
+   ->  Hash Join (actual time=0.176..0.993 rows=3 loops=1)
+         Hash Cond: (s.venue_id = v.id)
+         Buffers: shared hit=15 read=9
+         ->  Seq Scan on shows s (actual time=0.009..0.026 rows=3 loops=1)
+               Filter: ((event_id = 6) AND ((status)::text = 'SCHEDULED'::text) AND (starts_at >= now()))
+               Rows Removed by Filter: 87
+               Buffers: shared hit=2
+         ->  Hash (actual time=0.010..0.010 rows=4 loops=1)
+               Buckets: 1024  Batches: 1  Memory Usage: 9kB
+               Buffers: shared hit=1
+               ->  Seq Scan on venues v (actual time=0.004..0.006 rows=4 loops=1)
+                     Buffers: shared hit=1
+         SubPlan 1
+           ->  Aggregate (actual time=0.313..0.314 rows=1 loops=3)
+                 Buffers: shared hit=12 read=9
+                 ->  Bitmap Heap Scan on show_seats ss (actual time=0.163..0.264 rows=288 loops=3)
+                       Recheck Cond: (show_id = s.id)
+                       Heap Blocks: exact=12
+                       Buffers: shared hit=12 read=9
+                       ->  Bitmap Index Scan on uq_show_seats_show_seat (actual time=0.154..0.154 rows=288 loops=3)
+                             Index Cond: (show_id = s.id)
+                             Buffers: shared hit=5 read=4
+ Planning:
+   Buffers: shared hit=4
+ Planning Time: 0.405 ms
+ Execution Time: 1.109 ms
+(30 rows)
+
+==================== Q3: seat map of one show (GET /api/v1/shows/{id}/seats) ====================
+                                                    QUERY PLAN                                                    
+------------------------------------------------------------------------------------------------------------------
+ Sort (actual time=0.547..0.569 rows=288 loops=1)
+   Sort Key: st.grid_row, st.grid_col
+   Sort Method: quicksort  Memory: 49kB
+   Buffers: shared hit=17
+   ->  Hash Join (actual time=0.132..0.386 rows=288 loops=1)
+         Hash Cond: (st.id = ss.seat_id)
+         Buffers: shared hit=17
+         ->  Seq Scan on seats st (actual time=0.004..0.090 rows=1008 loops=1)
+               Buffers: shared hit=10
+         ->  Hash (actual time=0.122..0.124 rows=288 loops=1)
+               Buckets: 1024  Batches: 1  Memory Usage: 26kB
+               Buffers: shared hit=7
+               ->  Bitmap Heap Scan on show_seats ss (actual time=0.024..0.068 rows=288 loops=1)
+                     Recheck Cond: (show_id = 5)
+                     Heap Blocks: exact=4
+                     Buffers: shared hit=7
+                     ->  Bitmap Index Scan on uq_show_seats_show_seat (actual time=0.016..0.017 rows=288 loops=1)
+                           Index Cond: (show_id = 5)
+                           Buffers: shared hit=3
+ Planning:
+   Buffers: shared hit=11
+ Planning Time: 0.240 ms
+ Execution Time: 0.613 ms
+(23 rows)
+
