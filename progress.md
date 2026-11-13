@@ -3,8 +3,8 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 1 · Day 3 (not started): data model (ERD), Flyway `V1__init.sql`, JPA entities + repositories
-- **Last completed:** Week 1 · Day 2: App skeleton (Wed, Nov 11, 2026)
+- **Current day:** Week 1 · Day 4 (not started): seed data, catalog APIs (event list with filters + keyset pagination, event detail, show seat layout)
+- **Last completed:** Week 1 · Day 3: Data model (Thu, Nov 12, 2026)
 - **Live URLs:** Backend — · Frontend — · Swagger — · Grafana —
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public)
 - **Carry-overs:** try Oracle Cloud signup with a family Visa/Mastercard credit card (hosting decision by **W2·D4, Fri Nov 20**) · JetBrains student license (via GitHub Student Developer Pack)
@@ -28,6 +28,11 @@
 | 13 | 2026-11-11 | Client `X-Request-Id` accepted only if `[A-Za-z0-9-]{8,64}`, else a UUID is generated | Prevents log injection |
 | 14 | 2026-11-11 | A UTC `Clock` bean is injected wherever time is needed (no `Instant.now()`) | Deterministic tests; hold expiry (W3) uses the same clock |
 | 15 | 2026-11-11 | Test-only controllers live in package `testsupport` (outside `com.seatlock`) | Never registered by the app's component scan, not even in `@SpringBootTest` |
+| 16 | 2026-11-12 | Cross-module references are IDs only (`Booking.userId/showId`, `Event.organizerId`); JPA associations only inside a module | Keeps modules decoupled; other modules' data comes through their public services |
+| 17 | 2026-11-12 | **Oversell guard:** partial unique index `ux_booking_seats_live_seat` on `booking_seats (show_id, seat_id) WHERE active`, plus plain `UNIQUE (show_id, seat_id)` on `show_seats` and a composite FK between them | Blocks two live claims on a seat even if Redis or app code fails; released seats can be re-sold and history is kept |
+| 18 | 2026-11-12 | Bookings expose a random `public_id` (UUID); internal keys are `bigint` identity | Booking URLs can't be enumerated |
+| 19 | 2026-11-12 | Enums stored as `varchar` + `CHECK` (no Postgres `ENUM`); money as `bigint` paise with `CHECK`s | Easy to evolve with Flyway; maps cleanly to `@Enumerated(STRING)` |
+| 20 | 2026-11-12 | Persistence tests use `@DataJpaTest` against real Postgres (`replace = NONE`) until Testcontainers on W1·D5 | The guards are Postgres-specific (partial index, composite FK); an in-memory DB can't test them |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -143,3 +148,41 @@
 - Bean Validation on records; injecting `Clock` for testable time; `Cache-Control: no-store`
 - `@WebMvcTest` slices, `@TestConfiguration` + `@Primary`, MockMvc + JsonPath assertions
 **Commit:** `feat(common): add profiles, request IDs, ProblemDetail and time API`
+
+### Week 1 · Day 3: Data model (Thu, Nov 12, 2026)
+**Status:** ✅ Done
+**Built:**
+- ERD (Mermaid) + schema correctness rules in `docs\architecture.md`
+- Flyway `V1__init.sql`: 8 tables (`users`, `venues`, `seats`, `events`, `shows`, `show_seats`, `bookings`, `booking_seats`), named `UNIQUE` / `FK` / `CHECK` constraints, FK indexes, and the **partial unique index oversell guard**
+- Manual SQL proof (rolled back): a second live claim on the same seat fails with `ux_booking_seats_live_seat`; after the first claim is deactivated the seat can be claimed again; negative price rejected
+- `BaseEntity` (IDENTITY id, proxy-safe `equals`/`hashCode`) and `AuditableEntity` (`created_at`/`updated_at` via Spring Data auditing using the app `Clock`, configured in `JpaAuditingConfig`)
+- 8 entities + 7 enums; `@Version` on `ShowSeat` and `Booking`; `Booking.addSeat()` keeps `total_paise` in sync with `Math.addExact`
+- Repositories: `UserRepository`, `VenueRepository`, `SeatRepository`, `EventRepository`, `ShowRepository`, `ShowSeatRepository`, `BookingRepository`
+- Hibernate `ddl-auto: validate` passes against the Flyway schema
+- Tests: **15 passing** (new `BookingPersistenceTest`: save + reload with audit timestamps from the fixed clock; DB rejects a second live booking for the same seat; e-mail stored lower-case)
+**Files created/changed:**
+- `docs\architecture.md`
+- `backend\src\main\resources\db\migration\V1__init.sql`
+- `common\persistence\BaseEntity.java`, `AuditableEntity.java`; `common\config\JpaAuditingConfig.java`
+- `identity\domain\User.java`, `Role.java`, `AuthProvider.java`, `UserRepository.java`
+- `catalog\domain\Venue.java`, `Seat.java`, `Event.java`, `Show.java`, `ShowSeat.java`, `EventCategory.java`, `EventStatus.java`, `ShowStatus.java`, `ShowSeatStatus.java` + 5 repositories
+- `booking\domain\Booking.java`, `BookingSeat.java`, `BookingStatus.java`, `BookingRepository.java`
+- Test: `booking\domain\BookingPersistenceTest.java`
+**Decisions:**
+- See Decisions Log #16–#20
+**Metrics recorded:**
+- None (resume metrics start with EXPLAIN baselines on W1·D5). `BookingPersistenceTest` takes ~19 s (context + Flyway); full suite 15 tests
+**Problems & fixes:**
+- `char(3)` currency column needs `@JdbcTypeCode(SqlTypes.CHAR)` for `validate` to pass; `text` mapped with `columnDefinition = "text"`
+- `@EnableJpaAuditing` kept in its own `@Configuration` so `@WebMvcTest` slices don't fail with "JPA metamodel must not be empty"
+- Removed `final` from `BaseEntity.equals/hashCode` (Hibernate proxies subclass entities)
+- Confirmed Boot 4 test packages: `org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest`, `org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase`
+**Carry-over:**
+- Oracle signup attempt with a family Visa/Mastercard credit card (hosting decision by W2·D4); JetBrains student license
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- ERD design; partial unique index vs plain unique constraint; composite foreign keys; `CHECK` constraints; naming constraints
+- Flyway versioned migrations, checksums, never editing applied migrations; Hibernate `validate` vs `update`
+- Optimistic locking with `@Version`; public UUID vs internal bigint IDs; money as integer paise; `timestamptz` + `Instant`
+- JPA entity `equals`/`hashCode` with proxies; LAZY associations; cross-module references by ID
+- Spring Data auditing with a custom `DateTimeProvider`; `@DataJpaTest` with a real database, transactional rollback
+**Commit:** `feat(booking): add V1 schema with oversell guard, entities and repos`
