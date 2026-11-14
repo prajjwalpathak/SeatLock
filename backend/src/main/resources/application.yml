@@ -21,6 +21,15 @@ spring:
     hibernate:
       ddl-auto: validate         # Flyway owns the schema; Hibernate only checks it
 
+  security:
+    oauth2:
+      client:
+        registration:
+          google:                      # callback: {baseUrl}/login/oauth2/code/google
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
+            scope: openid, email, profile   # basic sign-in scopes only (no Google verification needed)
+
   data:
     redis:
       host: ${REDIS_HOST:localhost}

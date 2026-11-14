@@ -3,6 +3,7 @@ package com.seatlock.identity.security;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -27,7 +28,8 @@ public class SecurityConfig {
     /** Anonymous POST endpoints (bodies validated in the controllers). */
     static final String[] PUBLIC_POST = {
             "/api/v1/auth/register",
-            "/api/v1/auth/login"
+            "/api/v1/auth/login",
+            "/api/v1/auth/oauth/exchange"   // one-time code from Google sign-in → our JWT
     };
 
     /** Anonymous read-only endpoints. {@code /**} also matches the bare path. */
@@ -46,7 +48,9 @@ public class SecurityConfig {
             "/error"                 // container error page must stay reachable
     };
 
+    /** Order 2: the Google sign-in chain (OAuth2LoginConfig, Order 1) handles its own paths first. */
     @Bean
+    @Order(2)
     SecurityFilterChain apiSecurityFilterChain(
             HttpSecurity http,
             CorsConfigurationSource corsConfigurationSource,

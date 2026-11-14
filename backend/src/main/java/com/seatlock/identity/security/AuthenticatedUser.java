@@ -14,7 +14,7 @@ public record AuthenticatedUser(long id, String email, Role role, String passwor
     /** Matches no password: used for accounts without one (Google sign-in only). */
     static final String NO_PASSWORD = "!";
 
-    static AuthenticatedUser from(User user) {
+    public static AuthenticatedUser from(User user) {
         String hash = user.getPasswordHash() != null ? user.getPasswordHash() : NO_PASSWORD;
         return new AuthenticatedUser(user.getId(), user.getEmail(), user.getRole(), hash);
     }

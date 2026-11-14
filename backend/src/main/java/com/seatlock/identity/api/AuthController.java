@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-@Tag(name = "Auth", description = "Sign up and sign in")
+@Tag(name = "Auth", description = "Sign up and sign in (Google: open /oauth2/authorization/google in the browser)")
 @RestController
 @RequestMapping("/api/v1/auth")
 public class AuthController {
@@ -41,5 +41,12 @@ public class AuthController {
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore()) // RFC 6749 §5.1: token responses must not be cached
                 .body(body);
+    }
+
+    @Operation(summary = "Swap the one-time code from Google sign-in for a Bearer token (401 INVALID_OAUTH_CODE)")
+    @PostMapping("/oauth/exchange")
+    public ResponseEntity<TokenResponse> exchangeOAuthCode(@Valid @RequestBody OAuthCodeExchangeRequest request) {
+        TokenResponse body = TokenResponse.bearer(authService.exchangeOAuthCode(request.code()));
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(body);
     }
 }

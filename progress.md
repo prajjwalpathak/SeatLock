@@ -3,12 +3,12 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 2 · Day 3 (not started, planned Thu Nov 19): Google OAuth2 login → our own JWT; frontend login, logout, OAuth redirect handling, protected routes
-- **Last completed:** Week 2 · Day 2: roles, `@PreAuthorize`, demo users, security matrix (planned Wed Nov 18, done Sat Nov 14). Refresh tokens dropped (decision #43)
+- **Current day:** Week 2 · Day 4 (not started, planned Fri Nov 20): Redis caching (`@Cacheable` events/layouts), eviction on organizer updates, cache metrics; organizer endpoint: create show
+- **Last completed:** Week 2 · Day 3: Google sign-in → our JWT; frontend login/register/callback, protected routes, logout (planned Thu Nov 19, done Sat Nov 14)
 - **Live URLs:** Backend — · Frontend — · Swagger — (local: http://localhost:8080/swagger-ui.html) · Grafana —
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public)
-- **Carry-overs:** try Oracle Cloud signup with a family Visa/Mastercard credit card (hosting decision by **W2·D4, Fri Nov 20**) · JetBrains student license (via GitHub Student Developer Pack) · record JaCoCo numbers · check IntelliJ vulnerable-dependency scan for the security deps · create a Google OAuth client before W2·D3
-- **Schedule:** **~4 days ahead** (W2·D2 done Sat Nov 14 instead of Wed Nov 18); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
+- **Carry-overs:** try Oracle Cloud signup with a family Visa/Mastercard credit card (hosting decision by **W2·D4, Fri Nov 20**) · JetBrains student license (via GitHub Student Developer Pack) · record JaCoCo numbers · IntelliJ vulnerable-dependency scan for the security + OAuth2 client deps · add the prod redirect URI to the Google client on W2·D5
+- **Schedule:** **~5 days ahead** (W2·D3 done Sat Nov 14 instead of Thu Nov 19); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
 - **Top risk:** hosting decision by **W2·D4 (Fri Nov 20)**; first live deploy is W2·D5
 
 ## Decisions Log (ADR summary)
@@ -62,6 +62,11 @@
 | 46 | 2026-11-14 | Ownership from the token: `@CurrentUserId` (= JWT `sub`, meta-annotation over `@AuthenticationPrincipal`); never from request params | Organizers can't read/change others' events; other modules don't touch JWT classes |
 | 47 | 2026-11-14 | Public demo logins in Flyway `V5` (`demo.user@seatlock.test`, unlocked `organizer.cinema@seatlock.test`, password `seatlock-demo`); **ADMIN bootstrapped from `SEATLOCK_ADMIN_EMAIL`/`PASSWORD`** at startup: create-only, 12+ chars, never promotes an existing account, race-safe | Interviewers can try the app; admin credentials never in a public repo; no account takeover via a pre-registered admin e-mail |
 | 48 | 2026-11-14 | Admin lists use offset `PageResponse` (own record, size ≤ 100); public lists keep keyset `CursorPage`. `SecurityMatrixIntegrationTest` (real users + real RS256 tokens) is the access contract: one row per caller × protected endpoint | Spring's `Page` JSON isn't a stable contract; matrix fails loudly if a rule is loosened |
+| 49 | 2026-11-14 | **ADR-003:** Google sign-in with Spring OAuth2 Client in a **separate filter chain** (`@Order(1)`, `/oauth2/**` + `/login/oauth2/**`); API chain `@Order(2)` unchanged | Browser-redirect flow kept apart from the token-only API |
+| 50 | 2026-11-14 | In-flight OAuth request in **Redis** (5 min, GETDEL, JSON fields, no Java serialization) + `SL_OAUTH2_STATE` binding cookie (HttpOnly, Lax, `/login/oauth2/`); **PKCE S256**; Google tokens discarded | No session → works across 2 instances; blocks login CSRF and replay |
+| 51 | 2026-11-14 | Token handoff **A2**: one-time code (256-bit, `SHA-256` stored, 60 s, single use) → `POST /api/v1/auth/oauth/exchange` → our JWT; `Referrer-Policy: no-referrer` | Our JWT never in a URL, history or log (user-approved) |
+| 52 | 2026-11-14 | Linking **B1**: only `email_verified = true`; existing account (any provider) signed into unchanged; else new USER (`GOOGLE`, no password); failures → `{frontend}/login?error=CODE`; redirect base fixed by `seatlock.frontend.base-url` | No takeover via unverified e-mail; no open redirect (user-approved) |
+| 53 | 2026-11-14 | Frontend auth: token in localStorage; API client adds Bearer, on `INVALID_TOKEN` signs out and retries once without token; `AuthProvider` (`/me`, expiry timer, cross-tab sync); all user data under query key `['me', …]`, dropped on sign-in/out; `RequireAuth` (UX only) | Public pages survive an expired token; no stale data between users |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -79,10 +84,11 @@
 | AWS | ❌ Free plan already used up; not used for this project | — |
 | DuckDNS domain | — (W2·D5) | — |
 | Razorpay test keys | — (W4·D2) | `.env` (git-ignored) |
-| Google OAuth client | — (W2·D3) | `.env` (git-ignored) |
+| Google OAuth client | ✅ Web client "SeatLock local" (Testing mode, test user added); redirect `http://localhost:8080/login/oauth2/code/google`; prod URI on W2·D5 | `.env` (`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`, git-ignored) |
 | Gemini/Groq API key | — (W7·D1) | `.env` (git-ignored) |
 | Vercel project | — (W2·D5) | — |
 | Local Postgres/Redis creds | ✅ | `.env` (git-ignored); keys documented in `.env.example` |
+| Local JWT keys + bootstrap admin | ✅ generated on W2·D1 / W2·D2 | `.env` (`JWT_*`, `SEATLOCK_ADMIN_*`, git-ignored) |
 
 ---
 
@@ -409,4 +415,42 @@
 - Offset vs keyset pagination; why not to serialize Spring's `Page`
 - Table-driven (parameterized) security tests; `jwt()` / `user()` test post-processors vs real signed tokens
 **Commit:** `feat(identity): add roles, method security, demo users and admin bootstrap`
+
+### Week 2 · Day 3: Google sign-in + frontend auth (planned Thu, Nov 19; done Sat, Nov 14, 2026)
+**Status:** ✅ Done
+**Built:**
+- Google OAuth client created (Testing mode); `spring-boot-starter-security-oauth2-client`; registration `google` from `.env`; dummy client in tests
+- `OAuth2LoginConfig` (`@Order(1)` chain): PKCE, `RedisOAuth2AuthorizationRequestRepository` (Redis + binding cookie), `DiscardingAuthorizedClientRepository`; API chain now `@Order(2)`
+- `GoogleAccountService` (B1 linking), `OneTimeCodeService` (A2), `GoogleLoginHandlers` (success → `/auth/callback?code=`, failure → `/login?error=`), `FrontendProperties`
+- `POST /api/v1/auth/oauth/exchange` → `TokenResponse`; `UnauthorizedException` → 401 with code (`INVALID_OAUTH_CODE`)
+- Frontend: `api/client.ts` (Bearer, `INVALID_TOKEN` handling, `apiPost`), `api/auth.ts`, `api/organizer.ts`, `lib/tokenStorage.ts`, `features/auth/*` (`AuthProvider`, `useAuth`, `RequireAuth`, roles, safe redirects, Google button, demo buttons), pages `LoginPage`, `RegisterPage`, `AuthCallbackPage`, `AccountPage`, `OrganizerEventsPage`; header `UserMenu`
+- ADR-003 (with sequence diagram); architecture §2a; README demo + local Google setup
+- Tests: backend **144** (new: `GoogleSignInStartIntegrationTest` 2, `RedisOAuth2AuthorizationRequestRepositoryTest` 2, `GoogleAccountServiceTest` 4, `OneTimeCodeServiceTest` 3, `GoogleLoginHandlersTest` 4, `GoogleCallbackIntegrationTest` 2, `OAuthCodeExchangeIntegrationTest` 4); frontend `tsc` + ESLint clean
+**Files created/changed:**
+- Backend: `pom.xml`; `application.yml` (Google registration), `application-local.yml` / `-prod.yml` / `-test.yml` (`seatlock.frontend.base-url`, test client); `.env.example` (`GOOGLE_*`, `FRONTEND_BASE_URL`)
+- `identity\oauth\{OAuth2LoginConfig, RedisOAuth2AuthorizationRequestRepository, DiscardingAuthorizedClientRepository, OneTimeCodeService, GoogleLoginHandlers}.java`; `identity\application\{GoogleAccountService, AuthService}.java`; `identity\api\{AuthController, OAuthCodeExchangeRequest}.java`; `identity\security\{SecurityConfig, AuthenticatedUser}.java`; `common\config\FrontendProperties.java`; `common\exception\{UnauthorizedException, GlobalExceptionHandler}.java`
+- Backend tests: `identity\oauth\*Test`, `identity\application\GoogleAccountServiceTest`, `identity\api\OAuthCodeExchangeIntegrationTest`
+- Frontend: `src\types\api.ts`, `src\api\{client, auth, organizer}.ts`, `src\lib\tokenStorage.ts`, `src\features\auth\*`, `src\components\{Layout, UserMenu}.tsx`, `src\pages\{LoginPage, RegisterPage, AuthCallbackPage, AccountPage, OrganizerEventsPage}.tsx`, `src\router.tsx`, `src\main.tsx`
+- `docs\decisions\ADR-003-google-sign-in.md`, `ADR-002` (cross-ref), `docs\architecture.md`, `README.md`, `progress.md`
+**Decisions:**
+- See Decisions Log #49–#53
+**Metrics recorded:**
+- None new (JaCoCo numbers still to record)
+**Problems & fixes:**
+- Default OAuth2 client keeps the authorization request in the HTTP session → replaced with Redis + binding cookie (stateless, multi-instance)
+- `OAuth2AuthorizationRequest.Builder.additionalParameters(Map<String,Object>)` won't take a `Map<String,String>` → used the `Consumer` overload
+- React StrictMode double-mount would POST the single-use code twice → exchange runs as a TanStack query keyed by the code (de-duplicated); post-login redirect read with a side-effect-free `peek`
+- `eslint-plugin-react-refresh`: a file exporting a component must export only components → context, hook and helpers split into separate files
+**Carry-over:**
+- Record JaCoCo numbers; IntelliJ vulnerable-dependency scan (ADR-001) incl. OAuth2 client deps
+- Add the prod redirect URI to the Google client (W2·D5)
+- Oracle signup attempt with a family Visa/Mastercard credit card (hosting decision by W2·D4); JetBrains student license
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- OAuth 2.0 authorization-code flow vs OIDC (ID token, `nonce`), `state`, PKCE (S256) for confidential clients, redirect URI exact matching
+- Stateless OAuth login across instances (no session, external state store); login CSRF and browser-binding cookies; SameSite Lax vs Strict vs None
+- Token handoff to an SPA on another site: fragment vs one-time code exchange; single-use codes, hashing secrets at rest, `Referrer-Policy`
+- Account linking and takeover via unverified e-mail; open redirects
+- Multiple `SecurityFilterChain`s with `securityMatcher` + `@Order`
+- SPA auth: token storage trade-offs (localStorage vs cookie, XSS), auth context, protected routes (UX vs server enforcement), cross-tab sync, cache scoping per user, StrictMode double effects
+**Commit:** `feat(identity): add Google sign-in with one-time code and frontend auth`
 

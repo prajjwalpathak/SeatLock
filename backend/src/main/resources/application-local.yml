@@ -11,6 +11,8 @@ logging:
     com.seatlock: DEBUG
 
 seatlock:
+  frontend:
+    base-url: http://localhost:5173   # where Google sign-in sends the browser back to
   cors:
     allowed-origins:
       - http://localhost:5173

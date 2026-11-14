@@ -21,6 +21,8 @@ logging:
     com.seatlock: INFO
 
 seatlock:
+  frontend:
+    base-url: ${FRONTEND_BASE_URL}             # e.g. https://seatlock.vercel.app
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS}   # e.g. https://seatlock.vercel.app (comma-separated)
   jwt:

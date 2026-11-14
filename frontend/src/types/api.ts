@@ -114,3 +114,35 @@ export type ProblemDetail = {
   requestId?: string
   errors?: FieldViolation[]
 }
+
+// ---------------------------------------------------------------- auth (com.seatlock.identity.api)
+
+export type Role = 'USER' | 'ORGANIZER' | 'ADMIN'
+
+/** Our own RS256 access token. expiresIn is in seconds (8 h). No refresh token: sign in again. */
+export type TokenResponse = {
+  accessToken: string
+  tokenType: 'Bearer'
+  expiresIn: number
+}
+
+export type User = {
+  id: number
+  email: string
+  displayName: string
+  role: Role
+}
+
+export type EventStatus = 'DRAFT' | 'PUBLISHED' | 'CANCELLED'
+
+/** GET /api/v1/organizer/events: the organizer's own events, drafts included. */
+export type OrganizerEvent = {
+  id: number
+  title: string
+  category: EventCategory
+  language: string
+  status: EventStatus
+  showCount: number
+  upcomingShowCount: number
+  nextShowAt: string | null
+}

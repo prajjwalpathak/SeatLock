@@ -139,6 +139,16 @@ Swagger. Everything else requires a valid token (deny by default).
 
 Role hierarchy: ADMIN ⊃ ORGANIZER ⊃ USER. Demo logins and admin bootstrap: ADR-002 §8.
 
+**Google sign-in (W2·D3, ADR-003):** a separate filter chain for `/oauth2/**` and
+`/login/oauth2/**` runs the OAuth2 authorization-code flow (PKCE, state in Redis + a binding
+cookie, no session). It ends with a 60-second one-time code that the SPA exchanges at
+`POST /api/v1/auth/oauth/exchange` for our own JWT; Google's tokens are never used after sign-in.
+
+**Frontend auth:** the token is kept in localStorage (no refresh token, decision #43).
+`AuthProvider` loads `/me`, signs out at expiry, on `INVALID_TOKEN` and across tabs; all user data
+in the query cache sits under the `['me', …]` key and is dropped on sign-out. `RequireAuth`
+guards `/account` and `/organizer/events` (UX only; the API enforces).
+
 ## 3. Conventions
 - Internal keys are `bigint` identity. Bookings expose a random `public_id` (UUID), so IDs in URLs can't be enumerated.
 - Enums are `varchar` + `CHECK`, not Postgres `ENUM` types: easier to evolve with Flyway, and mapped with `@Enumerated(EnumType.STRING)`.

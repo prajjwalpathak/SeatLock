@@ -12,12 +12,21 @@ logging:
 # Real connection details come from Testcontainers (@ServiceConnection).
 # These only satisfy placeholders in application.yml when no .env exists (e.g. CI).
 spring:
+  security:
+    oauth2:
+      client:
+        registration:
+          google:                      # dummy client: tests never call Google
+            client-id: test-client-id
+            client-secret: test-client-secret
   datasource:
     url: jdbc:postgresql://localhost:5432/unused
     username: unused
     password: unused
 
 seatlock:
+  frontend:
+    base-url: http://localhost:5173
   cors:
     allowed-origins:
       - http://localhost:5173

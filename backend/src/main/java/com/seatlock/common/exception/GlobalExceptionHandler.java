@@ -49,6 +49,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return problem(HttpStatus.CONFLICT, "Conflict", ex.getMessage(), ex.getCode());
     }
 
+    @ExceptionHandler(UnauthorizedException.class)
+    ProblemDetail handleUnauthorized(UnauthorizedException ex) {
+        return problem(HttpStatus.UNAUTHORIZED, "Unauthorized", ex.getMessage(), ex.getCode());
+    }
+
     @ExceptionHandler(InvalidRequestException.class)
     ProblemDetail handleInvalidRequest(InvalidRequestException ex) {
         return problem(HttpStatus.BAD_REQUEST, "Invalid request", ex.getMessage(), ex.getCode());

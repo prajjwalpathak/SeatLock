@@ -30,8 +30,12 @@ Docker · Nginx · GitHub Actions · Oracle Cloud ARM · React + TypeScript + Vi
 | ORGANIZER | `organizer.cinema@seatlock.test` | `seatlock-demo` |
 | ADMIN | not public: created at startup from `SEATLOCK_ADMIN_EMAIL` / `SEATLOCK_ADMIN_PASSWORD` | — |
 
-Demo data is reset nightly from W8 onward.
+Demo data is reset nightly from W8 onward. You can also **Continue with Google** (the Google app
+is in testing mode, so only test users added in Google Auth Platform can use it).
 
 ## Local setup
 
-_Coming soon._
+_Full guide coming soon._ For Google sign-in locally: create a **Web application** OAuth client in
+Google Auth Platform with redirect URI `http://localhost:8080/login/oauth2/code/google`, add
+yourself as a test user, and put `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` in the repo-root `.env`
+(see `.env.example`).

@@ -14,7 +14,7 @@ later cover Google sign-in (W2·D3) and STOMP connections (W5·D1).
    into a cookie, CSRF must be reconsidered.
 2. **We issue our own access tokens** with Spring Security's `NimbusJwtEncoder`
    (no jjwt), and validate them as an OAuth2 resource server with `NimbusJwtDecoder`.
-   Google login (W2·D3) will also end in *our* token, so the API trusts one issuer only.
+   Google login (W2·D3, **ADR-003**) also ends in *our* token, so the API trusts one issuer only.
 3. **RS256 key pair**, not HS256: only the private key can sign; the public key only verifies.
    `kid` = JWK thumbprint, so a second key can be added for rotation later.
    Keys come from `JWT_PRIVATE_KEY` / `JWT_PUBLIC_KEY` (prod: required, startup fails without);

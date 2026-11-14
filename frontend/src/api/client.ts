@@ -1,3 +1,4 @@
+import { clearToken, readToken } from '../lib/tokenStorage'
 import type { FieldViolation, ProblemDetail } from '../types/api'
 
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080').replace(/\/+$/, '')
@@ -59,13 +60,29 @@ async function toApiError(response: Response): Promise<ApiError> {
   )
 }
 
-/** GET a JSON resource. Throws ApiError on any failure; a cancelled request rethrows its AbortError. */
-export async function apiGet<T>(path: string, params?: QueryParams, signal?: AbortSignal): Promise<T> {
-  let response: Response
+/** Called when the server rejects our token (expired/invalid). AuthProvider signs the user out. */
+let tokenRejectedListener: (() => void) | null = null
+
+export function setTokenRejectedListener(listener: (() => void) | null): void {
+  tokenRejectedListener = listener
+}
+
+type RequestOptions = {
+  params?: QueryParams
+  body?: unknown
+  signal?: AbortSignal
+}
+
+async function send(method: string, path: string, options: RequestOptions, token: string | null): Promise<Response> {
+  const headers: Record<string, string> = { Accept: 'application/json' }
+  if (options.body !== undefined) headers['Content-Type'] = 'application/json'
+  if (token) headers.Authorization = `Bearer ${token}`
   try {
-    response = await fetch(buildUrl(path, params), {
-      headers: { Accept: 'application/json' },
-      signal,
+    return await fetch(buildUrl(path, options.params), {
+      method,
+      headers,
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      signal: options.signal,
     })
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {
@@ -73,8 +90,38 @@ export async function apiGet<T>(path: string, params?: QueryParams, signal?: Abo
     }
     throw new ApiError(0, 'NETWORK_ERROR', 'Cannot reach the SeatLock server. Check your connection and try again.')
   }
+}
+
+/**
+ * Sends the stored token (if any). If the server says INVALID_TOKEN, the token is dropped, the user
+ * is signed out, and the request is retried once without it, so public pages keep working.
+ */
+async function request<T>(method: string, path: string, options: RequestOptions = {}): Promise<T> {
+  const token = readToken()?.accessToken ?? null
+  let response = await send(method, path, options, token)
+
+  if (!response.ok && response.status === 401 && token) {
+    const error = await toApiError(response)
+    if (error.code !== 'INVALID_TOKEN') throw error
+    clearToken()
+    tokenRejectedListener?.()
+    response = await send(method, path, options, null)
+  }
   if (!response.ok) {
     throw await toApiError(response)
   }
+  if (response.status === 204) {
+    return undefined as T
+  }
   return (await response.json()) as T
+}
+
+/** GET a JSON resource. Throws ApiError on any failure; a cancelled request rethrows its AbortError. */
+export function apiGet<T>(path: string, params?: QueryParams, signal?: AbortSignal): Promise<T> {
+  return request<T>('GET', path, { params, signal })
+}
+
+/** POST a JSON body and read a JSON response. Throws ApiError on any failure. */
+export function apiPost<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
+  return request<T>('POST', path, { body, signal })
 }

@@ -1,4 +1,5 @@
 import { Link, Outlet } from 'react-router'
+import { UserMenu } from './UserMenu'
 
 export function Layout() {
   return (
@@ -8,7 +9,7 @@ export function Layout() {
           <Link to="/events" className="text-xl font-bold tracking-tight">
             Seat<span className="text-indigo-600">Lock</span>
           </Link>
-          <span className="text-sm text-slate-500">Flash-sale tickets, zero oversells</span>
+          <UserMenu />
         </div>
       </header>
       <main className="mx-auto max-w-6xl px-4 py-6">
