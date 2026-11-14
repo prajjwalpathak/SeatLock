@@ -35,11 +35,16 @@ public class User extends AuditableEntity {
     }
 
     public User(String email, String passwordHash, String displayName, Role role, AuthProvider authProvider) {
-        this.email = email.trim().toLowerCase(Locale.ROOT); // DB enforces lower-case too
+        this.email = normalizeEmail(email); // DB enforces lower-case too
         this.passwordHash = passwordHash;
         this.displayName = displayName;
         this.role = role;
         this.authProvider = authProvider;
+    }
+
+    /** The one place that defines how e-mails are compared: trimmed, lower-case. */
+    public static String normalizeEmail(String email) {
+        return email.trim().toLowerCase(Locale.ROOT);
     }
 
     public String getEmail() { return email; }

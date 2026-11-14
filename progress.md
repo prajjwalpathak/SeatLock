@@ -3,12 +3,12 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 2 · Day 1 (not started, Tue Nov 17): Spring Security, register/login, BCrypt, RS256 JWT issuing + resource-server validation
-- **Last completed:** Week 1 · Day 6: Frontend scaffold + Week 1 review (planned Mon Nov 16, done Sat Nov 14)
+- **Current day:** Week 2 · Day 2 (not started, planned Wed Nov 18): simple refresh token, roles (USER/ORGANIZER/ADMIN), `@PreAuthorize`, demo-user seeds, security tests
+- **Last completed:** Week 2 · Day 1: Spring Security, register/login, BCrypt, RS256 JWT (planned Tue Nov 17, done Sat Nov 14)
 - **Live URLs:** Backend — · Frontend — · Swagger — (local: http://localhost:8080/swagger-ui.html) · Grafana —
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public)
-- **Carry-overs:** try Oracle Cloud signup with a family Visa/Mastercard credit card (hosting decision by **W2·D4, Fri Nov 20**) · JetBrains student license (via GitHub Student Developer Pack)
-- **Schedule:** **~1.5 days ahead** (Week 1 finished Sat Nov 14 instead of Mon Nov 16); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
+- **Carry-overs:** try Oracle Cloud signup with a family Visa/Mastercard credit card (hosting decision by **W2·D4, Fri Nov 20**) · JetBrains student license (via GitHub Student Developer Pack) · record W2·D1 JaCoCo numbers · check IntelliJ vulnerable-dependency scan for the new security deps
+- **Schedule:** **~3 days ahead** (W2·D1 done Sat Nov 14 instead of Tue Nov 17); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
 - **Top risk:** hosting decision by **W2·D4 (Fri Nov 20)**; first live deploy is W2·D5
 
 ## Decisions Log (ADR summary)
@@ -49,6 +49,13 @@
 | 33 | 2026-11-14 | List filters live in the URL query string; `useInfiniteQuery` drives the keyset cursor; `keepPreviousData`; search submits on Enter (no per-keystroke requests) | Shareable, refresh- and back-button-friendly; no request storm |
 | 34 | 2026-11-14 | One `ApiError` for every API failure (status 0 = network); 4xx never retried; `requestId` shown in the UI | Consistent error UX; users can quote a reference that matches server logs |
 | 35 | 2026-11-14 | Workflow: Claude explains each frontend change, then writes it directly into `frontend\` (type-checked + linted); backend changes stay manual (paste + learn); npm commands run on Windows only | User's learning focus is the backend; avoids Linux binaries in `node_modules` |
+| 36 | 2026-11-14 | **Workflow from Week 2 (supersedes #35):** one task at a time; on "next task" Claude explains and writes the change directly into `backend\` or `frontend\`, then stops; Claude gives a one-line commit message per day, the user commits and pushes; npm/Maven commands still run on Windows | Faster pace; user reviews diffs and verifies locally |
+| 37 | 2026-11-14 | **ADR-002:** stateless API (no sessions, CSRF off), our own RS256 JWTs via Spring's Nimbus encoder/decoder, OAuth2 resource-server validation | Works across 2 instances with no shared state; only the private key can sign |
+| 38 | 2026-11-14 | Access token 15 min; claims `iss=seatlock`, `aud=seatlock-api`, `sub=<user id>`, `iat`, `nbf`, `exp`, `jti`, `email`, `roles`; decoder: RS256 only, 30 s skew on the app `Clock`, issuer + audience checked; `roles` → `ROLE_*`, `scope` ignored | Rejects alg-confusion and forged tokens; expiry testable; id survives e-mail changes |
+| 39 | 2026-11-14 | Keys in `JWT_PRIVATE_KEY` / `JWT_PUBLIC_KEY` (base64 on one line); required in prod; tests use a throwaway pair (`allow-ephemeral-keys`); mismatched pair or < 2048 bits fails startup; `kid` = JWK thumbprint | No keys in Git; misconfiguration found at boot, not at first login; rotation possible later |
+| 40 | 2026-11-14 | Passwords: `DelegatingPasswordEncoder` with BCrypt only; unknown/locked hashes never match; 8 chars to 72 **bytes**; no composition rules | Algorithm upgradable; no `{noop}`; seed `'!'` can't cause 500s; BCrypt truncates beyond 72 bytes |
+| 41 | 2026-11-14 | Security errors rendered by `GlobalExceptionHandler` via `HandlerExceptionResolver`: `AUTHENTICATION_REQUIRED` / `INVALID_TOKEN` / `INVALID_CREDENTIALS` (401), `ACCESS_DENIED` (403; anonymous → 401), `EMAIL_TAKEN` (409) | One error contract; frontend can tell "refresh" from "sign in"; no reasons leaked; unknown e-mail = wrong password |
+| 42 | 2026-11-14 | CORS moved to a `CorsConfigurationSource` applied by Spring Security (before auth); `@SecurityRulesSlice` gives web slices the real rules + a mock `JwtDecoder` | Preflights never get 401; slice tests exercise real URL rules |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -316,3 +323,45 @@
 - Typed API clients, error normalisation, UTC → local time at the UI edge, `Intl` formatting
 - Accessibility basics: `role="search"`, labels, `role="alert"`, focus rings
 **Commit:** `feat(frontend): scaffold React app with event list and detail pages`
+
+### Week 2 · Day 1: Spring Security, register/login, BCrypt, RS256 JWT (planned Tue, Nov 17; done Sat, Nov 14, 2026)
+**Status:** ✅ Done
+**Built:**
+- Stateless `SecurityFilterChain`: CSRF/sessions/basic/form off, explicit public routes, deny by default; 401/403 rendered as ProblemDetail through MVC's exception resolver
+- CORS as a `CorsConfigurationSource` applied by Spring Security before authentication
+- RS256 keys: `JwtProperties`, `RsaKeys` (PEM/base64 parsing, pair + size checks), `JwtConfig` (`RSAKey` with thumbprint `kid`, `NimbusJwtEncoder`, `NimbusJwtDecoder` with timestamp/issuer/audience validators on the app `Clock`); local pair generated into `.env`
+- `POST /api/v1/auth/register` (201; `EMAIL_TAKEN` 409 incl. race via unique index; `PASSWORD_TOO_LONG`); BCrypt-only `DelegatingPasswordEncoder`
+- `POST /api/v1/auth/login`: `DaoAuthenticationProvider` + `AccountUserDetailsService`, `TokenService` (15-min token, `jti`, `roles`), `Cache-Control: no-store`, `INVALID_CREDENTIALS`
+- Resource server: bearer validation, `roles` → `ROLE_*`, `INVALID_TOKEN` with `WWW-Authenticate: Bearer error="invalid_token"`; `GET /api/v1/me`; Swagger `bearerAuth` (Authorize button)
+- ADR-002; architecture §2a (login sequence diagram)
+- Tests: **82** (new: security rules 5, slice security cases 3, `RsaKeysTest` 5, `JwtConfigTest` 5, `PasswordConfigTest` 2, `RegisterRequestTest` 1, `RegisterIntegrationTest` 5, `TokenServiceTest` 3, `LoginIntegrationTest` 5, `MeIntegrationTest` 7, `UserServiceTest` 3, `JwtAuthenticationConverterTest` 1, `AuthFlowIntegrationTest` 1; `OpenApiDocsTest` extended)
+**Files created/changed:**
+- `backend\pom.xml` (security, security-oauth2-resource-server, security-test); `application.yml` (`seatlock.jwt`), `application-prod.yml` (required keys), `application-test.yml` (ephemeral keys); `.env.example` (JWT keys + generation steps)
+- `identity\security\{SecurityConfig, ProblemDetailSecurityHandler, JwtProperties, RsaKeys, JwtConfig, PasswordConfig, AuthenticatedUser, AccountUserDetailsService, AuthenticationConfig, AccessToken, TokenService}.java`
+- `identity\application\{UserService, AuthService}.java`; `identity\api\{AuthController, MeController, RegisterRequest, LoginRequest, UserResponse, TokenResponse}.java`; `identity\domain\User.java` (`normalizeEmail`)
+- `common\config\CorsConfig.java` (rewritten), `OpenApiConfig.java` (bearer scheme); `common\exception\GlobalExceptionHandler.java` (security handlers)
+- Tests: `identity\security\*Test`, `identity\api\*IntegrationTest`, `RegisterRequestTest`, `identity\application\UserServiceTest`, `testsupport\SecurityRulesSlice.java`, `ErrorTestController` (+2 routes); updated `SystemControllerTest`, `GlobalExceptionHandlerTest`, `OpenApiDocsTest`
+- `docs\decisions\ADR-002-jwt-authentication.md`, `docs\architecture.md`, `progress.md`
+**Decisions:**
+- See Decisions Log #36–#42
+**Metrics recorded:**
+- None new (W2·D1 JaCoCo numbers still to record)
+**Problems & fixes:**
+- Boot 4 starter names: `spring-boot-starter-security-oauth2-resource-server`, `spring-boot-starter-security-test`
+- Catch-all `@ExceptionHandler(Exception)` would turn `AccessDeniedException` / `AuthenticationException` into 500 → explicit handlers
+- `@WebMvcTest` doesn't pick up `@Configuration` security classes → `@SecurityRulesSlice` (import + `@MockitoBean(types = JwtDecoder.class)`)
+- `Jwt.getIssuer()` expects a URL; plain `seatlock` issuer read with `getClaimAsString("iss")`
+- Seed organizers' `'!'` hash would make `DelegatingPasswordEncoder` throw → never-matching default encoder
+**Carry-over:**
+- Record JaCoCo numbers; check IntelliJ vulnerable-dependency scan for the new security dependencies (ADR-001)
+- Oracle signup attempt with a family Visa/Mastercard credit card (hosting decision by W2·D4); JetBrains student license
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- Security filter chain, stateless APIs, when CSRF matters (cookies vs Authorization header), CORS before authentication
+- 401 vs 403, `WWW-Authenticate` / RFC 6750 error codes, not leaking failure reasons, account enumeration and timing attacks
+- JWT structure, RS256 vs HS256, `kid` / JWK thumbprints, `alg:none` and algorithm confusion, `iss`/`aud`/`exp`/`nbf`/`jti`, clock skew, short TTLs vs revocation
+- OAuth2 resource server, `JwtAuthenticationConverter`, authorities vs roles (`ROLE_` prefix)
+- BCrypt cost and salt, `DelegatingPasswordEncoder` `{id}` prefixes, the 72-byte limit, NIST 800-63B password rules
+- `AuthenticationManager` / `DaoAuthenticationProvider` / `UserDetailsService`; sign-up races (DB constraint as the real guard)
+- Slice tests with security, `@MockitoBean`, testing tampered / expired / forged tokens
+**Commit:** `feat(identity): add JWT auth with register, login and resource server`
+

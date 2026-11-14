@@ -21,3 +21,8 @@ seatlock:
   cors:
     allowed-origins:
       - http://localhost:5173
+  jwt:
+    # Ignore any keys in .env: tests always use a fresh in-memory key pair (same locally and in CI)
+    private-key: ""
+    public-key: ""
+    allow-ephemeral-keys: true

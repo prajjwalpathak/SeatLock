@@ -111,6 +111,26 @@ erDiagram
 | Valid states only | Enums stored as `varchar` + `CHECK (status IN (...))` |
 | Concurrent updates detected | `version` columns: `show_seats` (Optimistic strategy), `bookings` (state transitions racing the expiry sweeper / webhooks) |
 
+## 2a. Authentication (W2·D1, see ADR-002)
+
+```mermaid
+sequenceDiagram
+    participant SPA
+    participant API
+    participant DB
+    SPA->>API: POST /api/v1/auth/login {email, password}
+    API->>DB: find user by e-mail
+    API->>API: BCrypt check, sign RS256 JWT (15 min)
+    API-->>SPA: {accessToken, tokenType: Bearer, expiresIn: 900}
+    SPA->>API: GET /api/v1/me  Authorization: Bearer <jwt>
+    API->>API: verify signature + exp/iss/aud (no DB)
+    API->>DB: load user by sub (only /me needs it)
+    API-->>SPA: {id, email, displayName, role}
+```
+
+Public: `GET /api/v1/{events,shows,system}/**`, `POST /api/v1/auth/{register,login}`, health,
+Swagger. Everything else requires a valid token (deny by default).
+
 ## 3. Conventions
 - Internal keys are `bigint` identity. Bookings expose a random `public_id` (UUID), so IDs in URLs can't be enumerated.
 - Enums are `varchar` + `CHECK`, not Postgres `ENUM` types: easier to evolve with Flyway, and mapped with `@Enumerated(EnumType.STRING)`.

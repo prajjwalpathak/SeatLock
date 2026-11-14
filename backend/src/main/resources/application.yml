@@ -40,3 +40,12 @@ springdoc:
     operations-sorter: method
     tags-sorter: alpha
   default-produces-media-type: application/json
+
+seatlock:
+  jwt:
+    issuer: seatlock             # "iss" claim; the decoder rejects anything else
+    audience: seatlock-api       # "aud" claim
+    access-token-ttl: 15m
+    # RS256 key pair, base64 DER on one line (PEM headers optional). Local: repo-root .env.
+    private-key: ${JWT_PRIVATE_KEY:}
+    public-key: ${JWT_PUBLIC_KEY:}

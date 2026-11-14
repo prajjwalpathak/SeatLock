@@ -16,8 +16,10 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import testsupport.SecurityRulesSlice;
 
 @WebMvcTest(controllers = SystemController.class)
+@SecurityRulesSlice // real URL rules: proves the endpoint is public
 @ActiveProfiles("test")
 class SystemControllerTest {
 

@@ -11,6 +11,14 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.AuthenticationTrustResolver;
+import org.springframework.security.authentication.AuthenticationTrustResolverImpl;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.server.resource.InvalidBearerTokenException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -26,6 +34,7 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+    private static final AuthenticationTrustResolver TRUST_RESOLVER = new AuthenticationTrustResolverImpl();
 
     /** One invalid field in a request body. */
     public record FieldViolation(String field, String message) {}
@@ -46,8 +55,51 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     /**
+     * Failed login → 401. Same answer for "no such user" and "wrong password", so the
+     * endpoint can't be used to find out which e-mails have accounts.
+     */
+    @ExceptionHandler(BadCredentialsException.class)
+    ResponseEntity<ProblemDetail> handleBadCredentials(BadCredentialsException ex) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(problem(HttpStatus.UNAUTHORIZED,
+                "Invalid credentials", "Invalid e-mail or password.", "INVALID_CREDENTIALS"));
+    }
+
+    /**
+     * Bad signature, expired, wrong issuer/audience, malformed → 401 INVALID_TOKEN. The client
+     * should refresh or sign in again. The precise reason stays in our logs, not the response.
+     */
+    @ExceptionHandler(InvalidBearerTokenException.class)
+    ResponseEntity<ProblemDetail> handleInvalidToken(InvalidBearerTokenException ex) {
+        log.debug("Rejected bearer token: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .header(HttpHeaders.WWW_AUTHENTICATE, "Bearer error=\"invalid_token\"") // RFC 6750 §3.1
+                .body(problem(HttpStatus.UNAUTHORIZED, "Invalid token",
+                        "The access token is invalid or has expired.", "INVALID_TOKEN"));
+    }
+
+    /** Missing/invalid credentials → 401. The exception message is never echoed (it can reveal why). */
+    @ExceptionHandler(AuthenticationException.class)
+    ResponseEntity<ProblemDetail> handleAuthentication(AuthenticationException ex) {
+        return authenticationRequired();
+    }
+
+    /**
+     * Not allowed → 403, but an anonymous caller gets 401 instead (logging in might help).
+     * Needed here because this advice sees exceptions from controllers (e.g. @PreAuthorize)
+     * before Spring Security's ExceptionTranslationFilter could.
+     */
+    @ExceptionHandler(AccessDeniedException.class)
+    ResponseEntity<ProblemDetail> handleAccessDenied(AccessDeniedException ex) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || TRUST_RESOLVER.isAnonymous(auth)) {
+            return authenticationRequired();
+        }
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(problem(HttpStatus.FORBIDDEN, "Access denied",
+                "You do not have permission to perform this action.", "ACCESS_DENIED"));
+    }
+
+    /**
      * Last-resort handler: log the stack trace, never leak internals to the client.
-     * Note: Spring Security exceptions (W2) will need their own handlers so they don't land here.
      */
     @ExceptionHandler(Exception.class)
     ProblemDetail handleUnexpected(Exception ex) {
@@ -83,6 +135,13 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             addRequestId(pd);
         }
         return super.createResponseEntity(body, headers, statusCode, request);
+    }
+
+    private static ResponseEntity<ProblemDetail> authenticationRequired() {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .header(HttpHeaders.WWW_AUTHENTICATE, "Bearer") // RFC 6750: the scheme to use
+                .body(problem(HttpStatus.UNAUTHORIZED, "Authentication required",
+                        "Sign in to access this resource.", "AUTHENTICATION_REQUIRED"));
     }
 
     private static ProblemDetail problem(HttpStatus status, String title, String detail, String code) {
