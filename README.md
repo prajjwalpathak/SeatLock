@@ -22,6 +22,16 @@ Docker · Nginx · GitHub Actions · Oracle Cloud ARM · React + TypeScript + Vi
 | `load-tests/` | k6 scripts                                                         |
 | `docs/`       | Architecture, correctness proofs, failure drills, benchmarks, ADRs |
 
+## Demo accounts
+
+| Role | E-mail | Password |
+|---|---|---|
+| USER | `demo.user@seatlock.test` | `seatlock-demo` |
+| ORGANIZER | `organizer.cinema@seatlock.test` | `seatlock-demo` |
+| ADMIN | not public: created at startup from `SEATLOCK_ADMIN_EMAIL` / `SEATLOCK_ADMIN_PASSWORD` | — |
+
+Demo data is reset nightly from W8 onward.
+
 ## Local setup
 
 _Coming soon._

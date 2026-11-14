@@ -24,7 +24,7 @@ public class CorsConfig {
         api.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE"));
         api.setAllowedHeaders(List.of("Content-Type", "Authorization", "Idempotency-Key", "X-Request-Id"));
         api.setExposedHeaders(List.of("X-Request-Id", "Location", "Retry-After")); // readable by browser JS
-        api.setAllowCredentials(false); // JWT in Authorization header; revisit if W2·D2 uses a cookie
+        api.setAllowCredentials(false); // JWT in Authorization header, no cookies
         api.setMaxAge(3600L);           // cache preflight results for 1 hour
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

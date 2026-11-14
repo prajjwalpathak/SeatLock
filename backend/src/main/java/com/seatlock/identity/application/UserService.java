@@ -11,6 +11,9 @@ import java.nio.charset.StandardCharsets;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -61,6 +64,12 @@ public class UserService {
     @Transactional(readOnly = true)
     public User getById(long id) {
         return users.findById(id).orElseThrow(() -> new NotFoundException("User", id));
+    }
+
+    /** Admin listing, ordered by id so pages are stable. */
+    @Transactional(readOnly = true)
+    public Page<User> listUsers(int page, int size) {
+        return users.findAll(PageRequest.of(page, size, Sort.by("id")));
     }
 
     private static ConflictException emailTaken() {

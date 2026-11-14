@@ -40,7 +40,7 @@ class LoginIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(header().string("Cache-Control", "no-store"))
                 .andExpect(jsonPath("$.tokenType").value("Bearer"))
-                .andExpect(jsonPath("$.expiresIn").value(900))
+                .andExpect(jsonPath("$.expiresIn").value(8 * 60 * 60)) // 8 h
                 .andReturn().getResponse().getContentAsString();
 
         Jwt jwt = jwtDecoder.decode(JsonPath.read(body, "$.accessToken"));

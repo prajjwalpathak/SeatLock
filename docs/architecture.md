@@ -120,8 +120,8 @@ sequenceDiagram
     participant DB
     SPA->>API: POST /api/v1/auth/login {email, password}
     API->>DB: find user by e-mail
-    API->>API: BCrypt check, sign RS256 JWT (15 min)
-    API-->>SPA: {accessToken, tokenType: Bearer, expiresIn: 900}
+    API->>API: BCrypt check, sign RS256 JWT (8 h)
+    API-->>SPA: {accessToken, tokenType: Bearer, expiresIn: 28800}
     SPA->>API: GET /api/v1/me  Authorization: Bearer <jwt>
     API->>API: verify signature + exp/iss/aud (no DB)
     API->>DB: load user by sub (only /me needs it)
@@ -131,10 +131,18 @@ sequenceDiagram
 Public: `GET /api/v1/{events,shows,system}/**`, `POST /api/v1/auth/{register,login}`, health,
 Swagger. Everything else requires a valid token (deny by default).
 
+| Route | Who | Gates |
+|---|---|---|
+| `GET /api/v1/me` | any signed-in user | URL: authenticated |
+| `GET /api/v1/organizer/events` | ORGANIZER, ADMIN | URL prefix + `@PreAuthorize`; data scoped to token `sub` |
+| `GET /api/v1/admin/users` | ADMIN | URL prefix + `@PreAuthorize` |
+
+Role hierarchy: ADMIN ⊃ ORGANIZER ⊃ USER. Demo logins and admin bootstrap: ADR-002 §8.
+
 ## 3. Conventions
 - Internal keys are `bigint` identity. Bookings expose a random `public_id` (UUID), so IDs in URLs can't be enumerated.
 - Enums are `varchar` + `CHECK`, not Postgres `ENUM` types: easier to evolve with Flyway, and mapped with `@Enumerated(EnumType.STRING)`.
 - Prices are set per section when an organizer creates a show and copied into `show_seats.price_paise`. A booking stores the price it was charged in `booking_seats.price_paise`, so later price edits never change past bookings.
 - `created_at` / `updated_at` are filled by Spring Data auditing using the app's UTC `Clock`.
 - FK columns used in joins are indexed in V1. Query indexes for listing/search come on W1·D5, measured with `EXPLAIN ANALYZE` before/after.
-- Tables for refresh tokens (W2), idempotency keys (W3), payments (W4) and AI audit (W7) arrive in later migrations.
+- Tables for idempotency keys (W3), payments (W4) and AI audit (W7) arrive in later migrations.

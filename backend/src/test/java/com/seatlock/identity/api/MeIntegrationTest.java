@@ -86,8 +86,10 @@ class MeIntegrationTest {
 
     @Test
     void expiredTokenIsRejected() throws Exception {
-        Clock anHourAgo = Clock.fixed(Instant.now().minus(Duration.ofHours(1)), ZoneOffset.UTC);
-        String expired = new TokenService(jwtEncoder, jwtProperties, anHourAgo).issueAccessToken(principal()).value();
+        // Issued one full TTL (+ more than the 30 s skew) ago, so it expired a minute ago, whatever the TTL is
+        Instant issuedAt = Instant.now().minus(jwtProperties.accessTokenTtl()).minus(Duration.ofMinutes(1));
+        String expired = new TokenService(jwtEncoder, jwtProperties, Clock.fixed(issuedAt, ZoneOffset.UTC))
+                .issueAccessToken(principal()).value();
 
         expectInvalidToken(me(expired));
     }

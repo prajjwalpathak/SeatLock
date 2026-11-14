@@ -66,6 +66,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, PUBLIC_GET).permitAll()
                         .requestMatchers(HttpMethod.POST, PUBLIC_POST).permitAll()
                         .requestMatchers(PUBLIC_ANY).permitAll()
+                        // Coarse role gates by URL prefix; @PreAuthorize on each controller is the main check
+                        .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
+                        .requestMatchers("/api/v1/organizer/**").hasRole("ORGANIZER")
                         .anyRequest().authenticated())
                 // "Authorization: Bearer <jwt>" is verified with the JwtDecoder bean (JwtConfig)
                 .oauth2ResourceServer(rs -> rs

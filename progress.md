@@ -3,12 +3,12 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 2 · Day 2 (not started, planned Wed Nov 18): simple refresh token, roles (USER/ORGANIZER/ADMIN), `@PreAuthorize`, demo-user seeds, security tests
-- **Last completed:** Week 2 · Day 1: Spring Security, register/login, BCrypt, RS256 JWT (planned Tue Nov 17, done Sat Nov 14)
+- **Current day:** Week 2 · Day 3 (not started, planned Thu Nov 19): Google OAuth2 login → our own JWT; frontend login, logout, OAuth redirect handling, protected routes
+- **Last completed:** Week 2 · Day 2: roles, `@PreAuthorize`, demo users, security matrix (planned Wed Nov 18, done Sat Nov 14). Refresh tokens dropped (decision #43)
 - **Live URLs:** Backend — · Frontend — · Swagger — (local: http://localhost:8080/swagger-ui.html) · Grafana —
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public)
-- **Carry-overs:** try Oracle Cloud signup with a family Visa/Mastercard credit card (hosting decision by **W2·D4, Fri Nov 20**) · JetBrains student license (via GitHub Student Developer Pack) · record W2·D1 JaCoCo numbers · check IntelliJ vulnerable-dependency scan for the new security deps
-- **Schedule:** **~3 days ahead** (W2·D1 done Sat Nov 14 instead of Tue Nov 17); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
+- **Carry-overs:** try Oracle Cloud signup with a family Visa/Mastercard credit card (hosting decision by **W2·D4, Fri Nov 20**) · JetBrains student license (via GitHub Student Developer Pack) · record JaCoCo numbers · check IntelliJ vulnerable-dependency scan for the security deps · create a Google OAuth client before W2·D3
+- **Schedule:** **~4 days ahead** (W2·D2 done Sat Nov 14 instead of Wed Nov 18); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
 - **Top risk:** hosting decision by **W2·D4 (Fri Nov 20)**; first live deploy is W2·D5
 
 ## Decisions Log (ADR summary)
@@ -56,6 +56,12 @@
 | 40 | 2026-11-14 | Passwords: `DelegatingPasswordEncoder` with BCrypt only; unknown/locked hashes never match; 8 chars to 72 **bytes**; no composition rules | Algorithm upgradable; no `{noop}`; seed `'!'` can't cause 500s; BCrypt truncates beyond 72 bytes |
 | 41 | 2026-11-14 | Security errors rendered by `GlobalExceptionHandler` via `HandlerExceptionResolver`: `AUTHENTICATION_REQUIRED` / `INVALID_TOKEN` / `INVALID_CREDENTIALS` (401), `ACCESS_DENIED` (403; anonymous → 401), `EMAIL_TAKEN` (409) | One error contract; frontend can tell "refresh" from "sign in"; no reasons leaked; unknown e-mail = wrong password |
 | 42 | 2026-11-14 | CORS moved to a `CorsConfigurationSource` applied by Spring Security (before auth); `@SecurityRulesSlice` gives web slices the real rules + a mock `JwtDecoder` | Preflights never get 401; slice tests exercise real URL rules |
+| 43 | 2026-11-14 | **No refresh tokens** (user decision; plan W2·D2 said "simple refresh token"). Access token TTL 15 min → **8 h**; SPA signs in again on `INVALID_TOKEN` | Simpler; a live demo never logs out mid-way. Trade-off: a stolen token works ≤ 8 h, no early revocation; accepted (no real users/money), recorded in ADR-002 |
+| 44 | 2026-11-14 | Method security (`@EnableMethodSecurity`) + `RoleHierarchy` **ADMIN ⊃ ORGANIZER ⊃ USER** (static bean, shared by URL rules) | Role checks live next to the code; admins don't need every role listed |
+| 45 | 2026-11-14 | Two gates for role endpoints: URL prefixes (`/api/v1/admin/**` → ADMIN, `/api/v1/organizer/**` → ORGANIZER) **and** class-level `@PreAuthorize` | Defence in depth: a forgotten annotation or a moved controller is still covered |
+| 46 | 2026-11-14 | Ownership from the token: `@CurrentUserId` (= JWT `sub`, meta-annotation over `@AuthenticationPrincipal`); never from request params | Organizers can't read/change others' events; other modules don't touch JWT classes |
+| 47 | 2026-11-14 | Public demo logins in Flyway `V5` (`demo.user@seatlock.test`, unlocked `organizer.cinema@seatlock.test`, password `seatlock-demo`); **ADMIN bootstrapped from `SEATLOCK_ADMIN_EMAIL`/`PASSWORD`** at startup: create-only, 12+ chars, never promotes an existing account, race-safe | Interviewers can try the app; admin credentials never in a public repo; no account takeover via a pre-registered admin e-mail |
+| 48 | 2026-11-14 | Admin lists use offset `PageResponse` (own record, size ≤ 100); public lists keep keyset `CursorPage`. `SecurityMatrixIntegrationTest` (real users + real RS256 tokens) is the access contract: one row per caller × protected endpoint | Spring's `Page` JSON isn't a stable contract; matrix fails loudly if a rule is loosened |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -364,4 +370,43 @@
 - `AuthenticationManager` / `DaoAuthenticationProvider` / `UserDetailsService`; sign-up races (DB constraint as the real guard)
 - Slice tests with security, `@MockitoBean`, testing tampered / expired / forged tokens
 **Commit:** `feat(identity): add JWT auth with register, login and resource server`
+
+### Week 2 · Day 2: Roles, `@PreAuthorize`, demo users, security matrix (planned Wed, Nov 18; done Sat, Nov 14, 2026)
+**Status:** ✅ Done (refresh tokens removed from scope by user decision, #43)
+**Built:**
+- Access token TTL 8 h, no refresh tokens; ADR-002 and comments updated
+- `MethodSecurityConfig`: `@EnableMethodSecurity` + static `RoleHierarchy` (ADMIN ⊃ ORGANIZER ⊃ USER)
+- URL role gates for `/api/v1/admin/**` and `/api/v1/organizer/**`
+- `GET /api/v1/admin/users` (ADMIN, offset `PageResponse`, size 1–100, no hashes)
+- `GET /api/v1/organizer/events` (ORGANIZER; own events incl. drafts, `showCount`, `upcomingShowCount`, `nextShowAt`; one `JdbcClient` query with `FILTER` aggregates); `@CurrentUserId`
+- Flyway `V5__demo_users.sql`: demo USER + unlocked demo ORGANIZER (`seatlock-demo`); `AdminBootstrap` from env vars; local admin credentials generated into `.env`
+- README "Demo accounts"; Swagger "Try it" instructions; ADR-002 §7–§8 + role-staleness consequence; architecture §2a protected-routes table
+- Tests: **123** (new: `MethodSecurityTest` 12, `RoleEndpointsIntegrationTest` 4, `AdminBootstrapTest` 6, `DemoAccountsIntegrationTest` 3, `SecurityMatrixIntegrationTest` 16; `OpenApiDocsTest` extended; `LoginIntegrationTest` / `MeIntegrationTest` updated for 8 h)
+**Files created/changed:**
+- `identity\security\{MethodSecurityConfig, CurrentUserId}.java` (new), `SecurityConfig.java` (role gates)
+- `identity\api\{AdminUserController, AdminUserResponse}.java`; `identity\application\{AdminBootstrap, AdminBootstrapProperties}.java`, `UserService.java` (`listUsers`)
+- `catalog\api\{OrganizerEventController, OrganizerEventResponse}.java`; `catalog\application\{OrganizerCatalogService, OrganizerEventQueryRepository}.java`
+- `common\web\PageResponse.java`; `common\config\OpenApiConfig.java`, `CorsConfig.java` (comment); `GlobalExceptionHandler.java` (comment); `identity\api\TokenResponse.java` (comment)
+- `db\migration\V5__demo_users.sql`; `application.yml` (`8h`, `seatlock.admin`), `application-test.yml` (admin forced empty)
+- Tests: `identity\security\{MethodSecurityTest, SecurityMatrixIntegrationTest}`, `identity\application\AdminBootstrapTest`, `identity\api\DemoAccountsIntegrationTest`, `catalog\api\RoleEndpointsIntegrationTest`, `testsupport\RoleTestController`; updated `SecurityRulesSlice`, `OpenApiDocsTest`, `LoginIntegrationTest`, `MeIntegrationTest`
+- `README.md`, `.env.example`, `docs\decisions\ADR-002-jwt-authentication.md`, `docs\architecture.md`, `progress.md`
+**Decisions:**
+- See Decisions Log #43–#48
+**Metrics recorded:**
+- None new (JaCoCo numbers still to record)
+**Problems & fixes:**
+- `MeIntegrationTest.expiredTokenIsRejected` passed a 1-hour-old token after the TTL moved to 8 h → test now goes back one full configured TTL + 1 min (never hard-code the TTL in tests)
+- Stray empty `x` folder created in repo root (Claude's shell can't delete) → removed by user
+**Carry-over:**
+- Record JaCoCo numbers; IntelliJ vulnerable-dependency scan (ADR-001)
+- Create a Google OAuth client (needed for W2·D3)
+- Oracle signup attempt with a family Visa/Mastercard credit card (hosting decision by W2·D4); JetBrains student license
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- Access vs refresh tokens; token lifetime trade-offs without refresh; why a stateless JWT can't be revoked early
+- URL authorization vs method security; `@PreAuthorize`, `RoleHierarchy`, defence in depth; deny by default
+- Ownership checks / IDOR prevention (identity from the token, not request params)
+- Seeding demo accounts vs bootstrapping admins from env; privilege-escalation via account pre-registration; idempotent startup tasks with multiple instances
+- Offset vs keyset pagination; why not to serialize Spring's `Page`
+- Table-driven (parameterized) security tests; `jwt()` / `user()` test post-processors vs real signed tokens
+**Commit:** `feat(identity): add roles, method security, demo users and admin bootstrap`
 

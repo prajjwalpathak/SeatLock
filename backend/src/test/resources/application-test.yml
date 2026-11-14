@@ -26,3 +26,7 @@ seatlock:
     private-key: ""
     public-key: ""
     allow-ephemeral-keys: true
+  admin:
+    # Ignore any admin in .env: tests create their own users
+    email: ""
+    password: ""

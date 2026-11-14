@@ -28,6 +28,8 @@ class OpenApiDocsTest {
                         hasItems("city", "category", "language", "cursor", "limit")))
                 .andExpect(jsonPath("$.components.securitySchemes.bearerAuth.scheme").value("bearer"))
                 .andExpect(jsonPath("$.paths['/api/v1/me'].get.security[0].bearerAuth").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/admin/users'].get.security[0].bearerAuth").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/organizer/events'].get.security[0].bearerAuth").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/events'].get.security").doesNotExist()); // public
     }
 }

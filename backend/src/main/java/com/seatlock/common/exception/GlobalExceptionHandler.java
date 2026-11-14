@@ -66,7 +66,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     /**
      * Bad signature, expired, wrong issuer/audience, malformed → 401 INVALID_TOKEN. The client
-     * should refresh or sign in again. The precise reason stays in our logs, not the response.
+     * should sign in again. The precise reason stays in our logs, not the response.
      */
     @ExceptionHandler(InvalidBearerTokenException.class)
     ResponseEntity<ProblemDetail> handleInvalidToken(InvalidBearerTokenException ex) {

@@ -24,6 +24,9 @@ public class OpenApiConfig {
                 .version("v1")
                 .description("Flash-sale ticket booking where nobody ever gets the same seat twice. "
                         + "Money is in paise (long); all times are UTC (ISO-8601). "
-                        + "Errors are RFC 7807 problem+json with `code` and `requestId`."));
+                        + "Errors are RFC 7807 problem+json with `code` and `requestId`.\n\n"
+                        + "**Try it:** `POST /api/v1/auth/login` with `demo.user@seatlock.test` or "
+                        + "`organizer.cinema@seatlock.test` (password `seatlock-demo`), copy `accessToken`, "
+                        + "click **Authorize** and paste it. Tokens last 8 hours."));
     }
 }
