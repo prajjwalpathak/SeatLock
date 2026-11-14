@@ -16,3 +16,8 @@ spring:
     url: jdbc:postgresql://localhost:5432/unused
     username: unused
     password: unused
+
+seatlock:
+  cors:
+    allowed-origins:
+      - http://localhost:5173

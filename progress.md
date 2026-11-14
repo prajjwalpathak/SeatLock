@@ -3,12 +3,13 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 1 · Day 6 (not started): frontend scaffold (Vite + React + TS + Tailwind + TanStack Query + Router), event list + detail + search, CORS, week review
-- **Last completed:** Week 1 · Day 5: API docs, Testcontainers, search & indexes (Sat, Nov 14, 2026)
+- **Current day:** Week 2 · Day 1 (not started, Tue Nov 17): Spring Security, register/login, BCrypt, RS256 JWT issuing + resource-server validation
+- **Last completed:** Week 1 · Day 6: Frontend scaffold + Week 1 review (planned Mon Nov 16, done Sat Nov 14)
 - **Live URLs:** Backend — · Frontend — · Swagger — (local: http://localhost:8080/swagger-ui.html) · Grafana —
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public)
 - **Carry-overs:** try Oracle Cloud signup with a family Visa/Mastercard credit card (hosting decision by **W2·D4, Fri Nov 20**) · JetBrains student license (via GitHub Student Developer Pack)
-- **Schedule:** on track (revised target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon)
+- **Schedule:** **~1.5 days ahead** (Week 1 finished Sat Nov 14 instead of Mon Nov 16); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
+- **Top risk:** hosting decision by **W2·D4 (Fri Nov 20)**; first live deploy is W2·D5
 
 ## Decisions Log (ADR summary)
 | # | Date | Decision | Why |
@@ -43,6 +44,11 @@
 | 28 | 2026-11-14 | Full-text search: generated weighted `tsvector` (title A, description B, category/language C; `english` config) + GIN index; `websearch_to_tsquery`; results keep soonest-first order | Always in sync without triggers; never errors on user input; keyset cursor stays valid |
 | 29 | 2026-11-14 | Indexes only from measured plans: `show_seats (show_id, price_paise)` and `shows (event_id, starts_at)` (replaces `ix_shows_event`); `show_seats.status` deliberately unindexed | Measured ~5× faster event list; unindexed status keeps hold/booking updates HOT |
 | 30 | 2026-11-14 | JaCoCo 0.8.15 report on `verify`; the ≥80% gate is deferred to W6·D1 | 0.8.14+ officially supports Java 25; avoid writing tests just for the number now |
+| 31 | 2026-11-14 | Frontend: React 19.3, react-router 8.5, TanStack Query 5.107, Tailwind 4.3 (`@tailwindcss/vite`), Vite 8.3, TypeScript 6.0; `engines.node` 26.x | Current stable versions at scaffold time |
+| 32 | 2026-11-14 | Frontend calls the API directly (`VITE_API_BASE_URL`), no dev proxy. CORS allow-list per profile (`seatlock.cors.allowed-origins`, `@NotEmpty`, never `*`), exposes `X-Request-Id`, `allowCredentials(false)` until refresh-token storage is decided (W2·D2) | Local development exercises CORS exactly like prod; missing config fails fast |
+| 33 | 2026-11-14 | List filters live in the URL query string; `useInfiniteQuery` drives the keyset cursor; `keepPreviousData`; search submits on Enter (no per-keystroke requests) | Shareable, refresh- and back-button-friendly; no request storm |
+| 34 | 2026-11-14 | One `ApiError` for every API failure (status 0 = network); 4xx never retried; `requestId` shown in the UI | Consistent error UX; users can quote a reference that matches server logs |
+| 35 | 2026-11-14 | Workflow: Claude explains each frontend change, then writes it directly into `frontend\` (type-checked + linted); backend changes stay manual (paste + learn); npm commands run on Windows only | User's learning focus is the backend; avoids Linux binaries in `node_modules` |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -233,3 +239,80 @@
 - DTOs vs entities at the API boundary; record constructor binding of query params; cross-field validation with `@AssertTrue`
 - 404 vs 403 for hidden resources; property-based assertions in integration tests
 **Commit:** `feat(catalog): add seed data and event list, detail and seat map APIs`
+
+### Week 1 · Day 5: API docs, Testcontainers, search & indexes (Sat, Nov 14, 2026)
+**Status:** ✅ Done
+**Built:**
+- springdoc 3.2.0: Swagger UI at `/swagger-ui.html`, spec at `/v3/api-docs`, `OpenApiConfig` metadata, `Catalog` / `System` tags, `@ParameterObject` so search criteria appear as query params
+- Testcontainers 2.x (`testcontainers-postgresql`, `testcontainers-junit-jupiter`) + `spring-boot-testcontainers`: `TestcontainersConfiguration` (pgvector PG16 + Redis 7 via `@ServiceConnection`), `@IntegrationTest` meta-annotation; all DB tests moved off the local stack (verified passing with Compose stopped)
+- Baseline query plans for the 3 catalog reads (`docs/explain/catalog-queries.sql` → `01-baseline.txt`) and new `docs/CORRECTNESS.md` (oversell-guard table + query-plan analysis)
+- `V3__event_search.sql`: generated weighted `tsvector` + GIN index; `q` parameter on `GET /api/v1/events` via `websearch_to_tsquery`
+- `V4__catalog_read_indexes.sql`: `ix_show_seats_show_price`, `ix_shows_event_starts` (drops `ix_shows_event`); after-plans in `02-after-indexes.txt` (Q1 ~5× faster, buffers −52%; `min(price)` now an index-only scan, 1 row per show)
+- JaCoCo 0.8.15: report in `target/site/jacoco` on `mvnw verify`
+- Tests: **33 passing** (new: `OpenApiDocsTest`, full-text search test, `q` validation test)
+**Files created/changed:**
+- `backend\pom.xml` (springdoc, Testcontainers, JaCoCo); `application.yml` (springdoc block)
+- `common\config\OpenApiConfig.java`; `@Tag` on `EventController`, `ShowController`, `SystemController`; `@ParameterObject` on event search
+- `db\migration\V3__event_search.sql`, `V4__catalog_read_indexes.sql`
+- `catalog\api\EventSearchCriteria.java` (`q`), `catalog\application\EventSearchRepository.java` (FTS filter)
+- Tests: `testsupport\TestcontainersConfiguration.java`, `testsupport\IntegrationTest.java`, `common\config\OpenApiDocsTest.java`; updated `SeatLockApplicationTests`, `CatalogApiIntegrationTest`, `BookingPersistenceTest`, `EventSearchCriteriaTest`; `src\test\resources\application-test.yml` (placeholder datasource)
+- `docs\CORRECTNESS.md`, `docs\explain\catalog-queries.sql`, `01-baseline.txt`, `02-after-indexes.txt`
+**Decisions:**
+- See Decisions Log #26–#30
+**Metrics recorded:**
+- Q1 event list 3.31 → 0.66 ms, buffers 251 → 121; Q2 1.11 → 0.15 ms, buffers 24 → 10 (see Metrics table)
+- Coverage: 79% instructions, ~80% lines, 60% branches
+**Problems & fixes:**
+- springdoc 3.0.x vs Boot 4.1 compatibility risk → moved to 3.2.0 (Council review, user-approved)
+- `${POSTGRES_PASSWORD}` has no default, which would break tests without `.env` (CI) → dummy datasource values in `application-test.yml` (Testcontainers supplies the real connection)
+- `shows (event_id, starts_at)` index not yet chosen by the planner (90 rows = 2 pages; seq scan is cheaper); expected to pay off at volume (W6·D5)
+- Confirmed Testcontainers 2 package: `org.testcontainers.postgresql.PostgreSQLContainer`
+**Carry-over:**
+- Oracle signup attempt with a family Visa/Mastercard credit card (hosting decision by W2·D4); JetBrains student license
+- Small coverage gaps to close by W6·D1: `BaseEntity.equals/hashCode`, `CursorPage.hasMore`, `RequestIdFilter` DEBUG branch
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- OpenAPI / springdoc, `@ParameterObject`; API docs generated from code
+- Testcontainers, `@ServiceConnection`, Spring test-context caching, meta-annotations
+- Reading `EXPLAIN (ANALYZE, BUFFERS)`: seq vs index vs index-only scans, loops, buffers; min/max optimisation; visibility map and `Heap Fetches`
+- Index design from measurements; composite index column order; superseding prefix indexes; HOT updates and why not to index hot columns; `CREATE INDEX CONCURRENTLY`
+- Postgres full-text search: `tsvector`, weights, stemming, stop words, GIN, `websearch_to_tsquery`; generated columns
+- Code coverage: instruction vs line vs branch coverage; why not to gate too early
+**Commit:** `feat(catalog): add search, Swagger, Testcontainers and query indexes`
+
+### Week 1 · Day 6: Frontend scaffold + Week 1 review (planned Mon, Nov 16; done Sat, Nov 14, 2026)
+**Status:** ✅ Done
+**Built:**
+- Installed Node 26 LTS, VS Code + extensions (ESLint, Prettier, Tailwind, Docker, GitLens, REST Client)
+- `frontend\`: Vite React-TS + Tailwind 4 + React Router 8 + TanStack Query 5 (+ devtools); `Layout` with header, routes `/` → `/events`, `/events`, `/events/:eventId`, 404 page
+- Backend CORS: `CorsProperties` (`seatlock.cors.allowed-origins`, validated) + `CorsConfig` for `/api/**` (exact origins, exposed `X-Request-Id`, preflight cached 1 h); `CorsIntegrationTest` (preflight allowed, header exposed, unknown origin 403)
+- Typed API layer: `types/api.ts` (DTO mirrors), `api/client.ts` (`ApiError`, `apiGet`), `api/catalog.ts` (`catalogKeys`, `searchEvents`, `getEvent`, `getSeatMap`), `lib/format.ts` (₹ from paise, UTC → IST), smarter retries
+- Event list page: URL-driven search/city/category filters, `useInfiniteQuery` "Load more", skeletons, error box with `requestId` + retry, empty state
+- Event detail page: description, upcoming shows in IST with "from" price, "Select seats" placeholder (enabled on W3·D1), not-found handling (no API call for invalid IDs), back link keeps list filters, React 19 `<title>`
+- Week 1 review (below)
+- Tests: backend **36 passing**; frontend `tsc` + ESLint clean, `npm run build` passes
+**Files created/changed:**
+- Backend: `common\config\CorsProperties.java`, `CorsConfig.java`; `application-local.yml`, `application-prod.yml`, `application-test.yml` (CORS); `.env.example` (`CORS_ALLOWED_ORIGINS`); test `common\config\CorsIntegrationTest.java`
+- Frontend: `vite.config.ts`, `index.html`, `.env.example`, `src\main.tsx`, `src\router.tsx`, `src\index.css`, `src\env.d.ts`, `src\types\api.ts`, `src\api\client.ts`, `src\api\catalog.ts`, `src\lib\format.ts`, `src\lib\queryClient.ts`, `src\components\Layout.tsx`, `src\components\ErrorMessage.tsx`, `src\features\events\{filters.ts, navigation.ts, EventFilters.tsx, EventCard.tsx, EventCardSkeleton.tsx, EventDetailSkeleton.tsx, ShowList.tsx}`, `src\pages\{EventListPage.tsx, EventDetailPage.tsx, NotFoundPage.tsx}`
+**Decisions:**
+- See Decisions Log #31–#35
+**Metrics recorded:**
+- None new
+**Problems & fixes:**
+- react-router installed as **v8** (plan text assumed v7); `RouterProvider` from `react-router/dom` still works
+- Template `tsconfig` has `erasableSyntaxOnly` → no TS `enum`s or constructor parameter properties (string unions + explicit fields)
+- Running `npm install` from Claude's Linux environment would put Linux binaries into `node_modules` → npm commands stay on Windows
+**Carry-over:**
+- Oracle signup attempt with a family Visa/Mastercard credit card (hosting decision by W2·D4); JetBrains student license
+- Coverage gaps (by W6·D1): `BaseEntity.equals/hashCode`, `CursorPage.hasMore`, `RequestIdFilter` DEBUG branch
+- Optional cleanup: delete unused template images in `frontend\src\assets`
+**Week 1 review:**
+- All 6 days delivered ~1.5 days early: foundation, schema with DB-level oversell guard, seeded catalog, catalog APIs with FTS + keyset pagination, Swagger, Testcontainers, measured indexes, React list/detail UI
+- Risks for Week 2: (1) hosting decision by W2·D4; (2) heaviest week (JWT, roles, OAuth, caching, first deploy, CI), with Spring Security 7 API changes; (3) refresh-token storage decision (cookie + CSRF/CORS credentials vs header) on W2·D2
+- Noted improvements (unscheduled): `/api/v1/cities` endpoint, relevance-ranked search (`ts_rank` + own cursor), Playwright smoke test (stretch)
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- Same-origin policy, CORS preflight, exposed headers, why never `*`, credentials + exact origins
+- SPA architecture: server state vs UI state, TanStack Query caching/keys/staleTime/retries, infinite queries with cursors, `keepPreviousData`
+- URL as state (`useSearchParams`), uncontrolled inputs keyed by URL, router `state` for back-navigation
+- Typed API clients, error normalisation, UTC → local time at the UI edge, `Intl` formatting
+- Accessibility basics: `role="search"`, labels, `role="alert"`, focus rings
+**Commit:** `feat(frontend): scaffold React app with event list and detail pages`

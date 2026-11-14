@@ -19,3 +19,7 @@ logging:
   level:
     root: INFO
     com.seatlock: INFO
+
+seatlock:
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS}   # e.g. https://seatlock.vercel.app (comma-separated)

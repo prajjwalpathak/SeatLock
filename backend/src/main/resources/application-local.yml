@@ -9,3 +9,8 @@ logging:
     level: "%5p [%X{requestId:-}]"   # e.g. "DEBUG [3f2a…]"; empty brackets outside requests
   level:
     com.seatlock: DEBUG
+
+seatlock:
+  cors:
+    allowed-origins:
+      - http://localhost:5173
