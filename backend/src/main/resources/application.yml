@@ -34,6 +34,7 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+      timeout: 500ms             # fail fast: a slow Redis must not stall every request (cache falls back to DB)
 
 management:
   endpoints:
@@ -51,6 +52,8 @@ springdoc:
   default-produces-media-type: application/json
 
 seatlock:
+  cache:
+    enabled: ${SEATLOCK_CACHE_ENABLED:true}   # false = kill switch / "before" benchmarks (NoOpCacheManager)
   jwt:
     issuer: seatlock             # "iss" claim; the decoder rejects anything else
     audience: seatlock-api       # "aud" claim

@@ -70,6 +70,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, PUBLIC_GET).permitAll()
                         .requestMatchers(HttpMethod.POST, PUBLIC_POST).permitAll()
                         .requestMatchers(PUBLIC_ANY).permitAll()
+                        .requestMatchers("/actuator/**").hasRole("ADMIN")   // metrics, caches (local only)
                         // Coarse role gates by URL prefix; @PreAuthorize on each controller is the main check
                         .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                         .requestMatchers("/api/v1/organizer/**").hasRole("ORGANIZER")

@@ -3,13 +3,14 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 2 · Day 4 (not started, planned Fri Nov 20): Redis caching (`@Cacheable` events/layouts), eviction on organizer updates, cache metrics; organizer endpoint: create show
-- **Last completed:** Week 2 · Day 3: Google sign-in → our JWT; frontend login/register/callback, protected routes, logout (planned Thu Nov 19, done Sat Nov 14)
+- **Current day:** Week 2 · Day 5 (not started, planned Sat Nov 21): Dockerfile, `docker-compose.prod.yml`, **Azure VM** setup, Nginx + Let's Encrypt (DuckDNS), **first live deploy**; frontend on Vercel
+- **Last completed:** Week 2 · Day 4: Redis caching (measured), create-show API, venue no-overlap guard (planned Fri Nov 20, done Sun Nov 15)
 - **Live URLs:** Backend — · Frontend — · Swagger — (local: http://localhost:8080/swagger-ui.html) · Grafana —
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public)
-- **Carry-overs:** try Oracle Cloud signup with a family Visa/Mastercard credit card (hosting decision by **W2·D4, Fri Nov 20**) · JetBrains student license (via GitHub Student Developer Pack) · record JaCoCo numbers · IntelliJ vulnerable-dependency scan for the security + OAuth2 client deps · add the prod redirect URI to the Google client on W2·D5
-- **Schedule:** **~5 days ahead** (W2·D3 done Sat Nov 14 instead of Thu Nov 19); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
-- **Top risk:** hosting decision by **W2·D4 (Fri Nov 20)**; first live deploy is W2·D5
+- **Hosting:** **Azure for Students** (decided W2·D4, #54); Oracle dropped
+- **Carry-overs:** JetBrains student license · record JaCoCo numbers · IntelliJ vulnerable-dependency scan (security, OAuth2 client, cache deps) · add the prod redirect URI to the Google client on W2·D5
+- **Schedule:** **~5 days ahead** (W2·D4 done Sun Nov 15 instead of Fri Nov 20); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
+- **Top risk:** first live deploy on Azure (W2·D5): ARM image build, VM sizing (4 GB for 2 app instances later), credit burn (budget alert set)
 
 ## Decisions Log (ADR summary)
 | # | Date | Decision | Why |
@@ -67,6 +68,14 @@
 | 51 | 2026-11-14 | Token handoff **A2**: one-time code (256-bit, `SHA-256` stored, 60 s, single use) → `POST /api/v1/auth/oauth/exchange` → our JWT; `Referrer-Policy: no-referrer` | Our JWT never in a URL, history or log (user-approved) |
 | 52 | 2026-11-14 | Linking **B1**: only `email_verified = true`; existing account (any provider) signed into unchanged; else new USER (`GOOGLE`, no password); failures → `{frontend}/login?error=CODE`; redirect base fixed by `seatlock.frontend.base-url` | No takeover via unverified e-mail; no open redirect (user-approved) |
 | 53 | 2026-11-14 | Frontend auth: token in localStorage; API client adds Bearer, on `INVALID_TOKEN` signs out and retries once without token; `AuthProvider` (`/me`, expiry timer, cross-tab sync); all user data under query key `['me', …]`, dropped on sign-in/out; `RequireAuth` (UX only) | Public pages survive an expired token; no stale data between users |
+| 54 | 2026-11-14 | **Hosting: Azure for Students** (ARM VM, e.g. B2pls_v2, 4 GB) replaces Oracle Always Free (user decision; Oracle signup not possible) | Active student credit; same Docker/Nginx/DuckDNS plan; budget alert guards the $100 credit |
+| 55 | 2026-11-14 | Create-show prices: **one price per section** (PLATINUM/GOLD/SILVER), every seat of the section gets it (user-approved) | Matches the seed data; simple organizer UX |
+| 56 | 2026-11-15 | **ADR-004:** Spring Cache on Redis (own `RedisCacheManager`, typed JSON per cache, SCAN clears, statistics, error handler = miss, 500 ms timeout, `SEATLOCK_CACHE_ENABLED` kill switch). Cached: `eventDetail` 5 min, `eventSearch` 60 s. **Seat map not cached** (single query measured faster) | Kept only what benchmarks proved: detail p95 −32%, list p95 −21%; seat-map cache +59% → removed |
+| 57 | 2026-11-15 | Cache hits never touch the DB: `@EnableCaching(order = HIGHEST_PRECEDENCE)`, read services not `@Transactional`; misses load in `CatalogReadCache` (read-only tx) | Run 1 showed hits still paid for a transaction; test asserts no connection borrowed on hits |
+| 58 | 2026-11-15 | Eviction **after commit**: `ShowScheduledEvent` → `@TransactionalEventListener(AFTER_COMMIT)` evicts `eventDetail::{id}` + clears `eventSearch` (Observer) | No re-caching of pre-commit data; rollback evicts nothing; same event drives live updates on W5 |
+| 59 | 2026-11-15 | **Venue no-overlap guard:** `shows.ends_at` (start + duration + 30 min) + exclusion constraint `ex_shows_venue_no_overlap` (`btree_gist`, `tstzrange '[)'`, scheduled only) → 409 `SHOW_OVERLAP` | DB-enforced like the seat guard; proven with a 2-thread race test |
+| 60 | 2026-11-15 | `POST /api/v1/organizer/events/{id}/shows`: owner only (else 404), not cancelled, start 1 h–1 y ahead, prices for exactly the venue's sections, show + all seats in one transaction, one `INSERT … SELECT … JOIN (VALUES …)` | No half-created shows; no IDOR; no per-seat inserts |
+| 61 | 2026-11-15 | Benchmark method: variants measured against the **original code** (git worktree), INFO logging, 200 warm-up + 500 requests, **median of 3 runs in one session**; benchmark hit rates are not production hit rates. `/actuator/**` (metrics, caches) ADMIN-only, exposed locally only | Run 1 was invalid (wrong baseline, DEBUG noise, single runs); session-to-session noise is large on the laptop |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -74,13 +83,16 @@
 | Event list query (Q1) after targeted index | 3.31 → **0.66 ms (~5×)**; buffers 251 → **121 (−52%)** | `EXPLAIN (ANALYZE, BUFFERS)`, seeded DB, warm cache (`docs/explain/`) | 2026-11-14 |
 | Event detail shows query (Q2) | 1.11 → **0.15 ms**; buffers 24 → 10 | same | 2026-11-14 |
 | Test coverage (JaCoCo) | 79% instructions, ~80% lines (309/384), 60% branches; 33 tests | `mvnw verify` | 2026-11-14 |
+| Event detail latency, Redis cache vs original code | p50 4.46 → **2.77 ms (−38%)**; p95 5.33 → **3.61 ms (−32%)**; p99 6.52 → 4.39 ms | `load-tests/bench-catalog.ps1`, 1 client, 500 req after 200 warm-up, median of 3 runs, same session (`docs/benchmarks.md` Run 2) | 2026-11-15 |
+| Event list latency, Redis cache vs original code | p50 5.35 → **4.16 ms (−22%)**; p95 6.46 → **5.12 ms (−21%)**; p99 8.34 → 6.14 ms | same | 2026-11-15 |
+| Seat map: cached layout/prices vs single query | p95 7.72 → 12.29 ms (**+59%, rejected**; kept the single indexed query) | same | 2026-11-15 |
 
 ## Accounts & Config (no secrets here, only where they live)
 | Item | Status | Where stored |
 |---|---|---|
 | GitHub repo | ✅ Created (public) | github.com/prajjwalpathak/SeatLock |
-| Oracle Cloud VM | ⏳ Try signup with a family Visa/Mastercard credit card (deadline W2·D4) | — |
-| Azure for Students | ✅ Active ($100, 12 months; fallback host; budget alert $15/month; no resources created yet) | portal.azure.com (DTU email) |
+| Oracle Cloud VM | ❌ Not used (hosting decided: Azure, #54) | — |
+| Azure for Students | ✅ Active ($100, 12 months; **production host**; budget alert $15/month; VM created on W2·D5) | portal.azure.com (DTU email) |
 | AWS | ❌ Free plan already used up; not used for this project | — |
 | DuckDNS domain | — (W2·D5) | — |
 | Razorpay test keys | — (W4·D2) | `.env` (git-ignored) |
@@ -453,4 +465,49 @@
 - Multiple `SecurityFilterChain`s with `securityMatcher` + `@Order`
 - SPA auth: token storage trade-offs (localStorage vs cookie, XSS), auth context, protected routes (UX vs server enforcement), cross-tab sync, cache scoping per user, StrictMode double effects
 **Commit:** `feat(identity): add Google sign-in with one-time code and frontend auth`
+
+### Week 2 · Day 4: Redis caching (measured), create show, venue overlap guard (planned Fri, Nov 20; done Sun, Nov 15, 2026)
+**Status:** ✅ Done (seat-map caching built, measured, and removed)
+**Built:**
+- Cache infrastructure: `CacheConfig` (own `RedisCacheManager`, typed JSON serializer per cache, SCAN batch clear, statistics, `LoggingCacheErrorHandler`, kill switch), `CacheNames`, `TypedJsonRedisSerializer`; Redis timeout 500 ms; `/actuator/metrics|caches` ADMIN-only (local)
+- `CatalogReadCache`: `@Cacheable` event detail (5 min) and list pages (60 s, normalized + URL-encoded keys); started shows dropped per request; cache advice ordered before transactions
+- Flyway `V6`: `btree_gist`, `shows.ends_at` (backfilled), `ck_shows_ends_after_start`, exclusion constraint `ex_shows_venue_no_overlap`
+- `POST /api/v1/organizer/events/{eventId}/shows` (`CreateShowRequest` / `CreatedShowResponse`, `ShowCreationRepository` set-based seat insert, `SHOW_OVERLAP` / `SECTION_PRICES_MISMATCH` / `SHOW_TOO_SOON` / `UNKNOWN_VENUE` / `EVENT_CANCELLED`)
+- `ShowScheduledEvent` + `CatalogCacheEvictor` (AFTER_COMMIT eviction)
+- Benchmarks: `load-tests/bench-catalog.ps1`, `load-tests/cache-stats.ps1`, `docs/benchmarks.md` (Run 1 superseded, Run 2 valid); seat-map split + `venueLayout`/`showPrices` caches **reverted** after measurement
+- ADR-004; CORRECTNESS.md §1b (venue guard); architecture §2b
+- Tests: **173** (new: `CacheConfigIntegrationTest` 3, `TypedJsonRedisSerializerTest` 3, `CacheKillSwitchTest` 2, `CatalogCachingIntegrationTest` 6, `EventSearchKeyTest` 4, `CreateShowIntegrationTest` 5, `CacheEvictionIntegrationTest` 2, `SecurityMatrixIntegrationTest` +4 create-show rows)
+**Files created/changed:**
+- `backend\pom.xml` (`spring-boot-starter-cache`); `application.yml` (`seatlock.cache.enabled`, Redis timeout), `application-local.yml` (actuator metrics/caches)
+- `common\cache\{CacheConfig, CacheNames, TypedJsonRedisSerializer}.java`; `identity\security\SecurityConfig.java` (`/actuator/**` ADMIN)
+- `catalog\application\{CatalogReadCache, CatalogCacheEvictor, ShowCreationRepository, EventCatalogService, OrganizerCatalogService}.java`; `catalog\events\ShowScheduledEvent.java`; `catalog\api\{CreateShowRequest, CreatedShowResponse, OrganizerEventController}.java`; `catalog\domain\Show.java` (`endsAt`, `TURNOVER`)
+- `db\migration\V6__show_end_time_and_no_overlap.sql`
+- Tests: `common\cache\*`, `catalog\application\{CatalogCachingIntegrationTest, CacheEvictionIntegrationTest, EventSearchKeyTest}`, `catalog\api\CreateShowIntegrationTest`, `SecurityMatrixIntegrationTest`
+- `load-tests\{bench-catalog.ps1, cache-stats.ps1}`; `docs\{benchmarks.md, CORRECTNESS.md, architecture.md}`, `docs\decisions\ADR-004-catalog-caching.md`, `progress.md`
+**Decisions:**
+- See Decisions Log #54–#61
+**Metrics recorded:**
+- Event detail p95 −32% (5.33 → 3.61 ms), event list p95 −21% (6.46 → 5.12 ms) vs original; seat-map cache rejected (+59% p95). See Metrics table
+**Problems & fixes:**
+- Run 1 benchmark invalid: the seat map's "cache off" was the new split path, not the original; DEBUG logging on; single runs → added the V0 baseline (git worktree on `e7dd410`), INFO logging, 3-run medians
+- Cache hits still opened a DB transaction (class-level `@Transactional` around the cache call) → cache advice ordered first, read services non-transactional; HikariCP-based test
+- Weak metrics test (meter existence only) → asserts +1 miss / +2 hits through the real HTTP path; a direct `Cache.get()` miss counted twice in a test (unexplained, library source not reachable) while the `@Cacheable` path counts exactly
+- `CacheStatistics.getRetrievals()` doesn't exist in Spring Data Redis 4 → only `getHits()` / `getMisses()`
+- Splitting the seat map + caching layout/prices was slower than the single join (JSON decoding > query) → reverted
+- JUnit `@ParameterizedTest(name)` uses `MessageFormat`: literal `{id}` is invalid → `:id`
+- PowerShell: a `foreach` statement can't be piped → collect into a variable first; script placeholders like `<SEATLOCK_ADMIN_PASSWORD>` are easy to miss → `cache-stats.ps1` reads `.env` itself
+- NamedParameterJdbcTemplate expands collections into `?, ?` lists → section prices bound as a generated `VALUES (:s0, :p0), …` list
+**Carry-over:**
+- Record JaCoCo numbers; IntelliJ vulnerable-dependency scan (ADR-001)
+- Add the prod redirect URI to the Google client (W2·D5)
+- JetBrains student license
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- Cache-aside with Spring Cache; TTLs; what not to cache (hot, per-user or fast-changing data); cache stampede and staleness windows
+- Redis serialization security (default typing / Java serialization gadgets); SCAN vs KEYS; cache metrics and why benchmark hit rates mislead
+- Proxy-based AOP pitfalls: self-invocation, advice ordering (`@EnableCaching(order)` vs `@Transactional`)
+- Evicting after commit (`@TransactionalEventListener`), Observer pattern / domain events
+- Exclusion constraints, GiST, `btree_gist`, `tstzrange` and half-open intervals; "check then insert" races; testing races with a start gate
+- Set-based inserts; safe dynamic SQL (generated placeholders, bound values)
+- Benchmark methodology: baselines, warm-up, percentiles (p50/p95/p99), noise, medians of repeated runs, logging overhead; making decisions from measurements (and reverting)
+**Commit:** `feat(catalog): add measured Redis caching, create-show API and venue overlap guard`
 

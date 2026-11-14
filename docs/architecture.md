@@ -149,6 +149,17 @@ cookie, no session). It ends with a 60-second one-time code that the SPA exchang
 in the query cache sits under the `['me', …]` key and is dropped on sign-out. `RequireAuth`
 guards `/account` and `/organizer/events` (UX only; the API enforces).
 
+## 2b. Caching and venue scheduling (W2·D4)
+
+- **Redis cache (ADR-004):** event detail (5 min) and event list pages (60 s) are cached,
+  because benchmarks showed p95 −32% and −21% against the uncached code. The seat map is **not**
+  cached: its single indexed query was faster than every cached variant, and it carries live seat
+  status. Cache hits never borrow a DB connection; evictions run after commit (`ShowScheduledEvent`).
+- **No overlapping shows (CORRECTNESS.md §1b):** `shows.ends_at` = start + duration + 30 min, and
+  the exclusion constraint `ex_shows_venue_no_overlap` makes two scheduled shows at one venue at
+  the same time impossible. Organizers create shows with `POST /api/v1/organizer/events/{id}/shows`
+  (one price per section; ownership from the token).
+
 ## 3. Conventions
 - Internal keys are `bigint` identity. Bookings expose a random `public_id` (UUID), so IDs in URLs can't be enumerated.
 - Enums are `varchar` + `CHECK`, not Postgres `ENUM` types: easier to evolve with Flyway, and mapped with `@Enumerated(EnumType.STRING)`.

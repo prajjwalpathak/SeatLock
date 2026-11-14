@@ -1,6 +1,7 @@
 package com.seatlock.identity.security;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -17,6 +18,8 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -34,6 +37,7 @@ class SecurityMatrixIntegrationTest {
     @Autowired MockMvc mvc;
     @Autowired UserRepository users;
     @Autowired TokenService tokenService;
+    @Autowired JdbcTemplate jdbc;
 
     private final Map<Role, String> tokens = new EnumMap<>(Role.class);
 
@@ -81,5 +85,31 @@ class SecurityMatrixIntegrationTest {
             result.andExpect(jsonPath("$.code").value(expectedCode))
                     .andExpect(jsonPath("$.requestId").exists());
         }
+    }
+
+    /**
+     * Writes: create show. The matrix's ORGANIZER and ADMIN own no events, so they pass the role
+     * gates but get 404 from the ownership check (someone else's event is "not found").
+     */
+    @ParameterizedTest(name = "{0} POST /organizer/events/:id/shows → {1}") // MessageFormat: no literal braces
+    @CsvSource(nullValues = "-", value = {
+            "ANONYMOUS, 401, AUTHENTICATION_REQUIRED",
+            "USER,      403, ACCESS_DENIED",
+            "ORGANIZER, 404, NOT_FOUND",
+            "ADMIN,     404, NOT_FOUND",
+    })
+    void createShowMatrix(String caller, int expectedStatus, String expectedCode) throws Exception {
+        long someoneElsesEvent = jdbc.queryForObject("SELECT min(id) FROM events", Long.class);
+        String body = """
+                {"venueId":1,"startsAt":"2099-01-01T10:00:00Z","sectionPricesPaise":{"GOLD":100000}}""";
+        MockHttpServletRequestBuilder request = post("/api/v1/organizer/events/{id}/shows", someoneElsesEvent)
+                .contentType(MediaType.APPLICATION_JSON).content(body);
+        if (!caller.equals("ANONYMOUS")) {
+            request.header(HttpHeaders.AUTHORIZATION, "Bearer " + tokens.get(Role.valueOf(caller)));
+        }
+
+        mvc.perform(request)
+                .andExpect(status().is(expectedStatus))
+                .andExpect(jsonPath("$.code").value(expectedCode));
     }
 }

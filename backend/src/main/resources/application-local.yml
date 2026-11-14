@@ -3,6 +3,10 @@ management:
   endpoint:
     health:
       show-details: always       # show db/redis components while developing
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,caches   # metrics/caches are ADMIN-only (SecurityConfig)
 
 logging:
   pattern:

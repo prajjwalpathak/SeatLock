@@ -14,6 +14,21 @@ perform, with evidence. Updated as each guard and optimisation lands.
 | App | 200-thread concurrency test: exactly one winner per seat | — | ⏳ W3·D6 |
 | App | Optimistic locking strategy (`@Version` on `show_seats`) | — | ⏳ W4·D6 |
 
+## 1b. Venue double-booking guard (W2·D4)
+
+Two scheduled shows must never occupy the same venue at the same time, even if two organizers
+create them at the same moment.
+
+| Layer | Mechanism | Evidence | Status |
+|---|---|---|---|
+| DB | Exclusion constraint `ex_shows_venue_no_overlap` (`V6`): `EXCLUDE USING gist (venue_id WITH =, tstzrange(starts_at, ends_at, '[)') WITH &&) WHERE (status = 'SCHEDULED')` via `btree_gist`. `ends_at` = start + event duration + 30 min turnover | `CreateShowIntegrationTest.twoOrganizersRacingForTheSameSlotOneWinsTheDatabaseDecides` (2 threads behind a start gate → exactly 1 created, 1 `SHOW_OVERLAP`) | ✅ W2·D4 |
+| DB | `CHECK (ends_at > starts_at)`; `UNIQUE (venue_id, starts_at)` (V1) | Schema | ✅ |
+| App | Constraint violation → 409 `SHOW_OVERLAP`; show + all its `show_seats` created in one transaction (no half-created show) | `overlappingShowAtTheSameVenueIs409ButBackToBackIsFine` (half-open range: back-to-back allowed) | ✅ W2·D4 |
+
+Why not "check, then insert" in Java: two transactions can both see the venue free and both
+insert. With the exclusion constraint, the second insert waits for the first transaction and
+then fails, which is the same pattern as the seat guard in §1.
+
 ## 2. Query plans (catalog reads)
 
 **Method:** `docs/explain/catalog-queries.sql` on the seeded local DB (30 events, 90 shows,
