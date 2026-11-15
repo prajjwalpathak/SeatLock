@@ -1,0 +1,94 @@
+# CI: runs on every push and pull request.
+#   backend  -> Maven verify (unit + Testcontainers integration tests, JaCoCo report)
+#   frontend -> npm ci, lint, type-check + production build
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch/PR cancels the older, still-running CI.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read            # least privilege: CI only reads the repo
+
+jobs:
+  backend:
+    name: Backend (build, test, coverage)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven              # caches ~/.m2 keyed on pom.xml
+
+      # Testcontainers needs Docker: GitHub's ubuntu runners have it preinstalled.
+      - name: Maven verify
+        run: |
+          chmod +x mvnw
+          ./mvnw -B -ntp verify
+
+      - name: Coverage summary
+        if: always()
+        run: |
+          csv=target/site/jacoco/jacoco.csv
+          if [ -f "$csv" ]; then
+            awk -F, 'NR>1{im+=$4;ic+=$5;bm+=$6;bc+=$7;lm+=$8;lc+=$9}
+              END{printf "### JaCoCo coverage\n| Instructions | Lines | Branches |\n|---|---|---|\n| %.1f%% | %.1f%% | %.1f%% |\n",
+                  100*ic/(im+ic), 100*lc/(lm+lc), 100*bc/(bm+bc)}' "$csv" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-report
+          path: backend/target/site/jacoco/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload test reports (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: backend/target/surefire-reports/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  frontend:
+    name: Frontend (lint, build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Node 26
+        uses: actions/setup-node@v5
+        with:
+          node-version: '26'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+      - run: npm run lint
+      - name: Build (tsc + vite)
+        run: npm run build
+        env:
+          VITE_API_BASE_URL: https://seatlock-prajjwal.duckdns.org
