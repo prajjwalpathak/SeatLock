@@ -18,7 +18,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import testsupport.SecurityRulesSlice;
 
-@WebMvcTest(controllers = SystemController.class)
+@WebMvcTest(controllers = SystemController.class, properties = "seatlock.build.revision=0123456789abcdef")
 @SecurityRulesSlice // real URL rules: proves the endpoint is public
 @ActiveProfiles("test")
 class SystemControllerTest {
@@ -45,5 +45,13 @@ class SystemControllerTest {
                 .andExpect(header().exists("X-Request-Id"))
                 .andExpect(jsonPath("$.serverTime").value("2026-11-11T10:00:00Z"))
                 .andExpect(jsonPath("$.epochMillis").value(FIXED.toEpochMilli()));
+    }
+
+    @Test
+    void reportsTheBuildRevisionPubliclyAndUncached() throws Exception {
+        mvc.perform(get("/api/v1/system/version"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.revision").value("0123456789abcdef"));
     }
 }

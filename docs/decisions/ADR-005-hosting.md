@@ -42,4 +42,8 @@ later Prometheus/Grafana. Benchmarks and load tests are run locally (see `benchm
 - **Planned decommission** after ~2–3 months: delete the resource group (stopping alone still
   bills ~USD 6/month for disk + IP). The resume keeps "deployed on Azure with Docker Compose,
   Nginx/TLS and GitHub Actions; decommissioned after the demo period".
-- Day 6 replaces the on-VM `docker compose build` with a CI-built image pulled from GHCR.
+- **CI/CD (W2·D6):** images are built once by GitHub Actions and pulled from GHCR; deploys go over SSH with a
+  forced-command key (`deploy.sh`: health-wait + automatic rollback). This requires SSH open to *Any*
+  (runner IPs are random), mitigated by key-only auth, fail2ban and the single-purpose CI key. Alternatives
+  (VM pull loop, Azure run-command via OIDC, Tailscale) were rejected for no deploy feedback / student-tenant
+  limits / extra accounts.

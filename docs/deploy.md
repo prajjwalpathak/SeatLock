@@ -9,9 +9,13 @@ Why this setup: [ADR-005](decisions/ADR-005-hosting.md).
 | Frontend | `https://seatlock-nu.vercel.app` |
 | VM | Azure `seatlock-vm` (India South Central, B2als_v2), user `ubuntu`, key `~\.ssh\azure_seatlock` |
 | Stack | `infra/docker-compose.prod.yml`: nginx · app · postgres · redis · certbot |
+| Backend image | `ghcr.io/prajjwalpathak/seatlock-backend:sha-<12>` (public), built by GitHub Actions; running tag = `APP_IMAGE` in `.env.prod` |
+| Version check | `GET /api/v1/system/version` → `{"revision":"<git sha>"}` |
 | Secrets | `~/seatlock/infra/.env.prod` on the VM only (mode 600, never in Git) |
 
 ```
+git push main ─► CI (tests, coverage, lint, build) ─► Deploy: build image ─► GHCR
+                                                        └─► SSH (restricted key) ─► VM: deploy.sh ─► healthy? else rollback
 Browser ──HTTPS──► Vercel (React static)
    │
    └──HTTPS──► VM :443 Nginx ──► app:8080 ──► postgres:5432 / redis:6379   (private Compose network)
@@ -34,13 +38,14 @@ alias dc='docker compose --env-file infra/.env.prod -f infra/docker-compose.prod
 2. **DNS**: DuckDNS `seatlock-prajjwal` → VM public IP.
 3. **Docker + 2 GB swap**: official Docker apt repo (`docker-ce`, `docker-compose-plugin`),
    `usermod -aG docker ubuntu`, `/swapfile` in `/etc/fstab`.
-4. **Code** (PowerShell, repo root): until Day 6's CI images, copy the source:
+4. **Infra files** (PowerShell, repo root). The VM needs only `infra/` (Compose, Nginx, scripts); the backend
+   arrives as an image from GHCR. (On the first day the whole `backend/` was copied and built on the VM.)
    ```powershell
-   tar -czf $env:TEMP\seatlock-deploy.tgz --exclude=target --exclude=.env backend infra
-   scp -i $HOME\.ssh\azure_seatlock $env:TEMP\seatlock-deploy.tgz ubuntu@<VM-IP>:~/
+   tar -czf $env:TEMP\seatlock-infra.tgz infra
+   scp -i $HOME\.ssh\azure_seatlock $env:TEMP\seatlock-infra.tgz ubuntu@<VM-IP>:~/
    ```
    ```bash
-   mkdir -p ~/seatlock && tar -xzf ~/seatlock-deploy.tgz -C ~/seatlock
+   mkdir -p ~/seatlock && tar -xzf ~/seatlock-infra.tgz -C ~/seatlock && chmod +x ~/seatlock/infra/scripts/*.sh
    ```
 5. **Secrets**: `bash infra/scripts/init-env-prod.sh` generates the DB password, a new RS256 JWT pair
    and the admin password (printed once). Then `nano infra/.env.prod` for the rest:
@@ -52,7 +57,7 @@ alias dc='docker compose --env-file infra/.env.prod -f infra/docker-compose.prod
    dc run --rm -p 80:80 --entrypoint certbot certbot certonly --standalone \
      -d seatlock-prajjwal.duckdns.org --email <email> --agree-tos --no-eff-email
    ```
-8. **Start**: `dc up -d --build` → `dc ps` (app *healthy*, then nginx starts).
+8. **Start**: `dc up -d` → `dc ps` (app *healthy*, then nginx starts). The app image is pulled from GHCR.
 9. **Vercel**: import the GitHub repo, Root Directory `frontend`, env `VITE_API_BASE_URL=https://seatlock-prajjwal.duckdns.org`.
    `frontend/vercel.json` rewrites every path to `index.html` (SPA deep links, `/auth/callback`).
 
@@ -70,15 +75,42 @@ curl.exe -s -o NUL -D - -H "Origin: https://seatlock-nu.vercel.app" "$B/api/v1/e
 Browser: events list, demo login (`demo.user@seatlock.test` / `seatlock-demo`), admin login,
 F5 on `/events/<id>`, Google sign-in.
 
-## 3. Redeploy a new backend version
+## 3. CI/CD: deploy, verify, roll back
 
-```bash
-# (copy fresh backend/ + infra/ as in 1.4, then)
-cd ~/seatlock && dc up -d --build app
-dc ps app && dc logs app --tail 30
+**Normal path (automatic):** push to `main` → **CI** (`.github/workflows/ci.yml`: Maven verify with
+Testcontainers + JaCoCo, frontend lint + build) → on success **Deploy** (`deploy.yml`):
+1. `image`: builds `backend/` once for `linux/amd64`, tags `sha-<12>` + `latest`, pushes to GHCR (`GITHUB_TOKEN`, `packages: write`), bakes the commit in (`GIT_SHA` → `SEATLOCK_REVISION`)
+2. `deploy`: SSH to the VM with the **CI key**, which `authorized_keys` pins to `deploy.sh`:
+   `deploy.sh` validates the tag → `docker pull` → sets `APP_IMAGE` → `up -d --no-deps app` → waits for *healthy*
+   → on failure prints logs and **rolls back** to the previous image
+3. smoke test through Nginx: readiness `UP` **and** `/api/v1/system/version` = the deployed commit
+
+Frontend: Vercel builds every push to `main` by itself.
+
+**Roll back / redeploy a specific version:** Actions → **Deploy** → *Run workflow* → `tag` = `sha-xxxxxxxxxxxx`
+(any earlier tag from GHCR). Empty `tag` = build and deploy current `main`. On the VM: `bash infra/scripts/deploy.sh sha-xxxxxxxxxxxx`.
+
+**Which version is live?**
+```powershell
+curl.exe -s https://seatlock-prajjwal.duckdns.org/api/v1/system/version
 ```
-Flyway migrates on startup. Nginx re-resolves `app` through Docker DNS, so no Nginx restart is needed.
-Frontend: push to `main` → Vercel redeploys.
+
+**Infra changes** (Compose, Nginx, scripts) are not deployed by CI: copy `infra/` as in 1.4, then `dc up -d`
+(Nginx config: `dc exec nginx nginx -s reload`).
+
+### CI/CD security setup (done 2026-11-16)
+
+| Piece | Setting |
+|---|---|
+| NSG | SSH 22 from **Any** (GitHub runners have random IPs); 80/443 Any |
+| sshd | key-only (`PasswordAuthentication no`); **fail2ban** `sshd` jail |
+| CI key | ed25519, generated on the VM; private half only in GitHub secret `DEPLOY_SSH_KEY`; public half in `~/.ssh/authorized_keys` as `command="/home/ubuntu/seatlock/infra/scripts/deploy.sh",restrict ssh-ed25519 …`, so no shell, no forwarding, only `deploy <tag>` |
+| Host key | GitHub secret `DEPLOY_KNOWN_HOSTS` = `seatlock-prajjwal.duckdns.org ssh-ed25519 …` (from `/etc/ssh/ssh_host_ed25519_key.pub`); job uses `StrictHostKeyChecking=yes` |
+| Other secrets | `DEPLOY_HOST=seatlock-prajjwal.duckdns.org` |
+| GHCR package | **public** (VM pulls without credentials); repo has *Write* under Manage Actions access |
+
+**Rotate the CI key:** generate a new pair on the VM, replace the `seatlock-ci` line in `authorized_keys`,
+update `DEPLOY_SSH_KEY`, delete the private key from the VM.
 
 ## 4. Change configuration / secrets
 
@@ -127,12 +159,18 @@ The static IP survives, so DNS and the certificate keep working.
 | SSH times out | your home IP changed | Azure → Networking → SSH rule → *My IP address* |
 | certbot `Timeout during connect` | port 80 blocked / DNS wrong | NSG rule for 80 = Any; DuckDNS IP = VM IP |
 | Google: `redirect_uri_mismatch` | prod URI not in Google Console | Section 1.6 |
+| Deploy job: `Host key verification failed` | `DEPLOY_KNOWN_HOSTS` wrong/stale (VM recreated) | Regenerate the line (section 3) |
+| Deploy job: `Permission denied (publickey)` | `DEPLOY_SSH_KEY` incomplete, or `authorized_keys` line missing | Paste the whole key incl. BEGIN/END lines; check the `command=` line |
+| Deploy job: `refused: expected 'deploy sha-…'` | bad manual `tag` input | Use `sha-` + 12 hex chars, or empty |
+| Deploy job: `manifest unknown` | tag doesn't exist in GHCR | Pick a tag from the package page; site keeps the old version |
+| Smoke test: wrong `live revision` | rollback happened (new image unhealthy) | Read the deploy step's log output; fix, push again |
+| CI green locally red in CI | test order/timing differences (e.g. deferred cache `evict`/`clear`) | Use `evictIfPresent`/`invalidate` (immediate) |
 
 ## 8. Decommission (planned after ~2–3 months)
 
-1. Final backup (section 5) and copy it off the VM with `scp`.
+1. Final backup (section 5) and copy it off the VM with `scp`. Disable the **Deploy** workflow (Actions → Deploy → ⋯ → Disable).
 2. Azure portal → **Resource groups** → `seatlock-vm_group` → **Delete resource group**
    (VM, disk, IP, NIC, NSG, VNet all go; stopping alone still bills disk + IP).
-3. DuckDNS: clear the IP. Google Console: remove the prod redirect URI.
+3. DuckDNS: clear the IP. Google Console: remove the prod redirect URI. GitHub: delete the `DEPLOY_*` secrets.
 4. Vercel: keep the frontend (shows the UI) or delete the project.
 5. Update README: "deployed on Azure (decommissioned on <date> to save cost)".

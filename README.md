@@ -1,5 +1,8 @@
 # SeatLock
 
+[![CI](https://github.com/prajjwalpathak/SeatLock/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/prajjwalpathak/SeatLock/actions/workflows/ci.yml)
+[![Deploy](https://github.com/prajjwalpathak/SeatLock/actions/workflows/deploy.yml/badge.svg)](https://github.com/prajjwalpathak/SeatLock/actions/workflows/deploy.yml)
+
 A flash-sale ticket booking platform where thousands of users rush for the same seats,
 and **nobody ever gets the same seat twice**. Includes an AI Seat Finder and Refund Assistant
 (AI interprets, code decides).

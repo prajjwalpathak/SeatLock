@@ -54,6 +54,8 @@ springdoc:
   default-produces-media-type: application/json
 
 seatlock:
+  build:
+    revision: ${SEATLOCK_REVISION:local}      # git commit, baked into the image by CI (GET /api/v1/system/version)
   cache:
     enabled: ${SEATLOCK_CACHE_ENABLED:true}   # false = kill switch / "before" benchmarks (NoOpCacheManager)
   jwt:

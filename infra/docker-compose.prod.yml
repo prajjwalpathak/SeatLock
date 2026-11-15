@@ -1,6 +1,7 @@
 # Production stack for the Azure VM (single host, Docker Compose).
 # Run from the repo root ON THE VM:
-#   docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml up -d --build
+#   docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml up -d
+# New backend versions arrive through CI: GitHub Actions -> GHCR -> infra/scripts/deploy.sh.
 # First-time TLS certificate: see docs/deploy.md (certbot "standalone" before Nginx starts).
 #
 # Only Nginx is reachable from the internet (80/443). App, Postgres and Redis sit on the
@@ -52,8 +53,8 @@ services:
     restart: unless-stopped
 
   app:
-    build: ../backend                  # Day 6: replaced by the CI-built image from GHCR
-    image: seatlock-backend:prod
+    # CI-built image from GHCR (public). deploy.sh writes the exact tag to APP_IMAGE in .env.prod.
+    image: ${APP_IMAGE:-ghcr.io/prajjwalpathak/seatlock-backend:latest}
     env_file: .env.prod                # JWT keys, admin, Google, CORS, frontend URL (relative to this file)
     environment:
       SPRING_PROFILES_ACTIVE: prod
