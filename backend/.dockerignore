@@ -1,0 +1,12 @@
+# Keep the build context small and secret-free.
+target/
+.idea/
+*.iml
+.vscode/
+*.log
+.env
+.env.*
+*.pem
+*.key
+Dockerfile
+.dockerignore

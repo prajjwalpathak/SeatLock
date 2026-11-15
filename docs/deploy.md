@@ -1,0 +1,138 @@
+# Deployment runbook
+
+Production = **one Azure VM** (backend stack in Docker Compose) + **Vercel** (frontend).
+Why this setup: [ADR-005](decisions/ADR-005-hosting.md).
+
+| What | Where |
+|---|---|
+| API | `https://seatlock-prajjwal.duckdns.org` (Swagger: `/swagger-ui.html`) |
+| Frontend | `https://seatlock-nu.vercel.app` |
+| VM | Azure `seatlock-vm` (India South Central, B2als_v2), user `ubuntu`, key `~\.ssh\azure_seatlock` |
+| Stack | `infra/docker-compose.prod.yml`: nginx · app · postgres · redis · certbot |
+| Secrets | `~/seatlock/infra/.env.prod` on the VM only (mode 600, never in Git) |
+
+```
+Browser ──HTTPS──► Vercel (React static)
+   │
+   └──HTTPS──► VM :443 Nginx ──► app:8080 ──► postgres:5432 / redis:6379   (private Compose network)
+                 :80 → 301 to HTTPS; /.well-known/acme-challenge → certbot webroot
+```
+
+All commands below run **on the VM** unless marked PowerShell. Shortcut used throughout:
+
+```bash
+cd ~/seatlock
+alias dc='docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml'
+```
+
+---
+
+## 1. First-time setup (done 2026-11-16)
+
+1. **VM** (Azure portal): Ubuntu 24.04 x64, Standard_B2als_v2, SSH key auth, inbound 22/80/443,
+   then restrict the SSH rule's source to *My IP address*. Budget alert USD 30/month.
+2. **DNS**: DuckDNS `seatlock-prajjwal` → VM public IP.
+3. **Docker + 2 GB swap**: official Docker apt repo (`docker-ce`, `docker-compose-plugin`),
+   `usermod -aG docker ubuntu`, `/swapfile` in `/etc/fstab`.
+4. **Code** (PowerShell, repo root): until Day 6's CI images, copy the source:
+   ```powershell
+   tar -czf $env:TEMP\seatlock-deploy.tgz --exclude=target --exclude=.env backend infra
+   scp -i $HOME\.ssh\azure_seatlock $env:TEMP\seatlock-deploy.tgz ubuntu@<VM-IP>:~/
+   ```
+   ```bash
+   mkdir -p ~/seatlock && tar -xzf ~/seatlock-deploy.tgz -C ~/seatlock
+   ```
+5. **Secrets**: `bash infra/scripts/init-env-prod.sh` generates the DB password, a new RS256 JWT pair
+   and the admin password (printed once). Then `nano infra/.env.prod` for the rest:
+   e-mails, `GOOGLE_*`, `FRONTEND_BASE_URL`, `CORS_ALLOWED_ORIGINS`.
+   Check none are empty: `grep -E '^[A-Z_]+=$' infra/.env.prod || echo "all values filled"`.
+6. **Google OAuth**: add redirect URI `https://seatlock-prajjwal.duckdns.org/login/oauth2/code/google`.
+7. **TLS certificate** (once, before Nginx exists, so port 80 is free):
+   ```bash
+   dc run --rm -p 80:80 --entrypoint certbot certbot certonly --standalone \
+     -d seatlock-prajjwal.duckdns.org --email <email> --agree-tos --no-eff-email
+   ```
+8. **Start**: `dc up -d --build` → `dc ps` (app *healthy*, then nginx starts).
+9. **Vercel**: import the GitHub repo, Root Directory `frontend`, env `VITE_API_BASE_URL=https://seatlock-prajjwal.duckdns.org`.
+   `frontend/vercel.json` rewrites every path to `index.html` (SPA deep links, `/auth/callback`).
+
+## 2. Smoke test (PowerShell)
+
+```powershell
+$B = "https://seatlock-prajjwal.duckdns.org"
+curl.exe -sI http://seatlock-prajjwal.duckdns.org | Select-String "HTTP|Location"   # 301 → https
+curl.exe -s "$B/actuator/health/readiness"                                         # {"status":"UP"}
+curl.exe -s -o NUL -w "%{http_code}`n" "$B/actuator/metrics"                        # 404 (hidden at edge)
+curl.exe -s -o NUL -D - -H "Origin: https://seatlock-nu.vercel.app" "$B/api/v1/events?limit=1" |
+  Select-String "HTTP/|Access-Control-Allow-Origin"                               # 200 + the Vercel origin
+1..20 | % { curl.exe -s -o NUL -w "%{http_code} " -X POST "$B/api/v1/auth/login" -H "Content-Type: application/json" -d '{}' }  # 400 ×5, then 429
+```
+Browser: events list, demo login (`demo.user@seatlock.test` / `seatlock-demo`), admin login,
+F5 on `/events/<id>`, Google sign-in.
+
+## 3. Redeploy a new backend version
+
+```bash
+# (copy fresh backend/ + infra/ as in 1.4, then)
+cd ~/seatlock && dc up -d --build app
+dc ps app && dc logs app --tail 30
+```
+Flyway migrates on startup. Nginx re-resolves `app` through Docker DNS, so no Nginx restart is needed.
+Frontend: push to `main` → Vercel redeploys.
+
+## 4. Change configuration / secrets
+
+```bash
+nano infra/.env.prod
+dc up -d --force-recreate app        # env is read only at container start
+```
+- **Frontend URL changed** → update both `FRONTEND_BASE_URL` and `CORS_ALLOWED_ORIGINS` (exact origin, no trailing `/`).
+- **Admin password**: changing it in `.env.prod` does *not* update an existing admin (bootstrap only creates a missing one).
+- **Rotating JWT keys** logs everyone out (all existing tokens fail verification). That is expected.
+
+## 5. Operations
+
+| Task | Command |
+|---|---|
+| Status | `dc ps` |
+| Logs | `dc logs -f app` (JSON/ECS); `dc logs nginx --tail 50` |
+| Restart one service | `dc restart app` |
+| DB shell | `dc exec postgres psql -U seatlock -d seatlock` |
+| Backup DB | `dc exec -T postgres pg_dump -U seatlock seatlock \| gzip > ~/backup-$(date +%F).sql.gz` |
+| Restore DB | `gunzip -c backup.sql.gz \| dc exec -T postgres psql -U seatlock -d seatlock` |
+| Disk / memory | `df -h /`, `free -h`, `docker system df` |
+| Clean old images | `docker image prune -f` |
+| Certificate status | `dc run --rm --entrypoint certbot certbot certificates` |
+
+Certificates renew automatically (certbot loop every 12 h, renews at < 30 days left; Nginx reloads every 6 h).
+Containers use `restart: unless-stopped`, so the stack comes back after a VM reboot.
+
+## 6. Stop / start the VM (save money)
+
+```powershell
+az vm deallocate -g seatlock-vm_group -n seatlock-vm   # compute billing stops (~USD 6/month remains)
+az vm start      -g seatlock-vm_group -n seatlock-vm   # site back in ~1–2 min
+```
+Use the portal **Stop** button or `deallocate`. **Never `sudo shutdown`**: the VM stays allocated and keeps billing.
+The static IP survives, so DNS and the certificate keep working.
+
+## 7. Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| Frontend: "Cannot reach the SeatLock server" + CORS error in console | Origin not in `CORS_ALLOWED_ORIGINS` | Section 4, exact origin |
+| Request URL is `http://localhost:8080` | `VITE_API_BASE_URL` missing at Vercel build time | Set it in Vercel → Redeploy |
+| Vercel 404 on refresh | `vercel.json` not deployed | Push it; Vercel redeploys |
+| 502 from Nginx | app down or starting | `dc ps`, `dc logs app` |
+| SSH times out | your home IP changed | Azure → Networking → SSH rule → *My IP address* |
+| certbot `Timeout during connect` | port 80 blocked / DNS wrong | NSG rule for 80 = Any; DuckDNS IP = VM IP |
+| Google: `redirect_uri_mismatch` | prod URI not in Google Console | Section 1.6 |
+
+## 8. Decommission (planned after ~2–3 months)
+
+1. Final backup (section 5) and copy it off the VM with `scp`.
+2. Azure portal → **Resource groups** → `seatlock-vm_group` → **Delete resource group**
+   (VM, disk, IP, NIC, NSG, VNet all go; stopping alone still bills disk + IP).
+3. DuckDNS: clear the IP. Google Console: remove the prod redirect URI.
+4. Vercel: keep the frontend (shows the UI) or delete the project.
+5. Update README: "deployed on Azure (decommissioned on <date> to save cost)".

@@ -3,14 +3,14 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 2 · Day 5 (not started, planned Sat Nov 21): Dockerfile, `docker-compose.prod.yml`, **Azure VM** setup, Nginx + Let's Encrypt (DuckDNS), **first live deploy**; frontend on Vercel
-- **Last completed:** Week 2 · Day 4: Redis caching (measured), create-show API, venue no-overlap guard (planned Fri Nov 20, done Sun Nov 15)
-- **Live URLs:** Backend — · Frontend — · Swagger — (local: http://localhost:8080/swagger-ui.html) · Grafana —
+- **Current day:** Week 2 · Day 6 (not started, planned Mon Nov 23): GitHub Actions `ci.yml` (build, test, JaCoCo) + `deploy.yml` (build image → GHCR → SSH deploy to the Azure VM); buffer/review
+- **Last completed:** Week 2 · Day 5: Docker image, prod Compose + Nginx/TLS, **first live deploy** on Azure + Vercel (planned Sat Nov 21, done Mon Nov 16)
+- **Live URLs:** Frontend https://seatlock-nu.vercel.app · Backend https://seatlock-prajjwal.duckdns.org · Swagger https://seatlock-prajjwal.duckdns.org/swagger-ui.html · Grafana —
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public)
-- **Hosting:** **Azure for Students** (decided W2·D4, #54); Oracle dropped
-- **Carry-overs:** JetBrains student license · record JaCoCo numbers · IntelliJ vulnerable-dependency scan (security, OAuth2 client, cache deps) · add the prod redirect URI to the Google client on W2·D5
-- **Schedule:** **~5 days ahead** (W2·D4 done Sun Nov 15 instead of Fri Nov 20); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
-- **Top risk:** first live deploy on Azure (W2·D5): ARM image build, VM sizing (4 GB for 2 app instances later), credit burn (budget alert set)
+- **Hosting:** Azure VM `seatlock-vm` (India South Central, Standard_B2als_v2 x64, ~USD 24/month) + Vercel (ADR-005, #62); decommission after ~2–3 months (`docs/deploy.md` §8)
+- **Carry-overs:** after the push, re-test F5 on a deep link + Google sign-in on the live site · JetBrains student license · IntelliJ vulnerable-dependency scan · re-upload `progress.md` to Project knowledge
+- **Schedule:** **~5 days ahead** (W2·D5 done Mon Nov 16 instead of Sat Nov 21); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
+- **Top risk:** CI/CD (W2·D6): GitHub → VM SSH deploy secrets, GHCR auth on the VM; VM burst credits (load tests stay local)
 
 ## Decisions Log (ADR summary)
 | # | Date | Decision | Why |
@@ -76,6 +76,15 @@
 | 59 | 2026-11-15 | **Venue no-overlap guard:** `shows.ends_at` (start + duration + 30 min) + exclusion constraint `ex_shows_venue_no_overlap` (`btree_gist`, `tstzrange '[)'`, scheduled only) → 409 `SHOW_OVERLAP` | DB-enforced like the seat guard; proven with a 2-thread race test |
 | 60 | 2026-11-15 | `POST /api/v1/organizer/events/{id}/shows`: owner only (else 404), not cancelled, start 1 h–1 y ahead, prices for exactly the venue's sections, show + all seats in one transaction, one `INSERT … SELECT … JOIN (VALUES …)` | No half-created shows; no IDOR; no per-seat inserts |
 | 61 | 2026-11-15 | Benchmark method: variants measured against the **original code** (git worktree), INFO logging, 200 warm-up + 500 requests, **median of 3 runs in one session**; benchmark hit rates are not production hit rates. `/actuator/**` (metrics, caches) ADMIN-only, exposed locally only | Run 1 was invalid (wrong baseline, DEBUG noise, single runs); session-to-session noise is large on the laptop |
+| 62 | 2026-11-16 | **ADR-005 hosting:** Azure VM in **India South Central**, **Standard_B2als_v2 (x64, 2 vCPU, 4 GB)**, Ubuntu 24.04, Standard static IP + DuckDNS; frontend on Vercel. Supersedes the ARM size in #54 | Student-subscription policy allows only 5 regions (Central India blocked); B2pls_v2 (ARM) `NotAvailableForSubscription`; x64 also avoids ARM emulation in CI. Container Apps/Render/laptop-tunnel compared and rejected |
+| 63 | 2026-11-16 | Backend image: multi-stage `eclipse-temurin:25-jdk` → `25-jre` (Ubuntu, glibc), layered jar (`-Djarmode=tools extract --layers`), non-root `spring`, exec-form `java -jar`, `MaxRAMPercentage=70`, `ExitOnOutOfMemoryError`, UTC, `HEALTHCHECK` on liveness; tests not run in the image build | Small runtime, fast rebuilds (only the app layer changes), graceful SIGTERM; Testcontainers needs Docker, so CI runs tests before building |
+| 64 | 2026-11-16 | Prod = one Compose project (`infra/docker-compose.prod.yml`): only Nginx publishes 80/443; app/Postgres/Redis private; `restart: unless-stopped`; memory limits (app 1200m, PG 768m, Redis 256m); Docker logs 3×10 MB; Redis without persistence; 2 GB swap on the VM | Minimal attack surface on a public VM; survives reboots; can't fill the disk |
+| 65 | 2026-11-16 | Edge: Nginx 1.28, Let's Encrypt (first issue `--standalone`, renew via webroot loop every 12 h, Nginx reload every 6 h), TLS 1.2/1.3, HSTS, gzip, **10 req/min/IP (burst 5) on login/register → 429**, `/actuator/*` hidden except health, Docker DNS resolver for `app`. App: `forward-headers-strategy: native`, health probes, readiness = `readinessState,db,redis` | HTTPS-correct OAuth redirects; brute-force guard; redeploys never leave Nginx on a stale IP; liveness/readiness separated (no restart loops on DB blips) |
+| 66 | 2026-11-16 | Prod secrets generated **on the VM** by `infra/scripts/init-env-prod.sh` (new RS256 pair, DB password, admin password printed once) into `infra/.env.prod` (mode 600, git-ignored) | Secrets never pass through chat, Git or the laptop; prod keys differ from local |
+| 67 | 2026-11-16 | Vercel project imported from GitHub (root `frontend`, `VITE_API_BASE_URL` at build time), `frontend/vercel.json` SPA rewrite; prod origin `https://seatlock-nu.vercel.app` set as `FRONTEND_BASE_URL` + `CORS_ALLOWED_ORIGINS` | Auto-deploy on push; deep links and `/auth/callback` survive refresh; CORS stays an exact allow-list |
+| 68 | 2026-11-16 | Until W2·D6, code reaches the VM via `tar` + `scp` (backend + infra only) and is built there | Keeps one commit per day; Day 6 switches to CI-built images from GHCR |
+| 69 | 2026-11-16 | Load tests/benchmarks stay **local**; the VM is decommissioned (resource group deleted) after ~2–3 months | B-series burst credits make VM numbers unreliable; honest resume line: deployed, then decommissioned to save cost |
+| 70 | 2026-11-16 | `spring.data.redis.repositories.enabled: false` | Redis is cache + plain keys; removes repository-scan noise at startup |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -86,19 +95,21 @@
 | Event detail latency, Redis cache vs original code | p50 4.46 → **2.77 ms (−38%)**; p95 5.33 → **3.61 ms (−32%)**; p99 6.52 → 4.39 ms | `load-tests/bench-catalog.ps1`, 1 client, 500 req after 200 warm-up, median of 3 runs, same session (`docs/benchmarks.md` Run 2) | 2026-11-15 |
 | Event list latency, Redis cache vs original code | p50 5.35 → **4.16 ms (−22%)**; p95 6.46 → **5.12 ms (−21%)**; p99 8.34 → 6.14 ms | same | 2026-11-15 |
 | Seat map: cached layout/prices vs single query | p95 7.72 → 12.29 ms (**+59%, rejected**; kept the single indexed query) | same | 2026-11-15 |
+| Test coverage (JaCoCo) | **92.5% instructions, 92.1% lines, 73.1% branches**; 173 tests | `mvnw verify` (`target/site/jacoco/jacoco.csv`) | 2026-11-16 |
+| Container startup (prod profile) | **~9.0 s** to `Started`; image content 194 MB | `docker run` on the laptop (Docker Desktop) | 2026-11-16 |
 
 ## Accounts & Config (no secrets here, only where they live)
 | Item | Status | Where stored |
 |---|---|---|
 | GitHub repo | ✅ Created (public) | github.com/prajjwalpathak/SeatLock |
-| Oracle Cloud VM | ❌ Not used (hosting decided: Azure, #54) | — |
-| Azure for Students | ✅ Active ($100, 12 months; **production host**; budget alert $15/month; VM created on W2·D5) | portal.azure.com (DTU email) |
+| Oracle Cloud VM | ❌ Not used (hosting: Azure, #54/#62) | — |
+| Azure for Students | ✅ Active ($100, 12 months; **production host**: `seatlock-vm` in RG `seatlock-vm_group`, India South Central; budget alert) | portal.azure.com (DTU email); SSH key `~\\.ssh\\azure_seatlock`; prod secrets in `~/seatlock/infra/.env.prod` on the VM |
 | AWS | ❌ Free plan already used up; not used for this project | — |
-| DuckDNS domain | — (W2·D5) | — |
+| DuckDNS domain | ✅ `seatlock-prajjwal.duckdns.org` → VM static IP | duckdns.org (token in DuckDNS account) |
 | Razorpay test keys | — (W4·D2) | `.env` (git-ignored) |
-| Google OAuth client | ✅ Web client "SeatLock local" (Testing mode, test user added); redirect `http://localhost:8080/login/oauth2/code/google`; prod URI on W2·D5 | `.env` (`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`, git-ignored) |
+| Google OAuth client | ✅ Web client "SeatLock local" (Testing mode, test user added); redirect `http://localhost:8080/login/oauth2/code/google`; prod URI `https://seatlock-prajjwal.duckdns.org/login/oauth2/code/google` added W2·D5 | `.env` (`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`, git-ignored) |
 | Gemini/Groq API key | — (W7·D1) | `.env` (git-ignored) |
-| Vercel project | — (W2·D5) | — |
+| Vercel project | ✅ imported from GitHub (root `frontend`), `https://seatlock-nu.vercel.app`; env `VITE_API_BASE_URL` | vercel.com (GitHub login) |
 | Local Postgres/Redis creds | ✅ | `.env` (git-ignored); keys documented in `.env.example` |
 | Local JWT keys + bootstrap admin | ✅ generated on W2·D1 / W2·D2 | `.env` (`JWT_*`, `SEATLOCK_ADMIN_*`, git-ignored) |
 
@@ -510,4 +521,43 @@
 - Set-based inserts; safe dynamic SQL (generated placeholders, bound values)
 - Benchmark methodology: baselines, warm-up, percentiles (p50/p95/p99), noise, medians of repeated runs, logging overhead; making decisions from measurements (and reverting)
 **Commit:** `feat(catalog): add measured Redis caching, create-show API and venue overlap guard`
+
+### Week 2 · Day 5: Docker image, prod Compose + Nginx/TLS, first live deploy (planned Sat, Nov 21; done Mon, Nov 16, 2026)
+**Status:** ✅ Done (deep-link refresh + Google sign-in on the live site re-tested after the push)
+**Built:**
+- `backend\Dockerfile` (multi-stage JDK→JRE, layered jar, non-root, liveness `HEALTHCHECK`) + `.dockerignore`; verified locally in prod mode: probes UP, `healthy`, uid `spring`, API OK
+- Prod config: forwarded headers (`native`), health probes, readiness group with `db` + `redis`; Redis repositories disabled
+- `infra\docker-compose.prod.yml` (nginx, app, postgres, redis, certbot), `infra\nginx\templates\seatlock.conf.template` (TLS, HSTS, gzip, login rate limit, actuator hidden, WebSocket-ready, Docker DNS resolver), `infra\.env.prod.example`, `infra\scripts\init-env-prod.sh`
+- Azure VM (India South Central, B2als_v2, Ubuntu 24.04), SSH restricted to my IP, DuckDNS, Docker + 2 GB swap, Let's Encrypt certificate, stack up and healthy
+- Vercel frontend (`frontend\vercel.json` SPA rewrite), prod CORS + frontend URL, Google prod redirect URI
+- Live smoke test passed: 301 → HTTPS, readiness UP, actuator 404, events, demo login, admin login, CORS header, rate limit (400 ×5 → 429)
+- `docs\deploy.md` runbook (setup, smoke test, redeploy, config, ops/backup, stop/start, troubleshooting, decommission); ADR-005; README live links + stack line
+**Files created/changed:**
+- `backend\{Dockerfile, .dockerignore}`, `backend\src\main\resources\{application.yml, application-prod.yml}`
+- `infra\{docker-compose.prod.yml, .env.prod.example}`, `infra\nginx\templates\seatlock.conf.template`, `infra\scripts\init-env-prod.sh`
+- `frontend\vercel.json`; `.gitignore` (`!.env.prod.example`, `.vercel/`)
+- `docs\deploy.md`, `docs\decisions\ADR-005-hosting.md`, `README.md`, `progress.md`
+**Decisions:**
+- See Decisions Log #62–#70
+**Metrics recorded:**
+- JaCoCo 92.5% instructions / 92.1% lines / 73.1% branches (173 tests); container startup ~9.0 s; image content 194 MB
+**Problems & fixes:**
+- B2pls_v2 (ARM) `NotAvailableForSubscription` in Central India → x64 B2als_v2; "size not supported for arm64" = x64 size with Arm64 architecture selected
+- Deployment `RequestDisallowedByAzure`: student policy allows only `uaenorth, malaysiawest, indiasouthcentral, indonesiacentral, eastasia` → India South Central
+- Frontend "Cannot reach the SeatLock server": CORS blocked origin `https://seatlock-nu.vercel.app` (env still had the guessed URL) → exact origin in `.env.prod` + `--force-recreate app`
+- Vercel 404 on refresh: `vercel.json` not yet on GitHub (Vercel builds from Git) → fixed by today's push
+- `Permissions-Policy … browsing-topics` console errors come from Vercel's 404 page, not the app
+- Verify command used `?size=` → the list parameter is `limit`
+**Carry-over:**
+- Re-test F5 on `/events/<id>` and Google sign-in on the live site after the push
+- JetBrains student license; IntelliJ vulnerable-dependency scan (ADR-001); re-upload `progress.md` to Project knowledge
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- Multi-stage Docker builds, layered jars, image layer caching, non-root containers, PID 1 and SIGTERM / graceful shutdown, JVM container memory (`MaxRAMPercentage`)
+- Liveness vs readiness probes; container healthchecks; `depends_on: service_healthy`
+- Reverse proxy duties: TLS termination, `X-Forwarded-*` and trusted proxies, HSTS, rate limiting (leaky bucket, burst), hiding internal endpoints
+- Let's Encrypt HTTP-01 challenge, standalone vs webroot, renewal without downtime
+- Secrets management on a single host; why prod keys differ from dev; least-exposed network topology
+- CORS (exact origins, preflight), SPA history-API routing and server rewrites, build-time vs runtime env vars in Vite
+- Cloud cost control: burstable VMs, deallocate vs shutdown, region policies, budget alerts, decommissioning
+**Commit:** `feat(infra): containerize backend and deploy to Azure VM with Nginx, TLS and Vercel`
 

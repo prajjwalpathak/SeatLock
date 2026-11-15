@@ -32,6 +32,8 @@ spring:
 
   data:
     redis:
+      repositories:
+        enabled: false           # Redis is cache + keys only; stops repository-scan noise at startup
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       timeout: 500ms             # fail fast: a slow Redis must not stall every request (cache falls back to DB)

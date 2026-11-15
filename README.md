@@ -6,11 +6,14 @@ and **nobody ever gets the same seat twice**. Includes an AI Seat Finder and Ref
 
 > 🚧 Work in progress. Full README (architecture diagram, benchmarks, demo) lands at v1.0.0.
 
+**Live demo:** https://seatlock-nu.vercel.app · API: https://seatlock-prajjwal.duckdns.org/swagger-ui.html
+(deployment runbook: [docs/deploy.md](docs/deploy.md))
+
 ## Stack
 
 Java 25 · Spring Boot 4.1 · PostgreSQL 16 (pgvector) · Redis 7 · Spring Security (JWT + Google OAuth2) ·
 WebSocket/STOMP · Razorpay (test mode) · Spring AI 2.0 · Testcontainers · k6 · Prometheus/Grafana ·
-Docker · Nginx · GitHub Actions · Oracle Cloud ARM · React + TypeScript + Vite
+Docker · Nginx · GitHub Actions · Azure VM · Vercel · React + TypeScript + Vite
 
 ## Repository layout
 

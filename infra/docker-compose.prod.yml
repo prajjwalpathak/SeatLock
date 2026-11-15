@@ -1,0 +1,108 @@
+# Production stack for the Azure VM (single host, Docker Compose).
+# Run from the repo root ON THE VM:
+#   docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml up -d --build
+# First-time TLS certificate: see docs/deploy.md (certbot "standalone" before Nginx starts).
+#
+# Only Nginx is reachable from the internet (80/443). App, Postgres and Redis sit on the
+# private Compose network with no published ports.
+name: seatlock-prod
+
+x-logging: &default-logging          # cap Docker logs so they can't fill the 30 GB disk
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16      # same image as local (pgvector used in Week 7)
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-seatlock}
+      POSTGRES_USER: ${POSTGRES_USER:-seatlock}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in infra/.env.prod}
+    command: ["postgres", "-c", "shared_buffers=256MB", "-c", "max_connections=50"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 768m
+    logging: *default-logging
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    # Cache + short-lived OAuth/one-time-code keys only: no persistence needed.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+    logging: *default-logging
+    restart: unless-stopped
+
+  app:
+    build: ../backend                  # Day 6: replaced by the CI-built image from GHCR
+    image: seatlock-backend:prod
+    env_file: .env.prod                # JWT keys, admin, Google, CORS, frontend URL (relative to this file)
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 1200m                # JVM heap = 70% of this (MaxRAMPercentage in the Dockerfile)
+    logging: *default-logging
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.28-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in infra/.env.prod}
+    volumes:
+      - ./nginx/templates:/etc/nginx/templates:ro     # *.template -> /etc/nginx/conf.d (envsubst)
+      - letsencrypt:/etc/letsencrypt:ro
+      - certbot-www:/var/www/certbot:ro
+    # Reload every 6 h so a renewed certificate is picked up without downtime.
+    command: ["/bin/sh", "-c", "while :; do sleep 6h & wait $${!}; nginx -s reload; done & exec /docker-entrypoint.sh nginx -g 'daemon off;'"]
+    depends_on:
+      app:
+        condition: service_healthy
+    logging: *default-logging
+    restart: unless-stopped
+
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    # Renewal loop: certbot only renews when < 30 days remain, so twice a day is cheap.
+    entrypoint: ["/bin/sh", "-c", "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done"]
+    logging: *default-logging
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  letsencrypt:
+  certbot-www:
