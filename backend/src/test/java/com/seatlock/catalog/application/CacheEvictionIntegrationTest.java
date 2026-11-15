@@ -50,7 +50,7 @@ class CacheEvictionIntegrationTest {
         venueId = jdbc.queryForObject("SELECT id FROM venues ORDER BY id DESC LIMIT 1", Long.class);
         jdbc.queryForList("SELECT DISTINCT section FROM seats WHERE venue_id = ?", String.class, venueId)
                 .forEach(section -> prices.put(section, 80_000L));
-        caches.getCacheNames().forEach(name -> caches.getCache(name).clear());
+        caches.getCacheNames().forEach(name -> caches.getCache(name).invalidate()); // immediate; clear() may be deferred
     }
 
     @Test

@@ -67,7 +67,7 @@ class CacheConfigIntegrationTest {
                 WHERE e.status = 'PUBLISHED' AND s.status = 'SCHEDULED' AND s.starts_at > now()
                 ORDER BY e.id LIMIT 1""", Long.class);
         Cache cache = cacheManager.getCache(CacheNames.EVENT_DETAIL);
-        cache.evict(eventId);
+        cache.evictIfPresent(eventId);
         double hitsBefore = gets("hit");
         double missesBefore = gets("miss");
         Raw rawBefore = raw();

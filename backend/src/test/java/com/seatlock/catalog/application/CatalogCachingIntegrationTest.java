@@ -41,7 +41,7 @@ class CatalogCachingIntegrationTest {
                 ORDER BY s.starts_at LIMIT 1""");
         eventId = ((Number) row.get("event_id")).longValue();
         showId = ((Number) row.get("show_id")).longValue();
-        caches.getCacheNames().forEach(name -> caches.getCache(name).clear());
+        caches.getCacheNames().forEach(name -> caches.getCache(name).invalidate()); // immediate; clear() may be deferred
     }
 
     @Test
@@ -52,12 +52,12 @@ class CatalogCachingIntegrationTest {
             jdbc.update("UPDATE events SET title = 'Changed Behind The Cache' WHERE id = ?", eventId);
 
             mvc.perform(get("/api/v1/events/{id}", eventId)).andExpect(jsonPath("$.title").value(original)); // hit
-            caches.getCache(CacheNames.EVENT_DETAIL).evict(eventId);
+            caches.getCache(CacheNames.EVENT_DETAIL).evictIfPresent(eventId);
             mvc.perform(get("/api/v1/events/{id}", eventId))
                     .andExpect(jsonPath("$.title").value("Changed Behind The Cache"));            // fresh again
         } finally {
             jdbc.update("UPDATE events SET title = ? WHERE id = ?", original, eventId);
-            caches.getCache(CacheNames.EVENT_DETAIL).evict(eventId);
+            caches.getCache(CacheNames.EVENT_DETAIL).evictIfPresent(eventId);
         }
     }
 

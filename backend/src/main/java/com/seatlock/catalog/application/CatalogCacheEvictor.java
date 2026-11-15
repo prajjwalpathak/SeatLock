@@ -34,7 +34,9 @@ public class CatalogCacheEvictor {
 
     private void evict(String cacheName, Object key) {
         try {
-            cache(cacheName).evict(key);
+            // evictIfPresent, not evict: the Cache contract lets evict() run asynchronously (Spring Data
+            // Redis 4 does), which would leave a window where readers still see the old entry.
+            cache(cacheName).evictIfPresent(key);
         } catch (RuntimeException ex) {
             // Redis down: the entry still expires by its TTL (5 min), so staleness is bounded
             log.warn("Could not evict {}::{} ({})", cacheName, key, ex.getMessage());
@@ -43,7 +45,7 @@ public class CatalogCacheEvictor {
 
     private void clear(String cacheName) {
         try {
-            cache(cacheName).clear(); // SCAN-based (CacheConfig), never KEYS
+            cache(cacheName).invalidate(); // immediate (clear() may be deferred); SCAN-based, never KEYS
         } catch (RuntimeException ex) {
             log.warn("Could not clear {} ({})", cacheName, ex.getMessage());
         }
