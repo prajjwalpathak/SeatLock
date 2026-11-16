@@ -47,6 +47,25 @@ class CacheConfigIntegrationTest {
         assertThat(cache.get(900_001L, EventDetailResponse.class)).isEqualTo(detail); // typed read back
     }
 
+    /**
+     * Regression (W3·D2): Spring Data Redis 4 defaults to asynchronous cache writes, so a put could
+     * return before the key existed (TTL -2). With immediateWrites every put is visible at once.
+     */
+    @Test
+    void putsAndEvictionsAreVisibleImmediately() {
+        Cache cache = cacheManager.getCache(CacheNames.EVENT_DETAIL);
+        var detail = new EventDetailResponse(1L, "t", "d", EventCategory.CONCERT, "Hindi", 60, List.of());
+
+        for (long id = 910_000; id < 910_200; id++) {
+            cache.put(id, detail);
+            assertThat(redis.hasKey(CacheConfig.KEY_PREFIX + CacheNames.EVENT_DETAIL + "::" + id))
+                    .as("key %d right after put", id).isTrue();
+            cache.evict(id); // plain evict() too: immediate writes make it synchronous
+            assertThat(redis.hasKey(CacheConfig.KEY_PREFIX + CacheNames.EVENT_DETAIL + "::" + id))
+                    .as("key %d right after evict", id).isFalse();
+        }
+    }
+
     @Test
     void unknownCacheNamesAreNotCreatedSilently() {
         assertThat(cacheManager.getCacheNames())

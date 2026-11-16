@@ -202,6 +202,45 @@ sequenceDiagram
   is client-only until holds exist (D2 API, D5 UI) and is derived from the latest map, so a seat taken
   by someone else drops out. Refetch on focus + Refresh button until WebSocket push (W5).
 
+## 2d. Seat holds (W3·D2, ADR-006)
+
+| Endpoint | Who | Result |
+|---|---|---|
+| `POST /api/v1/shows/{showId}/holds` `{"seatIds":[…]}` | signed in | 201 `{holdId, showId, seats, totalPaise, expiresAt}` · 409 `SEATS_UNAVAILABLE` (+ `seatIds`) / `HOLD_EXISTS` / `SHOW_STARTED` · 400 `TOO_MANY_SEATS` / `DUPLICATE_SEATS` / `UNKNOWN_SEATS` / `NO_SEATS` · 503 `HOLDS_UNAVAILABLE` |
+| `GET /api/v1/holds/{holdId}` | owner | 200, else 404 |
+| `DELETE /api/v1/holds/{holdId}` | owner | 204, else 404 |
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant UI as React (D5)
+    participant C as HoldController
+    participant S as HoldService (booking)
+    participant CAT as ShowCatalogService (catalog)
+    participant DB as Postgres
+    participant R as Redis (hold_seats.lua)
+    UI->>C: POST /shows/34/holds {seatIds} + Bearer JWT
+    C->>S: createHold(userId from token, showId, seatIds)
+    S->>S: 1–6 seats, no duplicates
+    S->>CAT: findHoldableSeats(showId, seatIds)
+    CAT->>DB: bookable show? + those seats (price, status)
+    S->>S: not started, seats in show, none BOOKED
+    S->>R: EVALSHA hold_seats.lua (seat keys, user key, record key)
+    alt all free
+        R-->>S: OK (all keys set, TTL 8 min)
+        S-->>UI: 201 hold (server prices, expiresAt)
+    else some seat held
+        R-->>S: SEATS_TAKEN [seat positions] (nothing written)
+        S-->>UI: 409 SEATS_UNAVAILABLE + seatIds
+    else user already holds
+        R-->>S: HOLD_EXISTS
+        S-->>UI: 409 HOLD_EXISTS
+    end
+```
+
+- The seat map (§2c) reads the same seat keys, so a new hold shows as HELD on the next fetch.
+- No DB transaction around the request; booking only calls catalog's public service (booking → catalog).
+
 ## 3. Conventions
 - Internal keys are `bigint` identity. Bookings expose a random `public_id` (UUID), so IDs in URLs can't be enumerated.
 - Enums are `varchar` + `CHECK`, not Postgres `ENUM` types: easier to evolve with Flyway, and mapped with `@Enumerated(EnumType.STRING)`.
