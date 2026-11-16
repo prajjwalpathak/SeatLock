@@ -50,18 +50,31 @@ public class RateLimiter implements SmartLifecycle {
 
     public Decision tryConsume(String key, RateLimitProperties.Limit limit) {
         try {
-            ConsumptionProbe probe = buckets().builder()
-                    .build(key.getBytes(StandardCharsets.UTF_8), () -> configuration(limit))
-                    .tryConsumeAndReturnRemaining(1);
-            if (probe.isConsumed()) {
-                return new Decision(true, probe.getRemainingTokens(), 0);
+            return consume(key, limit);
+        } catch (RuntimeException first) {
+            // The cached proxy's connection may be stale (client restarted, connection closed): drop it and try
+            // once more on a freshly built one. Only if that fails too is Redis really unavailable → fail open.
+            buckets = null;
+            try {
+                return consume(key, limit);
+            } catch (RuntimeException second) {
+                buckets = null;
+                log.warn("Rate limiter unavailable for {}; allowing the request ({}; first attempt: {})",
+                        key, second.toString(), first.toString());
+                return Decision.failOpen();
             }
-            long seconds = Math.max(1, (probe.getNanosToWaitForRefill() + 999_999_999L) / 1_000_000_000L); // round up
-            return new Decision(false, 0, seconds);
-        } catch (RuntimeException e) {
-            log.warn("Rate limiter unavailable for {}; allowing the request ({})", key, e.toString());
-            return Decision.failOpen();
         }
+    }
+
+    private Decision consume(String key, RateLimitProperties.Limit limit) {
+        ConsumptionProbe probe = buckets().builder()
+                .build(key.getBytes(StandardCharsets.UTF_8), () -> configuration(limit))
+                .tryConsumeAndReturnRemaining(1);
+        if (probe.isConsumed()) {
+            return new Decision(true, probe.getRemainingTokens(), 0);
+        }
+        long seconds = Math.max(1, (probe.getNanosToWaitForRefill() + 999_999_999L) / 1_000_000_000L); // round up
+        return new Decision(false, 0, seconds);
     }
 
     // Lifecycle: when the context stops (shutdown, or a paused test context), LettuceConnectionFactory shuts its

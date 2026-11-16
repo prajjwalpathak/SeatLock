@@ -23,16 +23,17 @@ class RateLimiterTest {
     }
 
     @Test
-    void aFailedBuildIsRetriedOnTheNextCall() {
+    void aFailureDropsTheProxyAndRetriesOnceOnAFreshOne() {
         java.util.concurrent.atomic.AtomicInteger builds = new java.util.concurrent.atomic.AtomicInteger();
         RateLimiter limiter = new RateLimiter(() -> {
             builds.incrementAndGet();
             throw new IllegalStateException("no Redis in a unit test");
         });
 
-        limiter.tryConsume("rl:test:x", LIMIT);
-        limiter.tryConsume("rl:test:x", LIMIT);
+        assertThat(limiter.tryConsume("rl:test:x", LIMIT).allowed()).isTrue();   // fail open after 2 attempts
+        assertThat(builds).hasValue(2);                                          // first attempt + one fresh retry
 
-        assertThat(builds).hasValue(2); // nothing broken is cached: Redis coming back is picked up at once
+        limiter.tryConsume("rl:test:x", LIMIT);
+        assertThat(builds).hasValue(4); // nothing broken is cached: Redis coming back is picked up at once
     }
 }
