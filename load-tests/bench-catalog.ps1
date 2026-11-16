@@ -8,6 +8,8 @@
   # Terminal 2:            .\load-tests\bench-catalog.ps1 -Label cache-off
   # Restart backend with $env:SEATLOCK_CACHE_ENABLED="true", then:
   #                        .\load-tests\bench-catalog.ps1 -Label cache-on
+  # Seat map only, fixed show (e.g. after .\load-tests\seed-holds.ps1 -ShowId 34 -Count 50):
+  #                        .\load-tests\bench-catalog.ps1 -Label holds-50 -Only seats -ShowId 34
 
 .NOTES
   One client, one request at a time: this measures per-request latency, not throughput
@@ -20,7 +22,10 @@ param(
     [string]$BaseUrl = "http://localhost:8080",
     [int]$Requests = 500,
     [int]$Warmup = 200,
-    [string]$Label = "run"
+    [string]$Label = "run",
+    [ValidateSet("all", "seats")]
+    [string]$Only = "all",
+    [long]$ShowId = 0          # 0 = first upcoming show of the first listed event
 )
 
 $ErrorActionPreference = "Stop"
@@ -66,12 +71,16 @@ function Measure-Endpoint([string]$name, [string]$path) {
 }
 
 $eventId = (Get-Json "/api/v1/events?limit=1").items[0].id
-$showId = (Get-Json "/api/v1/events/$eventId").upcomingShows[0].id
-Write-Host "Benchmarking '$Label' against $BaseUrl (event $eventId, show $showId), $Requests requests each..."
+$showId = if ($ShowId -gt 0) { $ShowId } else { (Get-Json "/api/v1/events/$eventId").upcomingShows[0].id }
+$seatMap = Get-Json "/api/v1/shows/$showId/seats"
+$held = @($seatMap.seats | Where-Object status -eq 'HELD').Count
+Write-Host "Benchmarking '$Label' against $BaseUrl (event $eventId, show $showId, $held seats HELD, holdsLive=$($seatMap.holdsLive)), $Requests requests each..."
 
 $results = @(
-    Measure-Endpoint "GET /events (list)"      "/api/v1/events"
-    Measure-Endpoint "GET /events/{id}"        "/api/v1/events/$eventId"
+    if ($Only -eq "all") {
+        Measure-Endpoint "GET /events (list)"  "/api/v1/events"
+        Measure-Endpoint "GET /events/{id}"    "/api/v1/events/$eventId"
+    }
     Measure-Endpoint "GET /shows/{id}/seats"   "/api/v1/shows/$showId/seats"
 )
 $results | Format-Table -AutoSize
