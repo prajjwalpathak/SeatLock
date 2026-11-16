@@ -1,3 +1,4 @@
+import { Link } from 'react-router'
 import { formatPaise, formatShowTime } from '../../lib/format'
 import type { ShowSummary } from '../../types/api'
 
@@ -24,15 +25,12 @@ export function ShowList({ shows }: { shows: ShowSummary[] }) {
             <span className="text-sm text-slate-600">
               from <span className="font-semibold text-slate-900">{formatPaise(show.fromPricePaise)}</span>
             </span>
-            {/* Becomes a link to the seat map on W3·D1. */}
-            <button
-              type="button"
-              disabled
-              title="Seat selection opens soon"
-              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+            <Link
+              to={`/shows/${show.id}`}
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
             >
               Select seats
-            </button>
+            </Link>
           </div>
         </li>
       ))}

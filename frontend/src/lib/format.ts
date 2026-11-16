@@ -30,3 +30,15 @@ export function formatDuration(minutes: number): string {
   if (h === 0) return `${m}m`
   return m === 0 ? `${h}h` : `${h}h ${m}m`
 }
+
+const clockTime = new Intl.DateTimeFormat('en-IN', {
+  timeZone: 'Asia/Kolkata',
+  hour: 'numeric',
+  minute: '2-digit',
+  second: '2-digit',
+})
+
+/** Epoch millis -> IST wall-clock time, e.g. "7:31:05 pm" (for "updated at" labels). */
+export function formatClockTime(epochMillis: number): string {
+  return clockTime.format(new Date(epochMillis))
+}
