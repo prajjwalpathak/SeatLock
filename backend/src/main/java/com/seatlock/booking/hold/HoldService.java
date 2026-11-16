@@ -12,6 +12,7 @@ import com.seatlock.common.exception.NotFoundException;
 import com.seatlock.common.exception.ServiceUnavailableException;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -76,7 +77,8 @@ public class HoldService {
         }
 
         String holdId = UUID.randomUUID().toString();
-        Instant expiresAt = now.plus(props.ttl());
+        // Millisecond precision: that's what the Redis record stores, so POST, GET and the booking all agree.
+        Instant expiresAt = now.plus(props.ttl()).truncatedTo(ChronoUnit.MILLIS);
         HoldAttempt attempt = withRedis(() -> store.tryHold(holdId, userId, showId, seatIds, props.ttl(), expiresAt));
         return switch (attempt) {
             case Held held -> toHold(held.holdId(), showId, seatIds, byId, expiresAt);

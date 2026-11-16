@@ -60,6 +60,21 @@ class HoldServiceTest {
     }
 
     @Test
+    void expiryIsTruncatedToMillisecondsLikeTheRedisRecord() {
+        Instant nanos = Instant.parse("2026-12-01T12:00:00.123456789Z");
+        HoldService precise = new HoldService(catalog, store, new HoldProperties(TTL, 6), Clock.fixed(nanos, ZoneOffset.UTC));
+        when(catalog.findHoldableSeats(eq(SHOW), anyList())).thenReturn(Optional.of(new HoldableShow(SHOW,
+                nanos.plus(Duration.ofDays(1)), List.of(seat(1, 100, ShowSeatStatus.AVAILABLE)))));
+        when(store.tryHold(anyString(), anyLong(), anyLong(), anyList(), any(), any()))
+                .thenAnswer(inv -> new HoldAttempt.Held(inv.getArgument(0)));
+
+        Hold hold = precise.createHold(USER, SHOW, List.of(1L));
+
+        assertThat(hold.expiresAt()).isEqualTo(Instant.parse("2026-12-01T12:08:00.123Z"));
+        verify(store).tryHold(anyString(), anyLong(), anyLong(), anyList(), any(), eq(Instant.parse("2026-12-01T12:08:00.123Z")));
+    }
+
+    @Test
     void inputIsCheckedBeforeAnythingElse() {
         assertCode(() -> service.createHold(USER, SHOW, List.of()), InvalidRequestException.class, "NO_SEATS");
         assertCode(() -> service.createHold(USER, SHOW, List.of(1L, 2L, 3L, 4L, 5L, 6L, 7L)),
