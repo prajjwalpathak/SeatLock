@@ -29,6 +29,17 @@ Why not "check, then insert" in Java: two transactions can both see the venue fr
 insert. With the exclusion constraint, the second insert waits for the first transaction and
 then fails, which is the same pattern as the seat guard in §1.
 
+## 1c. Seat status from two sources (W3·D1)
+
+The seat map reads BOOKED from Postgres and HELD from Redis hold keys. Rules:
+- **Postgres wins.** A seat BOOKED in the DB is BOOKED even if a stale hold key still exists
+  (`ShowCatalogServiceTest`, `SeatMapLiveStatusIntegrationTest`).
+- **The key's TTL is the hold.** An expired key reads as nil, so an expired hold is AVAILABLE
+  with no sweeper involved (`SeatHoldReaderIntegrationTest`).
+- **Redis down = display may under-report holds, never over-sell.** The map degrades to DB statuses
+  (`holdsLive = false`); correctness lives in the atomic hold script (W3·D2) and the partial unique
+  index `ux_booking_seats_live_seat` (§1), not in the seat map.
+
 ## 2. Query plans (catalog reads)
 
 **Method:** `docs/explain/catalog-queries.sql` on the seeded local DB (30 events, 90 shows,
