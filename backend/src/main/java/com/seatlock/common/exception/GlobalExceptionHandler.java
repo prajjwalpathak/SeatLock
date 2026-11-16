@@ -46,7 +46,17 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(ConflictException.class)
     ProblemDetail handleConflict(ConflictException ex) {
-        return problem(HttpStatus.CONFLICT, "Conflict", ex.getMessage(), ex.getCode());
+        ProblemDetail pd = problem(HttpStatus.CONFLICT, "Conflict", ex.getMessage(), ex.getCode());
+        ex.getProperties().forEach(pd::setProperty); // e.g. seatIds for SEATS_UNAVAILABLE
+        return pd;
+    }
+
+    /** A dependency is down (e.g. Redis for holds). Retry-After tells clients to back off briefly. */
+    @ExceptionHandler(ServiceUnavailableException.class)
+    ResponseEntity<ProblemDetail> handleServiceUnavailable(ServiceUnavailableException ex) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, "5")
+                .body(problem(HttpStatus.SERVICE_UNAVAILABLE, "Service unavailable", ex.getMessage(), ex.getCode()));
     }
 
     @ExceptionHandler(UnauthorizedException.class)

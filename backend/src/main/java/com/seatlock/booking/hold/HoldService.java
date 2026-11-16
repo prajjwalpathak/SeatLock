@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,6 +38,8 @@ import org.springframework.stereotype.Service;
 public class HoldService {
 
     private static final Logger log = LoggerFactory.getLogger(HoldService.class);
+    private static final Pattern HOLD_ID =
+            Pattern.compile("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
 
     private final ShowCatalogService catalog;
     private final RedisHoldStore store;
@@ -118,6 +121,9 @@ public class HoldService {
     }
 
     private HoldRecord ownedRecord(long userId, String holdId) {
+        if (holdId == null || !HOLD_ID.matcher(holdId).matches()) {
+            throw new NotFoundException("Hold", "(invalid id)"); // never build a Redis key from arbitrary input
+        }
         HoldRecord record = withRedis(() -> store.find(holdId))
                 .orElseThrow(() -> new NotFoundException("Hold", holdId));
         if (record.userId() != userId) {

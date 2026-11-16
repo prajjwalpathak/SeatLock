@@ -36,6 +36,7 @@ class HoldServiceTest {
     private static final long SHOW = 42L;
     private static final Instant NOW = Instant.parse("2026-12-01T12:00:00Z");
     private static final Duration TTL = Duration.ofMinutes(8);
+    private static final String HOLD_ID = "3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b";
 
     private final ShowCatalogService catalog = mock(ShowCatalogService.class);
     private final RedisHoldStore store = mock(RedisHoldStore.class);
@@ -133,24 +134,34 @@ class HoldServiceTest {
 
     @Test
     void ownerCanReadAndReleaseTheirHold() {
-        HoldRecord record = new HoldRecord("h1", USER, SHOW, List.of(1L), NOW.plus(TTL));
-        when(store.find("h1")).thenReturn(Optional.of(record));
+        HoldRecord record = new HoldRecord(HOLD_ID, USER, SHOW, List.of(1L), NOW.plus(TTL));
+        when(store.find(HOLD_ID)).thenReturn(Optional.of(record));
         showStartsIn(Duration.ofDays(1), seat(1, 100, ShowSeatStatus.AVAILABLE));
 
-        assertThat(service.getHold(USER, "h1").expiresAt()).isEqualTo(NOW.plus(TTL));
-        service.releaseHold(USER, "h1");
+        assertThat(service.getHold(USER, HOLD_ID).expiresAt()).isEqualTo(NOW.plus(TTL));
+        service.releaseHold(USER, HOLD_ID);
 
         verify(store).release(record);
     }
 
     @Test
     void someoneElsesOrAnExpiredHoldIsNotFound() {
-        when(store.find("h1")).thenReturn(Optional.of(new HoldRecord("h1", USER + 1, SHOW, List.of(1L), NOW)));
-        when(store.find("gone")).thenReturn(Optional.empty());
+        String expired = "00000000-0000-4000-8000-000000000000";
+        when(store.find(HOLD_ID)).thenReturn(Optional.of(new HoldRecord(HOLD_ID, USER + 1, SHOW, List.of(1L), NOW)));
+        when(store.find(expired)).thenReturn(Optional.empty());
 
-        assertCode(() -> service.releaseHold(USER, "h1"), NotFoundException.class, "NOT_FOUND");
-        assertCode(() -> service.getHold(USER, "gone"), NotFoundException.class, "NOT_FOUND");
+        assertCode(() -> service.releaseHold(USER, HOLD_ID), NotFoundException.class, "NOT_FOUND");
+        assertCode(() -> service.getHold(USER, expired), NotFoundException.class, "NOT_FOUND");
+        verify(store).find(HOLD_ID);      // reached the owner check (not rejected as malformed)
+        verify(store).find(expired);
         verify(store, never()).release(any());
+    }
+
+    @Test
+    void aMalformedHoldIdNeverReachesRedis() {
+        assertCode(() -> service.getHold(USER, "h1"), NotFoundException.class, "NOT_FOUND");
+        assertCode(() -> service.releaseHold(USER, "hold:*"), NotFoundException.class, "NOT_FOUND");
+        verifyNoInteractions(store);
     }
 
     // ------------------------------------------------------------------ helpers
