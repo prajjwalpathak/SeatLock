@@ -21,4 +21,18 @@ class RateLimiterTest {
         assertThat(decision.allowed()).isTrue();
         assertThat(decision.remaining()).isEqualTo(-1);
     }
+
+    @Test
+    void aFailedBuildIsRetriedOnTheNextCall() {
+        java.util.concurrent.atomic.AtomicInteger builds = new java.util.concurrent.atomic.AtomicInteger();
+        RateLimiter limiter = new RateLimiter(() -> {
+            builds.incrementAndGet();
+            throw new IllegalStateException("no Redis in a unit test");
+        });
+
+        limiter.tryConsume("rl:test:x", LIMIT);
+        limiter.tryConsume("rl:test:x", LIMIT);
+
+        assertThat(builds).hasValue(2); // nothing broken is cached: Redis coming back is picked up at once
+    }
 }

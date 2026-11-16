@@ -8,13 +8,14 @@ import java.nio.charset.StandardCharsets;
 import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.SmartLifecycle;
 
 /**
  * Token buckets in Redis via Bucket4j (compare-and-swap, so concurrent requests on any instance share one
  * bucket per key). <b>Fails open</b>: if Redis can't be reached the request is allowed. Rate limiting is
  * protection, not correctness; the protected operation (holds) answers 503 by itself when Redis is down.
  */
-public class RateLimiter {
+public class RateLimiter implements SmartLifecycle {
 
     private static final Logger log = LoggerFactory.getLogger(RateLimiter.class);
 
@@ -27,6 +28,7 @@ public class RateLimiter {
 
     private final Supplier<ProxyManager<byte[]>> factory;
     private volatile ProxyManager<byte[]> buckets;
+    private volatile boolean running;
 
     /** {@code factory} is called once, on first use (thread-safe). */
     public RateLimiter(Supplier<ProxyManager<byte[]>> factory) {
@@ -60,6 +62,26 @@ public class RateLimiter {
             log.warn("Rate limiter unavailable for {}; allowing the request ({})", key, e.toString());
             return Decision.failOpen();
         }
+    }
+
+    // Lifecycle: when the context stops (shutdown, or a paused test context), LettuceConnectionFactory shuts its
+    // Lettuce client down. Drop the proxy built on it; the next call rebuilds it on the factory's new client.
+    // (Without this, a cached proxy kept failing with "Connection is closed" after a restart.)
+
+    @Override
+    public void start() {
+        running = true;
+    }
+
+    @Override
+    public void stop() {
+        buckets = null;
+        running = false;
+    }
+
+    @Override
+    public boolean isRunning() {
+        return running;
     }
 
     static BucketConfiguration configuration(RateLimitProperties.Limit limit) {
