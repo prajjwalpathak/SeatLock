@@ -273,6 +273,36 @@ stateDiagram-v2
 - Sweeper: every 30 s, `FOR UPDATE SKIP LOCKED` batches; user actions take a row lock. Seat statuses change only
   through catalog's `ShowSeatStatusService`.
 
+## 2f. Rate limiting and the hold flow in the UI (W3·D5, ADR-009)
+
+- `POST /holds` has `@RateLimited("holds")`: Bucket4j token buckets in Redis, per IP (30/min) then per user
+  (burst 5, 10/min) → 429 `RATE_LIMITED` + `Retry-After`; fails open if Redis is unreachable.
+- Request order on `POST /holds`: Spring Security → rate-limit interceptor → `@Idempotent` → `HoldService`.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as User
+    participant SM as Seat map page
+    participant API as Backend
+    U->>SM: pick seats, "Hold seats"
+    SM->>API: POST /shows/{id}/holds (Idempotency-Key = new UUID; auto-retry reuses it)
+    alt 201
+        API-->>SM: hold (expiresAt)
+        SM->>SM: remember holdId (sessionStorage), countdown on server clock (GET /system/time offset)
+        U->>SM: "Proceed to pay"
+        SM->>API: POST /holds/{holdId}/booking
+        API-->>SM: 201/200 booking
+        SM->>U: /bookings/{publicId}: countdown, Cancel, polling every 10 s while unpaid
+    else 409 SEATS_UNAVAILABLE / HOLD_EXISTS / 429 / SHOW_STARTED
+        API-->>SM: problem+json (seatIds / holdId / Retry-After)
+        SM->>U: mark taken seats · resume existing hold · wait N s · "show has started"
+    end
+```
+
+- The seat map shows the user's own held seats as "✓ Your hold"; F5 resumes a hold from `sessionStorage`
+  (`GET /holds/{id}`; 404 → forgotten). Countdowns use the server's clock, not the laptop's.
+
 ## 3. Conventions
 - Internal keys are `bigint` identity. Bookings expose a random `public_id` (UUID), so IDs in URLs can't be enumerated.
 - Enums are `varchar` + `CHECK`, not Postgres `ENUM` types: easier to evolve with Flyway, and mapped with `@Enumerated(EnumType.STRING)`.

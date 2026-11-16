@@ -1,3 +1,4 @@
+import { Link, useLocation } from 'react-router'
 import { formatPaise } from '../../lib/format'
 import type { SeatView } from '../../types/api'
 import { MAX_SELECTION, seatCode } from './seats'
@@ -5,10 +6,17 @@ import { MAX_SELECTION, seatCode } from './seats'
 type Props = {
   seats: SeatView[]
   onClear: () => void
+  onHold: () => void
+  signedIn: boolean
+  /** True while the hold request (and its automatic retries) is running. */
+  holding: boolean
+  /** When set, holding is not possible right now; shown as the button's tooltip. */
+  blockedReason?: string
 }
 
-/** Selected seats + total. Holding them (and the countdown) arrives with the hold API. */
-export function SelectionSummary({ seats, onClear }: Props) {
+/** Selected seats + total + "Hold seats" (or "Sign in to hold" for anonymous visitors). */
+export function SelectionSummary({ seats, onClear, onHold, signedIn, holding, blockedReason }: Props) {
+  const location = useLocation()
   const total = seats.reduce((sum, s) => sum + s.pricePaise, 0)
 
   return (
@@ -32,19 +40,31 @@ export function SelectionSummary({ seats, onClear }: Props) {
           <button
             type="button"
             onClick={onClear}
-            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            disabled={holding}
+            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
           >
             Clear
           </button>
         )}
-        <button
-          type="button"
-          disabled
-          title="Holding seats is coming soon"
-          className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          Hold seats
-        </button>
+        {signedIn ? (
+          <button
+            type="button"
+            onClick={onHold}
+            disabled={seats.length === 0 || holding || blockedReason !== undefined}
+            title={blockedReason}
+            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {holding ? 'Holding…' : 'Hold seats'}
+          </button>
+        ) : (
+          <Link
+            to="/login"
+            state={{ from: location.pathname }}
+            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+          >
+            Sign in to hold seats
+          </Link>
+        )}
       </div>
     </aside>
   )

@@ -68,6 +68,12 @@ seatlock:
   holds:
     ttl: 8m                      # how long seats stay held (decision #83); all hold keys share this TTL
     max-seats: 6                 # seats per hold; the UI uses the same cap
+  rate-limit:
+    enabled: true
+    policies:
+      holds:                     # POST /api/v1/shows/{id}/holds (decision #104)
+        per-ip:   { capacity: 30, refill-tokens: 30, refill-period: 1m }   # a busy NAT/office still fits
+        per-user: { capacity: 5,  refill-tokens: 10, refill-period: 1m }   # burst 5, then 10 per minute
   bookings:
     sweep-interval: PT30S        # BookingExpirySweeper: expire unpaid bookings past expiresAt
     sweep-batch-size: 100        # rows locked (SKIP LOCKED) and expired per transaction

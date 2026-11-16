@@ -115,6 +115,8 @@ export type ProblemDetail = {
   code?: string
   requestId?: string
   errors?: FieldViolation[]
+  /** Endpoint-specific extras, e.g. seatIds, holdId, retryAfterSeconds. */
+  [extra: string]: unknown
 }
 
 // ---------------------------------------------------------------- auth (com.seatlock.identity.api)
@@ -147,4 +149,42 @@ export type OrganizerEvent = {
   showCount: number
   upcomingShowCount: number
   nextShowAt: string | null
+}
+
+// ---------------------------------------------------------------- holds + bookings (com.seatlock.booking.api)
+
+export type HeldSeat = {
+  seatId: number
+  section: string
+  rowLabel: string
+  seatNumber: number
+  pricePaise: number
+}
+
+/** A live hold: seats with server prices; expiresAt is UTC. One hold per user per show. */
+export type Hold = {
+  holdId: string
+  showId: number
+  seats: HeldSeat[]
+  totalPaise: number
+  expiresAt: string
+}
+
+export type BookingStatus = 'HELD' | 'PAYMENT_PENDING' | 'CONFIRMED' | 'EXPIRED' | 'CANCELLED' | 'REFUNDED'
+
+export type Booking = {
+  publicId: string
+  showId: number
+  status: BookingStatus
+  seats: HeldSeat[]
+  totalPaise: number
+  currency: string
+  expiresAt: string
+  confirmedAt: string | null
+  cancelledAt: string | null
+}
+
+export type ServerTime = {
+  serverTime: string
+  epochMillis: number
 }

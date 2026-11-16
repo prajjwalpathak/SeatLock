@@ -3,6 +3,7 @@ import { Layout } from './components/Layout'
 import { RequireAuth } from './features/auth/RequireAuth'
 import { AccountPage } from './pages/AccountPage'
 import { AuthCallbackPage } from './pages/AuthCallbackPage'
+import { BookingPage } from './pages/BookingPage'
 import { EventDetailPage } from './pages/EventDetailPage'
 import { EventListPage } from './pages/EventListPage'
 import { LoginPage } from './pages/LoginPage'
@@ -19,6 +20,14 @@ export const router = createBrowserRouter([
       { path: 'events', element: <EventListPage /> },
       { path: 'events/:eventId', element: <EventDetailPage /> },
       { path: 'shows/:showId', element: <ShowSeatsPage /> },
+      {
+        path: 'bookings/:publicId',
+        element: (
+          <RequireAuth>
+            <BookingPage />
+          </RequireAuth>
+        ),
+      },
       { path: 'login', element: <LoginPage /> },
       { path: 'register', element: <RegisterPage /> },
       { path: 'auth/callback', element: <AuthCallbackPage /> },

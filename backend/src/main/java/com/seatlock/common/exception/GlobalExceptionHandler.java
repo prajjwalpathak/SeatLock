@@ -1,5 +1,6 @@
 package com.seatlock.common.exception;
 
+import com.seatlock.common.ratelimit.RateLimitedException;
 import com.seatlock.common.web.RequestIdFilter;
 import java.util.List;
 import java.util.Objects;
@@ -62,6 +63,16 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(UnauthorizedException.class)
     ProblemDetail handleUnauthorized(UnauthorizedException ex) {
         return problem(HttpStatus.UNAUTHORIZED, "Unauthorized", ex.getMessage(), ex.getCode());
+    }
+
+    /** 429 + Retry-After: the client should wait that many seconds before trying again. */
+    @ExceptionHandler(RateLimitedException.class)
+    ResponseEntity<ProblemDetail> handleRateLimited(RateLimitedException ex) {
+        ProblemDetail pd = problem(HttpStatus.TOO_MANY_REQUESTS, "Too many requests", ex.getMessage(), ex.getCode());
+        ex.getProperties().forEach(pd::setProperty);
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(ex.getRetryAfterSeconds()))
+                .body(pd);
     }
 
     @ExceptionHandler(UnprocessableRequestException.class)
