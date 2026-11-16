@@ -25,6 +25,8 @@ spring:
     password: unused
 
 seatlock:
+  scheduling:
+    enabled: false   # no background jobs during tests; they're called directly
   frontend:
     base-url: http://localhost:5173
   cors:
