@@ -85,6 +85,8 @@ export type ShowSeatMap = {
   gridCols: number
   sections: SectionPrice[]
   seats: SeatView[]
+  /** false = Redis holds couldn't be read; statuses are the DB view only (held seats may look free). */
+  holdsLive: boolean
 }
 
 /** Query parameters of GET /api/v1/events (all optional; cursor is passed separately). */

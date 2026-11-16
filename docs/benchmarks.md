@@ -69,3 +69,43 @@ consistent with the request counts, so statistics work).
    transaction begun and committed) → fixed: cache advice now runs before the transaction advice
    and the read services are not transactional; a test asserts a hit borrows no connection.
 4. 50 warm-up requests was on the low side for the JIT. → 200.
+
+## 2. Seat map with the live hold overlay (W3·D1)
+
+**What:** `GET /api/v1/shows/34/seats` (252 seats) after adding the Redis hold overlay (one `MGET` of
+every AVAILABLE seat's hold key, merged into the DB statuses). Same script and method as §1
+(`load-tests/bench-catalog.ps1 -Only seats -ShowId 34`, 200 warm-up + 500 timed requests,
+`LOGGING_LEVEL_COM_SEATLOCK=INFO`, median of the runs). Fake holds written with `load-tests/seed-holds.ps1`.
+**Machine:** same laptop as §1.
+
+| Variant | Code | Redis |
+|---|---|---|
+| **B0 baseline** | `main` at W2·D6 (git worktree): one join, inside a read-only `@Transactional` | ignored |
+| **B1 overlay, 0 holds** | `w3-d1`: one join + one `MGET`, no transaction | up, no hold keys |
+| **B2 overlay, 50 holds** | same | 50 of 252 seats held |
+| **B3 Redis down** | same, `REJECT_COMMANDS` fail-fast | container stopped |
+
+### Results (2026-11-16): two sessions, all variants in each
+
+p50 / p95 / p99 in ms, median of the runs in that session (number of runs in brackets).
+
+| Variant | Session 1 | Session 2 |
+|---|---|---|
+| B0 baseline | 6.00 / 6.87 / 7.65 (3) | 6.25 / 9.62 / 12.57 (3, one noisy run: p95 14.17) |
+| B1 overlay, 0 holds | **5.41 / 6.36 / 7.14** (5) | **5.30 / 6.19 / 7.32** (3) |
+| B2 overlay, 50 holds | 5.41 / 6.30 / 7.09 (3) | 5.35 / 6.32 / 7.91 (3) |
+| B3 Redis down | 5.48 / 6.52 / 7.90 (3) | 4.51 / 5.27 / 6.01 (3) |
+
+**Conclusions**
+- **No measurable cost from the overlay.** B1 and B2 are *faster* than the baseline in both sessions
+  (p50 −10% / −15%). The new code does more work (an extra Redis round trip) but dropped the read-only
+  transaction around the seat-map reads (moved out so no DB connection is held while waiting on
+  Redis). The likely explanation is that the saved transaction overhead (begin/commit, Hibernate
+  session) outweighs the `MGET`. This was **not isolated** with its own variant, so the claim stays
+  "no regression", not "faster".
+- **Holds don't change the cost.** B2 ≈ B1: rebuilding 50 `SeatView`s is negligible next to the I/O.
+- **Cost of the `MGET` itself:** between ~0 ms (session 1, B3 ≈ B1) and ~0.8 ms p50 (session 2,
+  B3 vs B1): below the session-to-session noise on this laptop.
+- **Redis down is fast.** B3 serves the DB view in ~5 ms. Before the `REJECT_COMMANDS` fix, the same
+  drill took **0.51 s per request** (every call waited the 500 ms command timeout); see `FAILURES.md`.
+- Seat map stays uncached (ADR-004): a live overlay can't be cached, and the uncached path is ~5–6 ms.

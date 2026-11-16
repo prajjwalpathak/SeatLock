@@ -9,6 +9,7 @@ import { LoginPage } from './pages/LoginPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { OrganizerEventsPage } from './pages/OrganizerEventsPage'
 import { RegisterPage } from './pages/RegisterPage'
+import { ShowSeatsPage } from './pages/ShowSeatsPage'
 
 export const router = createBrowserRouter([
   {
@@ -17,6 +18,7 @@ export const router = createBrowserRouter([
       { index: true, element: <Navigate to="/events" replace /> },
       { path: 'events', element: <EventListPage /> },
       { path: 'events/:eventId', element: <EventDetailPage /> },
+      { path: 'shows/:showId', element: <ShowSeatsPage /> },
       { path: 'login', element: <LoginPage /> },
       { path: 'register', element: <RegisterPage /> },
       { path: 'auth/callback', element: <AuthCallbackPage /> },

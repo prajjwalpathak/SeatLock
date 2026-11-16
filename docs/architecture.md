@@ -160,6 +160,48 @@ guards `/account` and `/organizer/events` (UX only; the API enforces).
   the same time impossible. Organizers create shows with `POST /api/v1/organizer/events/{id}/shows`
   (one price per section; ownership from the token).
 
+## 2c. Live seat map (W3·D1)
+
+`GET /api/v1/shows/{id}/seats` merges two sources into one response:
+
+| Source | Holds | Lifetime | Wins? |
+|---|---|---|---|
+| Postgres `show_seats.status` | **BOOKED** (and the layout, prices) | durable | always |
+| Redis `hold:show:{showId}:seat:{seatId}` → `holdId` | **HELD** | key TTL (the TTL *is* the hold) | only turns AVAILABLE into HELD |
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant UI as React SeatMap
+    participant API as ShowCatalogService (catalog)
+    participant DB as Postgres
+    participant R as Redis
+    UI->>API: GET /api/v1/shows/34/seats
+    API->>DB: bookable show? (header query)
+    API->>DB: all seats + price + status (one indexed join)
+    API->>R: MGET hold keys of every AVAILABLE seat (one command, one round trip)
+    alt Redis reachable
+        R-->>API: holdId or nil per key
+        API-->>UI: 200, seats with AVAILABLE / HELD / BOOKED, holdsLive = true
+    else Redis down (REJECT_COMMANDS → immediate DataAccessException)
+        API-->>UI: 200, DB statuses only, holdsLive = false (UI shows a banner)
+    end
+```
+
+- **Module direction:** catalog defines the port `SeatHoldLookup`; booking implements it
+  (`booking.hold.SeatHoldReader`, key schema in `HoldKeys`). Dependencies run booking → catalog only.
+- **No transaction around the request:** each query borrows a connection for itself, so no DB
+  connection is held while waiting on Redis (a hung Redis can't drain the Hikari pool).
+- **Never cached** (ADR-004) and sent with `Cache-Control: no-store`. Measured cost of the overlay:
+  none beyond noise (`benchmarks.md` §2).
+- **Fail fast:** Lettuce `REJECT_COMMANDS` while disconnected; Redis down costs ~5 ms instead of the
+  500 ms command timeout (`FAILURES.md` F1). Being shown as AVAILABLE while Redis is down is safe:
+  the hold script (W3·D2) and the DB oversell guard still reject a taken seat.
+- **UI:** `/shows/:showId` renders rows as CSS grids by `gridCol` (aisle = skipped column), section
+  headings with prices, native `<button>` seats with `aria-pressed` and a symbol per state. Selection
+  is client-only until holds exist (D2 API, D5 UI) and is derived from the latest map, so a seat taken
+  by someone else drops out. Refetch on focus + Refresh button until WebSocket push (W5).
+
 ## 3. Conventions
 - Internal keys are `bigint` identity. Bookings expose a random `public_id` (UUID), so IDs in URLs can't be enumerated.
 - Enums are `varchar` + `CHECK`, not Postgres `ENUM` types: easier to evolve with Flyway, and mapped with `@Enumerated(EnumType.STRING)`.
