@@ -52,6 +52,17 @@ The seat map reads BOOKED from Postgres and HELD from Redis hold keys. Rules:
 | Booked seats can't be held | DB status check before Redis | `aSeatBookedInTheDatabaseCannotBeHeld` |
 | Even if Redis fails, no oversell | partial unique index `ux_booking_seats_live_seat` (§1) at booking time | W3·D4 + W3·D6 |
 
+## 1e. Idempotent `POST /holds` (W3·D3, ADR-007)
+
+| Rule | Enforced by | Proven by |
+|---|---|---|
+| A retry with the same key never creates a second hold | `UNIQUE (user_id, idem_key)` + `INSERT … ON CONFLICT DO NOTHING` claim | `aRetryWithTheSameKeyGetsTheSameHoldBack` (same `holdId`, replayed) |
+| Concurrent duplicates → one hold | the same unique constraint decides the race | 20 concurrent claims → 1 winner (store); 10 concurrent HTTP duplicates → 1 hold, others replay or 409 |
+| A key can't be reused for a different request | SHA-256 fingerprint of method + path + body | `theSameKeyForDifferentSeatsIs422AndHoldsNothing`, `theFingerprintCoversPathAndBody` |
+| A failed attempt doesn't poison the key | release on exception (`DELETE … WHERE status = 'IN_PROGRESS'`) | `aFailedAttemptCanBeRetriedWithTheSameKey` |
+| A crashed request can't block its key for 24 h | 30 s lease + compare-and-set takeover | `aStaleInProgressClaimCanBeTakenOverOnceAfterTheLease` |
+| A stored response is never lost by a release | `release` only deletes `IN_PROGRESS`; `CHECK` ties COMPLETED to a response | `releaseNeverDeletesACompletedKey` |
+
 ## 2. Query plans (catalog reads)
 
 **Method:** `docs/explain/catalog-queries.sql` on the seeded local DB (30 events, 90 shows,
