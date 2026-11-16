@@ -12,6 +12,7 @@ import java.net.URI;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -42,5 +43,19 @@ public class BookingController {
                 ? ResponseEntity.created(URI.create("/api/v1/bookings/" + result.booking().publicId()))
                 : ResponseEntity.ok();
         return response.cacheControl(CacheControl.noStore()).body(result.booking());
+    }
+
+    @Operation(summary = "My booking (404 if unknown or not mine)")
+    @GetMapping("/api/v1/bookings/{publicId}")
+    public ResponseEntity<BookingView> get(@CurrentUserId long userId, @PathVariable String publicId) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(bookings.getBooking(userId, publicId));
+    }
+
+    /** Idempotent by nature: cancelling a cancelled booking returns it again (200). */
+    @Operation(summary = "Cancel my unpaid booking; seats are freed at once "
+            + "(409 INVALID_BOOKING_TRANSITION if expired or paid)")
+    @PostMapping("/api/v1/bookings/{publicId}/cancel")
+    public ResponseEntity<BookingView> cancel(@CurrentUserId long userId, @PathVariable String publicId) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(bookings.cancel(userId, publicId));
     }
 }

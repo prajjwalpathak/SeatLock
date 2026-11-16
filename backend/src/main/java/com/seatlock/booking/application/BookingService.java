@@ -3,6 +3,7 @@ package com.seatlock.booking.application;
 import com.seatlock.booking.domain.Booking;
 import com.seatlock.booking.domain.BookingRepository;
 import com.seatlock.booking.domain.BookingSeat;
+import com.seatlock.booking.domain.BookingStatus;
 import com.seatlock.booking.hold.Hold;
 import com.seatlock.booking.hold.HoldService;
 import com.seatlock.booking.hold.SeatsUnavailableException;
@@ -10,6 +11,7 @@ import com.seatlock.catalog.application.HoldableShow;
 import com.seatlock.catalog.application.ShowCatalogService;
 import com.seatlock.catalog.application.ShowSeatStatusService;
 import com.seatlock.common.exception.NotFoundException;
+import java.time.Clock;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -20,6 +22,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -42,14 +45,16 @@ public class BookingService {
     private final ShowCatalogService catalog;
     private final ShowSeatStatusService seatStatus;
     private final TransactionTemplate tx;
+    private final Clock clock;
 
     public BookingService(BookingRepository bookings, HoldService holds, ShowCatalogService catalog,
-                          ShowSeatStatusService seatStatus, TransactionTemplate tx) {
+                          ShowSeatStatusService seatStatus, TransactionTemplate tx, Clock clock) {
         this.bookings = bookings;
         this.holds = holds;
         this.catalog = catalog;
         this.seatStatus = seatStatus;
         this.tx = tx;
+        this.clock = clock;
     }
 
     /** Result of a conversion: the booking, and whether this call created it (201) or found it (200). */
@@ -90,6 +95,35 @@ public class BookingService {
 
         releaseRedisHold(userId, holdId);
         return new Conversion(view(booking, hold), true);
+    }
+
+    /** The caller's booking. Someone else's or an unknown one is 404 (no probing). */
+    public BookingView getBooking(long userId, String publicId) {
+        UUID id = parseUuid(publicId).orElseThrow(() -> new NotFoundException("Booking", "(invalid id)"));
+        return bookings.findByPublicId(id)
+                .filter(b -> b.getUserId() == userId)
+                .map(this::view)
+                .orElseThrow(() -> new NotFoundException("Booking", id));
+    }
+
+    /**
+     * User cancels an unpaid booking (HELD / PAYMENT_PENDING → CANCELLED) and the seats are freed at once.
+     * Already CANCELLED → returned as is (a retry is harmless). EXPIRED / CONFIRMED / REFUNDED → 409 from the
+     * state machine (paid bookings are refunded instead, W4).
+     */
+    @Transactional
+    public BookingView cancel(long userId, String publicId) {
+        UUID id = parseUuid(publicId).orElseThrow(() -> new NotFoundException("Booking", "(invalid id)"));
+        Booking booking = bookings.findForUpdateByPublicId(id)
+                .filter(b -> b.getUserId() == userId)
+                .orElseThrow(() -> new NotFoundException("Booking", id));
+        if (booking.getStatus() == BookingStatus.CANCELLED) {
+            return view(booking);
+        }
+        List<Long> seatIds = booking.getSeats().stream().map(BookingSeat::getSeatId).toList();
+        booking.cancel(clock.instant());
+        seatStatus.markAvailable(booking.getShowId(), seatIds);
+        return view(booking);
     }
 
     // ------------------------------------------------------------------ internals
