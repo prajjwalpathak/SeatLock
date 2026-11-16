@@ -1,8 +1,12 @@
 package com.seatlock.booking.hold;
 
 /**
- * Redis key schema for seat holds. One key per held seat:
- * <pre>hold:show:{showId}:seat:{seatId} → holdId   (PX = hold TTL)</pre>
+ * Redis key schema for seat holds. All keys of one hold share the same TTL, so they expire together:
+ * <pre>
+ * hold:show:{showId}:seat:{seatId}   → holdId                         one per held seat
+ * hold:user:{userId}:show:{showId}   → holdId                         "one active hold per user per show"
+ * hold:id:{holdId}                   → hash userId, showId, seatIds, expiresAt   the hold record
+ * </pre>
  * <ul>
  *   <li>The key's TTL is the source of truth for "held": when it expires, the seat is free again.
  *       No sweeper is needed for Redis itself; Redis returns nil for an expired key on access.</li>
@@ -21,5 +25,13 @@ public final class HoldKeys {
 
     public static String seatKey(long showId, long seatId) {
         return PREFIX + showId + ":seat:" + seatId;
+    }
+
+    public static String userShowKey(long userId, long showId) {
+        return "hold:user:" + userId + ":show:" + showId;
+    }
+
+    public static String recordKey(String holdId) {
+        return "hold:id:" + holdId;
     }
 }

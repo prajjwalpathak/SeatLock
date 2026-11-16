@@ -1,5 +1,6 @@
 package com.seatlock.identity.security;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -10,6 +11,7 @@ import com.seatlock.identity.domain.Role;
 import com.seatlock.identity.domain.User;
 import com.seatlock.identity.domain.UserRepository;
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeAll;
@@ -111,5 +113,34 @@ class SecurityMatrixIntegrationTest {
         mvc.perform(request)
                 .andExpect(status().is(expectedStatus))
                 .andExpect(jsonPath("$.code").value(expectedCode));
+    }
+
+    /** Holds: any signed-in role may use them; an unknown hold is 404 for everyone signed in. */
+    @ParameterizedTest(name = "{0} GET + DELETE /holds/:id → {1}")
+    @CsvSource({
+            "ANONYMOUS, 401, AUTHENTICATION_REQUIRED",
+            "USER,      404, NOT_FOUND",
+            "ORGANIZER, 404, NOT_FOUND",
+            "ADMIN,     404, NOT_FOUND",
+    })
+    void holdsMatrix(String caller, int expectedStatus, String expectedCode) throws Exception {
+        String unknownHold = UUID.randomUUID().toString();
+        for (MockHttpServletRequestBuilder request : List.of(
+                get("/api/v1/holds/{id}", unknownHold),
+                delete("/api/v1/holds/{id}", unknownHold))) {
+            if (!caller.equals("ANONYMOUS")) {
+                request.header(HttpHeaders.AUTHORIZATION, "Bearer " + tokens.get(Role.valueOf(caller)));
+            }
+            mvc.perform(request)
+                    .andExpect(status().is(expectedStatus))
+                    .andExpect(jsonPath("$.code").value(expectedCode));
+        }
+    }
+
+    @org.junit.jupiter.api.Test
+    void anonymousCannotCreateAHold() throws Exception {
+        mvc.perform(post("/api/v1/shows/{id}/holds", 1).contentType(MediaType.APPLICATION_JSON).content("{\"seatIds\":[1]}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("AUTHENTICATION_REQUIRED"));
     }
 }

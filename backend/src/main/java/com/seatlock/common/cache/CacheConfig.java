@@ -50,8 +50,13 @@ public class CacheConfig implements CachingConfigurer {
     @Bean
     @ConditionalOnProperty(name = ENABLED_PROPERTY, havingValue = "true", matchIfMissing = true)
     CacheManager cacheManager(RedisConnectionFactory connectionFactory, JsonMapper jsonMapper) {
-        // SCAN in batches for "clear the whole cache" (KEYS would block Redis on a big keyspace)
-        RedisCacheWriter writer = RedisCacheWriter.nonLockingRedisCacheWriter(connectionFactory, BatchStrategies.scan(1000));
+        // SCAN in batches for "clear the whole cache" (KEYS would block Redis on a big keyspace).
+        // immediateWrites: Spring Data Redis 4 writes asynchronously by default (put/evict/clear return before
+        // Redis has the change). We need writes visible at once: an after-commit eviction must be done before
+        // the next read, and tests read TTLs right after a put (CI/local flakes on W2·D6 and W3·D2).
+        RedisCacheWriter writer = RedisCacheWriter.create(connectionFactory, config -> config // non-locking unless enableLocking()
+                .batchStrategy(BatchStrategies.scan(1000))
+                .immediateWrites());
 
         Map<String, RedisCacheConfiguration> caches = new LinkedHashMap<>();
         specs(jsonMapper).forEach((name, spec) -> caches.put(name, configFor(spec, jsonMapper)));

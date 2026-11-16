@@ -40,6 +40,18 @@ The seat map reads BOOKED from Postgres and HELD from Redis hold keys. Rules:
   (`holdsLive = false`); correctness lives in the atomic hold script (W3·D2) and the partial unique
   index `ux_booking_seats_live_seat` (§1), not in the seat map.
 
+## 1d. Seat holds (W3·D2, ADR-006)
+
+| Rule | Enforced by | Proven by |
+|---|---|---|
+| Two users can't hold the same seat | `hold_seats.lua` (check all, then set all, atomically) | `HoldRaceIntegrationTest`: 20 threads, one seat → exactly 1 winner (×5) |
+| A hold is all or nothing | Lua writes nothing when any seat is taken | overlapping [i, i+1] race: no seat held twice, no keys for unclaimed seats (×5); `RedisHoldStoreIntegrationTest` |
+| One active hold per user per show | `hold:user:{u}:show:{s}` checked in the same script | one-user race: 1 hold, 19 × `HOLD_EXISTS` (×5) |
+| Releasing never frees someone else's seat | `release_seats.lua` compares the value with our `holdId` | `releaseNeverDeletesASeatThatNowBelongsToAnotherHold` |
+| Holds expire on their own | one TTL on every key of the hold | `anExpiredHoldDisappearsCompletely…` |
+| Booked seats can't be held | DB status check before Redis | `aSeatBookedInTheDatabaseCannotBeHeld` |
+| Even if Redis fails, no oversell | partial unique index `ux_booking_seats_live_seat` (§1) at booking time | W3·D4 + W3·D6 |
+
 ## 2. Query plans (catalog reads)
 
 **Method:** `docs/explain/catalog-queries.sql` on the seeded local DB (30 events, 90 shows,

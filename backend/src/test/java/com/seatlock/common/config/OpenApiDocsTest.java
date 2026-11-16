@@ -30,6 +30,8 @@ class OpenApiDocsTest {
                 .andExpect(jsonPath("$.paths['/api/v1/me'].get.security[0].bearerAuth").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/admin/users'].get.security[0].bearerAuth").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/organizer/events'].get.security[0].bearerAuth").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/shows/{showId}/holds'].post.security[0].bearerAuth").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/holds/{holdId}'].delete.security[0].bearerAuth").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/events'].get.security").doesNotExist()); // public
     }
 }

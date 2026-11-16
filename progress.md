@@ -3,15 +3,15 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 3 · Day 1 (not started, planned Tue Nov 24): seat map API with live seat status (layout + status from Redis), static seat-map UI component. Branch `w3-d1`
-- **Last completed:** Week 2 · Day 6: GitHub Actions CI + GHCR image + SSH deploy with health-wait/rollback, version endpoint, CI cache-race fix (planned Mon Nov 23, done Mon Nov 16)
+- **Current day:** Week 3 · Day 3 (not started, planned Thu Nov 26): Idempotency-Key infrastructure (table + interceptor/aspect), applied to `POST /holds`. Branch `w3-d3`
+- **Last completed:** Week 3 · Day 2: atomic multi-seat holds (Lua), `HoldService`, hold API, race tests, async-cache-write fix (planned Wed Nov 25, done Mon Nov 16)
 - **Live URLs:** Frontend https://seatlock-nu.vercel.app · Backend https://seatlock-prajjwal.duckdns.org · Swagger https://seatlock-prajjwal.duckdns.org/swagger-ui.html · Version https://seatlock-prajjwal.duckdns.org/api/v1/system/version · Grafana —
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public) · CI + Deploy badges in README · `main` protected (ruleset `protect-main`)
 - **Hosting:** Azure VM `seatlock-vm` (India South Central, B2als_v2 x64) + Vercel; images from GHCR (ADR-005, #62, #71–#74); decommission after ~2–3 months
 - **Git workflow:** commit per task on a daily branch → PR → squash-merge when CI is green (#9, #75)
-- **Carry-overs:** create the `protect-main` ruleset + squash-only merge settings (before W3·D1) · JetBrains student license · IntelliJ vulnerable-dependency scan · re-upload `progress.md` to Project knowledge
-- **Schedule:** **~7 days ahead** (W2·D6 done Mon Nov 16 instead of Mon Nov 23); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
-- **Top risk:** Week 3 seat holds (Redis Lua atomicity, idempotency, 200-thread test); VM burst credits (load tests stay local)
+- **Carry-overs:** JetBrains student license · IntelliJ vulnerable-dependency scan · D5 UI: show "This show has started" instead of a clickable map for started shows
+- **Schedule:** **~9 days ahead** (W3·D2 done Mon Nov 16 instead of Wed Nov 25); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
+- **Top risk:** idempotency (D3) and hold → booking state machine (D4); 200-thread test (D6); VM burst credits (load tests stay local)
 
 ## Decisions Log (ADR summary)
 | # | Date | Decision | Why |
@@ -92,6 +92,19 @@
 | 74 | 2026-11-16 | `deploy.sh`: validates `sha-<12 hex>`/`latest`, `flock`, pull → `APP_IMAGE` in `.env.prod` → `up -d --no-deps app` → wait healthy (~2.5 min) → else logs + **automatic rollback**. Image carries `GIT_SHA` → `GET /api/v1/system/version`; CI smoke test requires readiness UP **and** the deployed revision. Manual `workflow_dispatch` `tag` = one-click rollback | A broken build can't take the site down; "deployed" means the new commit is actually serving |
 | 75 | 2026-11-16 | **Git workflow (supersedes #9, user-approved option B):** a commit per task on a daily branch (`w3-d1`, …), PR at day end, **squash merge** once CI is green; ruleset `protect-main`: PR required (0 approvals), required checks `Backend (build, test, coverage)` + `Frontend (lint, build)`, linear history, no force-push, no deletion; head branches auto-deleted | Real quality gate on the deployed branch; still one squashed commit per day on `main` |
 | 76 | 2026-11-16 | Cache evictions use **immediate** semantics: `evictIfPresent()` / `invalidate()` (never `evict()`/`clear()`, which the `Cache` contract allows to be deferred and Spring Data Redis 4 defers) in `CatalogCacheEvictor` and tests | Deferred deletes raced with fresh writes (found by CI: keys vanished after put); after-commit eviction must be visible immediately |
+| 77 | 2026-11-16 | Hold keys `hold:show:{showId}:seat:{seatId}` → `holdId`, **TTL = the hold** (`HoldKeys`); `SeatHoldReader` reads a whole show with **one `MGET`**; port `SeatHoldLookup` defined in catalog, implemented in booking | One command, one round trip (vs N `GET`s or `SCAN`); expiry needs no sweeper; dependencies run booking → catalog only (no cycle when holds validate seats on D2) |
+| 78 | 2026-11-16 | Seat-map merge: Postgres **BOOKED always wins**; Redis can only turn AVAILABLE into HELD; only AVAILABLE seats are looked up | DB is durable, Redis ephemeral; a stale hold key can never hide a booking |
+| 79 | 2026-11-16 | Redis unreachable → **200 with DB statuses + `holdsLive: false`** (UI banner), never a 500; seat-map service **not `@Transactional`**; `Cache-Control: no-store` | Seat map must not fail because of holds; no DB connection held while waiting on Redis; live data must not be reused by browsers/proxies. Showing AVAILABLE during an outage can't oversell (hold script + partial unique index) |
+| 80 | 2026-11-16 | Lettuce **`DisconnectedBehavior.REJECT_COMMANDS`** via `LettuceClientOptionsBuilderCustomizer` (`RedisClientConfig`); auto-reconnect on | Default queues commands while reconnecting → every request waited the 500 ms timeout (measured 512 ms); now ~5 ms (FAILURES.md F1). A hung-but-open socket is still bounded only by the timeout |
+| 81 | 2026-11-16 | Seat-map UI: route `/shows/:showId`; selection is client-only (max 6), **derived from the latest map** (taken seats drop out); `staleTime: 0` + refetch on focus + Refresh button; no `sessionStorage` persistence | Holds (D2 API, D5 UI) make selections durable; no effect-based state sync; WebSocket push replaces polling on W5 |
+| 82 | 2026-11-16 | Benchmarks compare variants **within one session** and report the median per session (B0 `main` via worktree, B1/B2 overlay, B3 Redis down); claim "no regression", not "faster" | Overlay faster than baseline in both sessions, but the likely cause (dropped read-only transaction) wasn't isolated |
+| 83 | 2026-11-16 | Holds: **TTL 8 min, max 6 seats, one active hold per user per show** (`seatlock.holds.*`, `@Validated`; user-approved defaults) | Long enough for checkout (W4), short enough that abandoned seats return; one hold per user stops seat hoarding |
+| 84 | 2026-11-16 | **`hold_seats.lua`**: user key checked → all seat keys checked → all keys set with one TTL (seat keys, `hold:user:{u}:show:{s}`, hash `hold:id:{holdId}`); returns `OK` / `HOLD_EXISTS` / `SEATS_TAKEN` + positions, writing nothing on failure. **`release_seats.lua`** deletes only keys still equal to the `holdId` | Atomic all-or-nothing without locks; holds expire together with no job; an expired hold can't free someone else's seat |
+| 85 | 2026-11-16 | `HoldService` order: input checks → DB checks via catalog's public `findHoldableSeats` (bookable, not started, seats in show, not BOOKED) → one Redis call; prices from the DB; not `@Transactional` | Cheap rejections first; client can't set prices; no connection held across Redis; booking → catalog only |
+| 86 | 2026-11-16 | Hold API: `POST /api/v1/shows/{id}/holds` (201 + `Location`, `no-store`), `GET`/`DELETE /api/v1/holds/{holdId}` owner-only (else 404), `holdId` must be a UUID; 409 `SEATS_UNAVAILABLE` carries `seatIds` via `SeatLockException.getProperties()`; Redis down → **503 `HOLDS_UNAVAILABLE` + `Retry-After: 5`** | UI can mark exactly the taken seats; no probing other users' holds; no arbitrary Redis keys; `common` doesn't depend on `booking` |
+| 87 | 2026-11-16 | **ADR-006:** Redis Lua hold + DB partial unique index as the final guard; optimistic locking kept only as the W4·D6 benchmark strategy; per-seat `SETNX` and `FOR UPDATE` rejected | Redis prevents conflicts cheaply; Postgres makes oversells impossible even if Redis loses data (no persistence in prod) |
+| 88 | 2026-11-16 | Cache writer `RedisCacheWriter.create(factory, c -> c.batchStrategy(scan(1000)).immediateWrites())` (**root-cause fix behind #76**) | Spring Data Redis 4 writes cache entries asynchronously by default; puts/evictions must be visible immediately (FAILURES.md F2) |
+| 89 | 2026-11-16 | Race tests run through the real `HoldService` with fixed thread pools released by a `CountDownLatch`, each `@RepeatedTest(5)`; every outcome collected (unexpected exceptions fail) | Real interleaving, repeated to beat luck; no swallowed errors. 200-thread HTTP version on W3·D6 |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -105,6 +118,11 @@
 | Test coverage (JaCoCo) | **92.5% instructions, 92.1% lines, 73.1% branches**; 173 tests | `mvnw verify` (`target/site/jacoco/jacoco.csv`) | 2026-11-16 |
 | CI pipeline | CI ~5–8 min first run (cached later); image build ~1 min with BuildKit cache; deploy + health-wait < 2.5 min | GitHub Actions run times | 2026-11-16 |
 | Container startup (prod profile) | **~9.0 s** to `Started`; image content 194 MB | `docker run` on the laptop (Docker Desktop) | 2026-11-16 |
+| Seat map with live hold overlay vs W2·D6 code | p50 6.00 → **5.41 ms**, p95 6.87 → **6.36 ms** (session 1); 6.25 → 5.30 / 9.62 → 6.19 (session 2): **no measurable overlay cost**; 50 holds ≈ 0 holds | `bench-catalog.ps1 -Only seats -ShowId 34`, 500 req after 200 warm-up, medians per session (`docs/benchmarks.md` §2) | 2026-11-16 |
+| Seat map with Redis down | **~512 ms → ~5 ms** per request (Lettuce `REJECT_COMMANDS`); recovery ~10 ms within 3 s of Redis restart | `docker stop seatlock-redis` drill + B3 benchmark (`docs/FAILURES.md` F1) | 2026-11-16 |
+| Tests | 187 (174 + 13 new) | `mvnw verify` / CI | 2026-11-16 |
+| Hold races (smoke) | 20 threads × 5 runs: **exactly 1 winner** per seat; overlapping multi-seat holds never share a seat, no partial writes; one user racing → 1 hold | `HoldRaceIntegrationTest` (Testcontainers) | 2026-11-16 |
+| Tests | 234 (187 + 47 new) | `mvnw verify` | 2026-11-16 |
 
 ## Accounts & Config (no secrets here, only where they live)
 | Item | Status | Where stored |
@@ -606,3 +624,80 @@
 - Trunk protection: PRs, required status checks, squash merge, linear history
 **Commit:** `ci: add GitHub Actions CI, GHCR images and SSH deploy with rollback` (squashed into one commit on `main`)
 
+### Week 3 · Day 1: Live seat map (layout + live status) (planned Tue, Nov 24; done Mon, Nov 16, 2026)
+**Status:** ✅ Done
+**Built:**
+- Hold key schema (`HoldKeys`: `hold:show:{showId}:seat:{seatId}` → `holdId`, TTL = hold) and `SeatHoldReader` (one `MGET` per show) behind the catalog port `SeatHoldLookup`
+- Seat map overlays HELD from Redis on DB status (BOOKED wins, only AVAILABLE seats looked up); Redis down → DB view + `holdsLive: false`; `Cache-Control: no-store`; seat-map service no longer `@Transactional`
+- Redis-down drill found 512 ms per request (commands queued during reconnect) → `RedisClientConfig` with Lettuce `REJECT_COMMANDS` → ~5 ms
+- Benchmark B0 (`main` via git worktree) / B1 overlay 0 holds / B2 50 holds / B3 Redis down, two sessions; `load-tests/seed-holds.ps1`; `bench-catalog.ps1 -Only seats -ShowId`
+- Frontend `/shows/:showId`: seat grid by `gridCol` (aisle gap), section headings + prices, legend with symbol per state, native buttons with `aria-pressed`/labels, selection ≤ 6 derived from the latest map ("taken by someone else" notice), ₹ total, disabled "Hold seats", Refresh + "Updated" time, Redis-down banner, not-found page; "Select seats" links enabled
+- Docs: architecture §2c (sequence diagram), CORRECTNESS §1c, ADR-004 update, new `docs/FAILURES.md` (F1), benchmarks §2
+- Tests: **187** (new: `HoldKeysTest` 2, `SeatHoldReaderIntegrationTest` 4, `ShowCatalogServiceTest` 4, `SeatMapLiveStatusIntegrationTest` 2, `RedisClientConfigIntegrationTest` 1); frontend `tsc` + ESLint clean
+**Files created/changed:**
+- Backend: `booking\hold\{HoldKeys, SeatHoldReader}.java`; `catalog\application\{SeatHoldLookup, ShowCatalogService}.java`; `catalog\api\{ShowSeatMapResponse, ShowController}.java`; `common\config\RedisClientConfig.java`
+- Backend tests: `booking\hold\{HoldKeysTest, SeatHoldReaderIntegrationTest}`, `catalog\application\ShowCatalogServiceTest`, `catalog\api\SeatMapLiveStatusIntegrationTest`, `common\config\RedisClientConfigIntegrationTest`
+- Frontend: `src\pages\ShowSeatsPage.tsx`, `src\features\seatmap\{SeatMap, SeatLegend, SelectionSummary, SeatMapSkeleton}.tsx`, `src\features\seatmap\seats.ts`, `src\router.tsx`, `src\features\events\ShowList.tsx`, `src\lib\format.ts`, `src\types\api.ts`
+- `load-tests\{bench-catalog.ps1, seed-holds.ps1}`; `docs\{architecture.md, CORRECTNESS.md, FAILURES.md, benchmarks.md}`, `docs\decisions\ADR-004-catalog-caching.md`, `progress.md`
+**Decisions:**
+- See Decisions Log #77–#82
+**Metrics recorded:**
+- Seat map overlay: no measurable cost vs W2·D6 (p95 6.87 → 6.36 ms, session 1); Redis down 512 → ~5 ms (see Metrics table)
+**Problems & fixes:**
+- Redis-down fallback took 0.51 s per request → Lettuce queued commands while reconnecting → `REJECT_COMMANDS` (needs an app restart to take effect; the first re-test was on the old process)
+- `seed-holds.ps1` used `docker compose ps`, which failed because Compose reads `.env` from `infra\` → fixed container name `seatlock-redis`; `docker ps -qf name=redis` also matched another project's container
+- `/api/v1/shows/1/seats` → 404 (show 1 not bookable) and wrong field name in my snippet (`shows` vs `upcomingShows`) → pick show/seat from the API
+- Benchmark CSV held two sessions + extra runs → results reported per session from the raw rows
+- ESLint `react-refresh/only-export-components`: shared seat styles moved from `SeatMap.tsx` to `seats.ts`
+**Carry-over:**
+- JetBrains student license; IntelliJ vulnerable-dependency scan
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- Redis key design, TTL as source of truth, lazy expiry; `MGET` vs pipelining vs `SCAN`; cluster hash tags for multi-key Lua
+- Merging durable (DB) and ephemeral (Redis) state; graceful degradation; why not to hold a DB transaction across remote calls (pool exhaustion)
+- Lettuce disconnected behaviour, auto-reconnect, command timeouts vs fail-fast; circuit breakers for hung dependencies
+- Dependency inversion between modules (ports); avoiding package cycles
+- `Cache-Control: no-store` vs `no-cache`; Spring Security default cache headers
+- Benchmarking with baselines in the same session, medians, isolating causes; failure drills with before/after numbers
+- React: rendering grids from layout data, CSS grid placement, accessible toggle buttons (`aria-pressed`), non-colour cues, derived state vs effects, TanStack Query `staleTime`/refetch-on-focus
+**Commit:** `feat(catalog): live seat map with Redis hold overlay and seat-map UI (W3·D1)` (squashed into one commit on `main`)
+
+### Week 3 · Day 2: Atomic seat holds (planned Wed, Nov 25; done Mon, Nov 16, 2026)
+**Status:** ✅ Done
+**Built:**
+- `hold_seats.lua` (one hold per user per show, all-or-nothing over N seats, one TTL for seat keys + user key + record hash) and `release_seats.lua` (deletes only keys still owned by the `holdId`)
+- `RedisHoldStore` (`RedisScript.of(ClassPathResource)`, EVALSHA), `HoldAttempt` (sealed: `Held` / `SeatsTaken` / `HoldExists`), `HoldRecord`; `HoldKeys.userShowKey/recordKey`
+- `HoldService` (input checks, `findHoldableSeats` in catalog: bookable + seats via one `IN` query, not started, not BOOKED; UUID `holdId`; `expiresAt` from the `Clock`; server prices with `Math.addExact`; Redis down → 503); `HoldProperties` (8 min, 6 seats)
+- API: `HoldController` (`POST /api/v1/shows/{showId}/holds`, `GET`/`DELETE /api/v1/holds/{holdId}`), `CreateHoldRequest`, `HoldResponse`; `SeatLockException.getProperties()` → `seatIds` in 409; `ServiceUnavailableException` → 503 + `Retry-After`
+- Race tests (20 threads ×5): one winner, overlapping holds never share a seat, one user → one hold
+- Fix: SDR 4 async cache writes → `immediateWrites()` + regression test (FAILURES.md F2)
+- Docs: ADR-006, architecture §2d (sequence diagram), CORRECTNESS §1d, FAILURES F2
+- Tests: **234** (new: `RedisHoldStoreIntegrationTest` 7, `HoldServiceTest` 12, `HoldApiIntegrationTest` 6, `HoldRaceIntegrationTest` 15, security matrix +5, `HoldKeysTest` +1, `CacheConfigIntegrationTest` +1)
+**Files created/changed:**
+- `backend\src\main\resources\redis\{hold_seats.lua, release_seats.lua}`; `application.yml` (`seatlock.holds`)
+- `booking\hold\{RedisHoldStore, HoldAttempt, HoldRecord, HoldService, HoldProperties, Hold, SeatsUnavailableException, HoldKeys}.java`; `booking\api\{HoldController, CreateHoldRequest, HoldResponse}.java`
+- `catalog\application\{HoldableShow, ShowCatalogService, ShowQueryRepository}.java`; `common\exception\{SeatLockException, ServiceUnavailableException, GlobalExceptionHandler}.java`; `common\cache\CacheConfig.java`
+- Tests: `booking\hold\{RedisHoldStoreIntegrationTest, HoldServiceTest, HoldRaceIntegrationTest, HoldKeysTest}`, `booking\api\HoldApiIntegrationTest`, `identity\security\SecurityMatrixIntegrationTest`, `common\config\OpenApiDocsTest`, `common\cache\CacheConfigIntegrationTest`
+- `docs\decisions\ADR-006-seat-holds.md`, `docs\{architecture.md, CORRECTNESS.md, FAILURES.md}`, `progress.md`
+**Decisions:**
+- See Decisions Log #83–#89
+**Metrics recorded:**
+- Race smoke: exactly 1 winner in every run (20 threads ×5); 234 tests
+**Problems & fixes:**
+- `HoldServiceTest` used `"h1"` after the UUID check was added → real UUIDs; the 404 test had been passing for the wrong reason → now verifies the owner/expiry path is reached + a separate malformed-ID test
+- Manual test got 409 with no keys and seat AVAILABLE → `SHOW_STARTED` (seed shows start 19:30 IST; show 34 had just started). PS 5 hides error bodies → read `$_.Exception.Response` stream; pick shows from `upcomingShows`
+- `seed-holds.ps1 -Clear` removes only seat keys; a real hold also has user + record keys → clear `hold:*` for a clean slate
+- `GlobalExceptionHandler` (common) importing a booking exception → generic `getProperties()` instead
+- Cache test `-2` TTL → SDR 4 async cache writes (F2); `nonLockingRedisCacheWriter(factory, lambda)` resolves to the `BatchStrategy` overload → `RedisCacheWriter.create(factory, configurer)`; signatures read from the local jar
+- Stray `HoldKeysTest.java.tmp` (shell can't delete) → removed by me
+**Carry-over:**
+- D5 UI: "This show has started" state on the seat map for started shows
+- JetBrains student license; IntelliJ vulnerable-dependency scan
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- Check-then-act races; Lua atomicity in Redis; all-or-nothing multi-key writes; `SET PX`, shared TTLs; EVAL vs EVALSHA
+- Ownership tokens (`holdId` compare-and-delete) vs fencing tokens; why blind `DEL` is unsafe after expiry
+- Redis hold + DB unique index (defence in depth) vs optimistic vs pessimistic locking; Redis without persistence
+- Validating against durable state before claiming ephemeral state; server-side pricing; 404 vs 403 for others' resources; input → Redis key safety
+- HTTP semantics: 201 + `Location`, 204, 409 with machine-readable details, 503 + `Retry-After`
+- Concurrency testing: start gates (`CountDownLatch`), real thread pools, repeated runs, collecting every outcome
+- Async vs immediate cache writes; diagnosing flaky tests by mechanism, not symptom
+**Commit:** `feat(booking): atomic multi-seat holds with Lua, HoldService and hold API (W3·D2)` (squashed into one commit on `main`)

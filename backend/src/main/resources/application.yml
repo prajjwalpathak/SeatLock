@@ -65,6 +65,9 @@ seatlock:
     # RS256 key pair, base64 DER on one line (PEM headers optional). Local: repo-root .env.
     private-key: ${JWT_PRIVATE_KEY:}
     public-key: ${JWT_PUBLIC_KEY:}
+  holds:
+    ttl: 8m                      # how long seats stay held (decision #83); all hold keys share this TTL
+    max-seats: 6                 # seats per hold; the UI uses the same cap
   admin:
     # Bootstrap ADMIN account (created once at startup if missing). Both empty = skipped.
     email: ${SEATLOCK_ADMIN_EMAIL:}
