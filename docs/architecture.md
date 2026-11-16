@@ -219,7 +219,7 @@ sequenceDiagram
     participant CAT as ShowCatalogService (catalog)
     participant DB as Postgres
     participant R as Redis (hold_seats.lua)
-    UI->>C: POST /shows/34/holds {seatIds} + Bearer JWT
+    UI->>C: POST /shows/34/holds {seatIds} + Bearer JWT + Idempotency-Key
     C->>S: createHold(userId from token, showId, seatIds)
     S->>S: 1–6 seats, no duplicates
     S->>CAT: findHoldableSeats(showId, seatIds)
@@ -238,6 +238,10 @@ sequenceDiagram
     end
 ```
 
+- **Idempotency (W3·D3, ADR-007):** `POST /holds` requires `Idempotency-Key`. The `@Idempotent` interceptor runs
+  after authorization: claim the key in `idempotency_keys` → run → store the 2xx response (replayed for 24 h with
+  `Idempotent-Replayed: true`). Same key + different body → 422; duplicate while running → 409
+  `IDEMPOTENCY_IN_PROGRESS`; failure → key released. Expired keys are deleted hourly.
 - The seat map (§2c) reads the same seat keys, so a new hold shows as HELD on the next fetch.
 - No DB transaction around the request; booking only calls catalog's public service (booking → catalog).
 

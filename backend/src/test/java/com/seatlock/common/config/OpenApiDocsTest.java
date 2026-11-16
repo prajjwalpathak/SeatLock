@@ -32,6 +32,10 @@ class OpenApiDocsTest {
                 .andExpect(jsonPath("$.paths['/api/v1/organizer/events'].get.security[0].bearerAuth").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/shows/{showId}/holds'].post.security[0].bearerAuth").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/holds/{holdId}'].delete.security[0].bearerAuth").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/shows/{showId}/holds'].post.parameters[?(@.name == 'Idempotency-Key')].required")
+                        .value(true))
+                .andExpect(jsonPath("$.paths['/api/v1/holds/{holdId}'].delete.parameters[?(@.name == 'Idempotency-Key')]")
+                        .isEmpty())
                 .andExpect(jsonPath("$.paths['/api/v1/events'].get.security").doesNotExist()); // public
     }
 }

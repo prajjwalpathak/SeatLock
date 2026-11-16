@@ -81,8 +81,7 @@ public class HoldService {
         return switch (attempt) {
             case Held held -> toHold(held.holdId(), showId, seatIds, byId, expiresAt);
             case SeatsTaken taken -> throw new SeatsUnavailableException(taken.seatIds());
-            case HoldExists exists -> throw new ConflictException("HOLD_EXISTS",
-                    "You already hold seats for this show (hold " + exists.existingHoldId() + "); release it first");
+            case HoldExists exists -> throw new HoldExistsException(exists.existingHoldId());
         };
     }
 

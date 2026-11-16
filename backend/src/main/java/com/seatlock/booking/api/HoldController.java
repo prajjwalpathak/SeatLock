@@ -2,6 +2,7 @@ package com.seatlock.booking.api;
 
 import com.seatlock.booking.hold.HoldService;
 import com.seatlock.common.config.OpenApiConfig;
+import com.seatlock.common.idempotency.Idempotent;
 import com.seatlock.identity.security.CurrentUserId;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -32,7 +33,9 @@ public class HoldController {
     }
 
     @Operation(summary = "Hold 1–6 seats of a show, all or nothing "
-            + "(409 SEATS_UNAVAILABLE with seatIds, 409 HOLD_EXISTS, 503 HOLDS_UNAVAILABLE)")
+            + "(409 SEATS_UNAVAILABLE with seatIds, 409 HOLD_EXISTS with holdId, 503 HOLDS_UNAVAILABLE). "
+            + "Requires Idempotency-Key: retries with the same key replay the first 2xx response")
+    @Idempotent // Idempotency-Key required; a retry with the same key gets the same hold back
     @PostMapping("/api/v1/shows/{showId}/holds")
     public ResponseEntity<HoldResponse> create(@CurrentUserId long userId, @PathVariable long showId,
                                                @Valid @RequestBody CreateHoldRequest request) {
