@@ -15,7 +15,10 @@ import org.springframework.test.context.ActiveProfiles;
  */
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        // Tomcat's default TCP backlog is 100; Windows answers a burst of 200 connects beyond it with a reset.
+        // Production sits behind Nginx (few long-lived upstream connections), so this only matters for the races.
+        properties = "server.tomcat.accept-count=512")
 @ActiveProfiles("test")
 @Import(TestcontainersConfiguration.class)
 public @interface RealServerTest {

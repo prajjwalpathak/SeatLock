@@ -86,12 +86,19 @@ public final class ConcurrencyHarness {
             return sorted[Math.max(0, rank - 1)] / 1_000_000.0;
         }
 
+        /** Distinct transport errors (status -1) with counts; empty when every request got a response. */
+        public Map<String, Long> transportErrors() {
+            return outcomes.stream().filter(o -> o.status() == -1)
+                    .collect(Collectors.groupingBy(Outcome::body, TreeMap::new, Collectors.counting()));
+        }
+
         /** One line for the test log and for CORRECTNESS.md. */
         public String summary() {
-            return "n=%d peakInFlight=%d statuses=%s codes=%s p50=%.1fms p95=%.1fms p99=%.1fms max=%.1fms wall=%.0fms"
+            return "n=%d peakInFlight=%d statuses=%s codes=%s p50=%.1fms p95=%.1fms p99=%.1fms max=%.1fms wall=%.0fms%s"
                     .formatted(outcomes.size(), peakInFlight, statusCounts(), codeCounts(),
                             percentileMillis(50), percentileMillis(95), percentileMillis(99), percentileMillis(100),
-                            wallNanos / 1_000_000.0);
+                            wallNanos / 1_000_000.0,
+                            transportErrors().isEmpty() ? "" : " transportErrors=" + transportErrors());
         }
     }
 
