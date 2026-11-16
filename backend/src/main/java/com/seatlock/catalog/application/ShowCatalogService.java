@@ -9,9 +9,11 @@ import com.seatlock.catalog.api.ShowSeatMapResponse.VenueRef;
 import com.seatlock.catalog.application.ShowQueryRepository.ShowHeader;
 import com.seatlock.catalog.domain.ShowSeatStatus;
 import com.seatlock.common.exception.NotFoundException;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -64,6 +66,16 @@ public class ShowCatalogService {
         return new ShowSeatMapResponse(show.showId(), show.eventId(), show.eventTitle(), show.startsAt(),
                 new VenueRef(show.venueId(), show.venueName(), show.city()),
                 gridRows, gridCols, sections, seats, live.available());
+    }
+
+    /**
+     * For the booking module: the bookable show (SCHEDULED, event PUBLISHED) and those of {@code seatIds}
+     * that belong to it, with price and DB status. Empty if the show isn't bookable.
+     */
+    public Optional<HoldableShow> findHoldableSeats(long showId, Collection<Long> seatIds) {
+        return showQueries.findBookableShow(showId)
+                .map(show -> new HoldableShow(show.showId(), show.startsAt(),
+                        seatIds.isEmpty() ? List.of() : showQueries.seatsById(showId, seatIds)));
     }
 
     private record LiveHolds(Set<Long> held, boolean available) {}

@@ -1,0 +1,152 @@
+package com.seatlock.booking.hold;
+
+import com.seatlock.booking.hold.HoldAttempt.Held;
+import com.seatlock.booking.hold.HoldAttempt.HoldExists;
+import com.seatlock.booking.hold.HoldAttempt.SeatsTaken;
+import com.seatlock.catalog.application.HoldableShow;
+import com.seatlock.catalog.application.ShowCatalogService;
+import com.seatlock.catalog.domain.ShowSeatStatus;
+import com.seatlock.common.exception.ConflictException;
+import com.seatlock.common.exception.InvalidRequestException;
+import com.seatlock.common.exception.NotFoundException;
+import com.seatlock.common.exception.ServiceUnavailableException;
+import java.time.Clock;
+import java.time.Instant;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.dao.DataAccessException;
+import org.springframework.stereotype.Service;
+
+/**
+ * Seat holds: validate against the database, then claim atomically in Redis (hold_seats.lua).
+ * <p>Order matters: cheap input checks → DB checks (show bookable and not started, seats belong to it,
+ * not BOOKED) → one atomic Redis call. The DB checks reject obvious failures early; correctness against
+ * concurrent users comes only from the Lua script (and, at booking time, the DB unique index).</p>
+ * <p>Not {@code @Transactional}: the catalog reads are single queries, and no DB connection should be
+ * held across the Redis call (same reasoning as the seat map).</p>
+ */
+@Service
+@EnableConfigurationProperties(HoldProperties.class)
+public class HoldService {
+
+    private static final Logger log = LoggerFactory.getLogger(HoldService.class);
+
+    private final ShowCatalogService catalog;
+    private final RedisHoldStore store;
+    private final HoldProperties props;
+    private final Clock clock;
+
+    public HoldService(ShowCatalogService catalog, RedisHoldStore store, HoldProperties props, Clock clock) {
+        this.catalog = catalog;
+        this.store = store;
+        this.props = props;
+        this.clock = clock;
+    }
+
+    public Hold createHold(long userId, long showId, List<Long> seatIds) {
+        checkSeatList(seatIds);
+
+        HoldableShow show = catalog.findHoldableSeats(showId, seatIds)
+                .orElseThrow(() -> new NotFoundException("Show", showId));
+        Instant now = clock.instant();
+        if (!show.startsAt().isAfter(now)) {
+            throw new ConflictException("SHOW_STARTED", "This show has already started");
+        }
+        Map<Long, HoldableShow.Seat> byId = show.seats().stream()
+                .collect(Collectors.toMap(HoldableShow.Seat::seatId, Function.identity()));
+        List<Long> unknown = seatIds.stream().filter(id -> !byId.containsKey(id)).toList();
+        if (!unknown.isEmpty()) {
+            throw new InvalidRequestException("UNKNOWN_SEATS", "Seats " + unknown + " are not part of show " + showId);
+        }
+        List<Long> booked = seatIds.stream()
+                .filter(id -> byId.get(id).status() != ShowSeatStatus.AVAILABLE)
+                .toList();
+        if (!booked.isEmpty()) {
+            throw new SeatsUnavailableException(booked);
+        }
+
+        String holdId = UUID.randomUUID().toString();
+        Instant expiresAt = now.plus(props.ttl());
+        HoldAttempt attempt = withRedis(() -> store.tryHold(holdId, userId, showId, seatIds, props.ttl(), expiresAt));
+        return switch (attempt) {
+            case Held held -> toHold(held.holdId(), showId, seatIds, byId, expiresAt);
+            case SeatsTaken taken -> throw new SeatsUnavailableException(taken.seatIds());
+            case HoldExists exists -> throw new ConflictException("HOLD_EXISTS",
+                    "You already hold seats for this show (hold " + exists.existingHoldId() + "); release it first");
+        };
+    }
+
+    /** The caller's live hold. Someone else's or an expired hold is 404 (no way to probe other users' holds). */
+    public Hold getHold(long userId, String holdId) {
+        HoldRecord record = ownedRecord(userId, holdId);
+        HoldableShow show = catalog.findHoldableSeats(record.showId(), record.seatIds())
+                .orElseThrow(() -> new NotFoundException("Hold", holdId));
+        Map<Long, HoldableShow.Seat> byId = show.seats().stream()
+                .collect(Collectors.toMap(HoldableShow.Seat::seatId, Function.identity()));
+        return toHold(holdId, record.showId(), record.seatIds(), byId, record.expiresAt());
+    }
+
+    /** Releases the caller's hold; the seats are free again immediately. */
+    public void releaseHold(long userId, String holdId) {
+        HoldRecord record = ownedRecord(userId, holdId);
+        int released = withRedis(() -> store.release(record));
+        log.debug("Released hold {} ({} seats)", holdId, released);
+    }
+
+    // ------------------------------------------------------------------ helpers
+
+    private void checkSeatList(List<Long> seatIds) {
+        if (seatIds == null || seatIds.isEmpty()) {
+            throw new InvalidRequestException("NO_SEATS", "Select at least one seat");
+        }
+        if (seatIds.size() > props.maxSeats()) {
+            throw new InvalidRequestException("TOO_MANY_SEATS", "You can hold up to " + props.maxSeats() + " seats");
+        }
+        if (seatIds.stream().anyMatch(id -> id == null || id <= 0)) {
+            throw new InvalidRequestException("INVALID_SEAT_ID", "Seat IDs must be positive numbers");
+        }
+        if (new HashSet<>(seatIds).size() != seatIds.size()) {
+            throw new InvalidRequestException("DUPLICATE_SEATS", "Each seat can be selected only once");
+        }
+    }
+
+    private HoldRecord ownedRecord(long userId, String holdId) {
+        HoldRecord record = withRedis(() -> store.find(holdId))
+                .orElseThrow(() -> new NotFoundException("Hold", holdId));
+        if (record.userId() != userId) {
+            throw new NotFoundException("Hold", holdId);
+        }
+        return record;
+    }
+
+    private static Hold toHold(String holdId, long showId, List<Long> seatIds,
+                               Map<Long, HoldableShow.Seat> byId, Instant expiresAt) {
+        List<Hold.HeldSeat> seats = seatIds.stream()
+                .map(byId::get)
+                .map(s -> new Hold.HeldSeat(s.seatId(), s.section(), s.rowLabel(), s.seatNumber(), s.pricePaise()))
+                .toList();
+        long total = 0;
+        for (Hold.HeldSeat seat : seats) {
+            total = Math.addExact(total, seat.pricePaise());
+        }
+        return new Hold(holdId, showId, seats, total, expiresAt);
+    }
+
+    /** Unlike the seat map, holds can't degrade: no Redis means no holds → 503, not 500. */
+    private <T> T withRedis(java.util.function.Supplier<T> call) {
+        try {
+            return call.get();
+        } catch (DataAccessException e) {
+            log.warn("Seat holds unavailable ({})", e.toString());
+            throw new ServiceUnavailableException("HOLDS_UNAVAILABLE",
+                    "Seat holds are temporarily unavailable. Please try again in a moment.");
+        }
+    }
+}

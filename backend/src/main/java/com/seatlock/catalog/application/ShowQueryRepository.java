@@ -92,6 +92,29 @@ public class ShowQueryRepository {
                 .optional();
     }
 
+    private static final String SEATS_BY_ID_SQL = """
+            SELECT st.id AS seat_id, st.section, st.row_label, st.seat_number, ss.price_paise, ss.status
+            FROM show_seats ss
+            JOIN seats st ON st.id = ss.seat_id
+            WHERE ss.show_id = :showId AND ss.seat_id IN (:seatIds)
+            ORDER BY st.grid_row, st.grid_col
+            """;
+
+    /** The requested seats that belong to the show (unknown IDs are simply missing from the result). */
+    public List<HoldableShow.Seat> seatsById(long showId, java.util.Collection<Long> seatIds) {
+        return jdbc.sql(SEATS_BY_ID_SQL)
+                .param("showId", showId)
+                .param("seatIds", seatIds) // expanded to (?, ?, …) by the named-parameter support
+                .query((rs, rowNum) -> new HoldableShow.Seat(
+                        rs.getLong("seat_id"),
+                        rs.getString("section"),
+                        rs.getString("row_label"),
+                        rs.getInt("seat_number"),
+                        rs.getLong("price_paise"),
+                        ShowSeatStatus.valueOf(rs.getString("status"))))
+                .list();
+    }
+
     /** Every seat of the show in rendering order (row by row, left to right). */
     public List<ShowSeatMapResponse.SeatView> seatsForShow(long showId) {
         return jdbc.sql(SEATS_SQL)
