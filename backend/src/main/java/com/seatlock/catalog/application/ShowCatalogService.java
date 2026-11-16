@@ -7,28 +7,46 @@ import com.seatlock.catalog.api.ShowSeatMapResponse.SeatView;
 import com.seatlock.catalog.api.ShowSeatMapResponse.SectionPrice;
 import com.seatlock.catalog.api.ShowSeatMapResponse.VenueRef;
 import com.seatlock.catalog.application.ShowQueryRepository.ShowHeader;
+import com.seatlock.catalog.domain.ShowSeatStatus;
 import com.seatlock.common.exception.NotFoundException;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Seat map = layout + prices + status from Postgres, overlaid with live holds from Redis.
+ * <p>Deliberately <b>not</b> {@code @Transactional}: each query borrows a connection only for itself,
+ * so no DB connection is held while we wait on Redis. If Redis hangs (up to the 500 ms timeout),
+ * a transaction around the call would pin one Hikari connection per request and could exhaust the pool.</p>
+ */
 @Service
-@Transactional(readOnly = true)
 public class ShowCatalogService {
 
-    private final ShowQueryRepository showQueries;
+    private static final Logger log = LoggerFactory.getLogger(ShowCatalogService.class);
 
-    public ShowCatalogService(ShowQueryRepository showQueries) {
+    private final ShowQueryRepository showQueries;
+    private final SeatHoldLookup holds;
+
+    public ShowCatalogService(ShowQueryRepository showQueries, SeatHoldLookup holds) {
         this.showQueries = showQueries;
+        this.holds = holds;
     }
 
     /** Seat map for a bookable show. 404 if unknown, cancelled, or its event isn't published. */
     public ShowSeatMapResponse getSeatMap(long showId) {
         ShowHeader show = showQueries.findBookableShow(showId)
                 .orElseThrow(() -> new NotFoundException("Show", showId));
-        List<SeatView> seats = showQueries.seatsForShow(showId);
+        List<SeatView> dbSeats = showQueries.seatsForShow(showId);
+
+        LiveHolds live = readHolds(showId, dbSeats);
+        List<SeatView> seats = live.held().isEmpty()
+                ? dbSeats
+                : dbSeats.stream().map(seat -> overlay(seat, live.held())).toList();
 
         int gridRows = seats.stream().mapToInt(SeatView::gridRow).max().orElse(-1) + 1;
         int gridCols = seats.stream().mapToInt(SeatView::gridCol).max().orElse(-1) + 1;
@@ -45,6 +63,32 @@ public class ShowCatalogService {
 
         return new ShowSeatMapResponse(show.showId(), show.eventId(), show.eventTitle(), show.startsAt(),
                 new VenueRef(show.venueId(), show.venueName(), show.city()),
-                gridRows, gridCols, sections, seats);
+                gridRows, gridCols, sections, seats, live.available());
+    }
+
+    private record LiveHolds(Set<Long> held, boolean available) {}
+
+    /** Redis down or slow → degrade to the DB view; the seat map must never fail because of holds. */
+    private LiveHolds readHolds(long showId, List<SeatView> seats) {
+        // Only seats the DB still calls AVAILABLE can be "held"; BOOKED seats need no lookup.
+        List<Long> candidates = seats.stream()
+                .filter(s -> s.status() == ShowSeatStatus.AVAILABLE)
+                .map(SeatView::seatId)
+                .toList();
+        try {
+            return new LiveHolds(holds.heldSeatIds(showId, candidates), true);
+        } catch (DataAccessException e) {
+            log.warn("Seat holds unavailable for show {}; serving database status only ({})", showId, e.toString());
+            return new LiveHolds(Set.of(), false);
+        }
+    }
+
+    /** Postgres decides BOOKED (durable, wins); Redis can only turn AVAILABLE into HELD. */
+    private static SeatView overlay(SeatView seat, Set<Long> held) {
+        if (seat.status() != ShowSeatStatus.AVAILABLE || !held.contains(seat.seatId())) {
+            return seat;
+        }
+        return new SeatView(seat.seatId(), seat.section(), seat.rowLabel(), seat.seatNumber(),
+                seat.gridRow(), seat.gridCol(), seat.aisle(), seat.pricePaise(), ShowSeatStatus.HELD);
     }
 }

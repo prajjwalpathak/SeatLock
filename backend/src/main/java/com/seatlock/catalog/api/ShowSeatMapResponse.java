@@ -6,8 +6,10 @@ import java.util.List;
 
 /**
  * Everything the seat-map UI needs for one show: grid size, a price legend per section,
- * and every seat with its position, price and status.
- * Status here is the database view (AVAILABLE/BOOKED); live Redis holds are merged in on W3·D1.
+ * and every seat with its position, price and live status.
+ * <p>Status merges two sources: BOOKED from Postgres (durable) and HELD from Redis hold keys (TTL).
+ * {@code holdsLive = false} means Redis couldn't be read: statuses are the database view only,
+ * so a held seat may show as AVAILABLE (the hold attempt will still be rejected atomically).</p>
  */
 public record ShowSeatMapResponse(
         Long showId,
@@ -18,7 +20,8 @@ public record ShowSeatMapResponse(
         int gridRows,
         int gridCols,
         List<SectionPrice> sections,
-        List<SeatView> seats) {
+        List<SeatView> seats,
+        boolean holdsLive) {
 
     public ShowSeatMapResponse {
         sections = List.copyOf(sections);
