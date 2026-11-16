@@ -21,8 +21,16 @@
 		<jackson-bom.version>3.1.8</jackson-bom.version>
 		<springdoc.version>3.2.0</springdoc.version>
 		<jacoco.version>0.8.15</jacoco.version>
+		<bucket4j.version>8.22.0</bucket4j.version>
 	</properties>
 	<dependencies>
+		<!-- Rate limiting: token buckets stored in Redis (shared by all app instances). lettuce-core is
+		     'provided' in this module, so it uses Boot's Lettuce (7.x); RateLimiterIntegrationTest proves it works. -->
+		<dependency>
+			<groupId>com.bucket4j</groupId>
+			<artifactId>bucket4j_jdk17-lettuce</artifactId>
+			<version>${bucket4j.version}</version>
+		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-actuator</artifactId>
