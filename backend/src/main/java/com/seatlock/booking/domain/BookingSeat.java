@@ -44,6 +44,11 @@ public class BookingSeat extends BaseEntity {
         this.active = true;
     }
 
+    /** No longer claims the seat (booking expired, cancelled or refunded). History is kept. */
+    void release() {
+        this.active = false;
+    }
+
     public Booking getBooking() { return booking; }
     public Long getShowId() { return showId; }
     public Long getSeatId() { return seatId; }

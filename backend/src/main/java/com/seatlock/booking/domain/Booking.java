@@ -84,6 +84,68 @@ public class Booking extends AuditableEntity {
         totalPaise = Math.addExact(totalPaise, pricePaise);
     }
 
+    // ------------------------------------------------------------------ lifecycle (State pattern)
+
+    /** HELD → PAYMENT_PENDING: a payment order was created (W4). */
+    public void startPayment(Instant now) { apply(state().startPayment(this, now)); }
+
+    /** PAYMENT_PENDING → CONFIRMED: payment verified. */
+    public void confirm(Instant now) { apply(state().confirm(this, now)); }
+
+    /** HELD / PAYMENT_PENDING → EXPIRED once {@code expiresAt} has passed; frees the seats. */
+    public void expire(Instant now) { apply(state().expire(this, now)); }
+
+    /** HELD / PAYMENT_PENDING → CANCELLED by the user; frees the seats. */
+    public void cancel(Instant now) { apply(state().cancel(this, now)); }
+
+    /** CONFIRMED → REFUNDED; frees the seats so they can be sold again. */
+    public void refund(Instant now) { apply(state().refund(this, now)); }
+
+    /** True while the booking still claims its seats (HELD, PAYMENT_PENDING, CONFIRMED). */
+    public boolean isLive() {
+        return status == BookingStatus.HELD || status == BookingStatus.PAYMENT_PENDING || status == BookingStatus.CONFIRMED;
+    }
+
+    private BookingState state() {
+        return BookingState.of(status);
+    }
+
+    private void apply(BookingState next) {
+        this.status = next.status();
+    }
+
+    // Side effects, called only by the state objects (same package).
+
+    BookingState expireAt(Instant now) {
+        if (now.isBefore(expiresAt)) {
+            throw IllegalBookingTransitionException.of(status, "expire before " + expiresAt);
+        }
+        releaseSeats();
+        return BookingState.Terminal.EXPIRED;
+    }
+
+    BookingState cancelAt(Instant now) {
+        cancelledAt = now;
+        releaseSeats();
+        return BookingState.Terminal.CANCELLED;
+    }
+
+    BookingState confirmAt(Instant now) {
+        confirmedAt = now;
+        return BookingState.Confirmed.INSTANCE;
+    }
+
+    BookingState refundAt(Instant now) {
+        cancelledAt = now;
+        releaseSeats();
+        return BookingState.Terminal.REFUNDED;
+    }
+
+    /** Deactivated rows drop out of ux_booking_seats_live_seat, so the seats can be sold again. */
+    private void releaseSeats() {
+        seats.forEach(BookingSeat::release);
+    }
+
     public UUID getPublicId() { return publicId; }
     public Long getUserId() { return userId; }
     public Long getShowId() { return showId; }

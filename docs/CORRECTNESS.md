@@ -63,6 +63,19 @@ The seat map reads BOOKED from Postgres and HELD from Redis hold keys. Rules:
 | A crashed request can't block its key for 24 h | 30 s lease + compare-and-set takeover | `aStaleInProgressClaimCanBeTakenOverOnceAfterTheLease` |
 | A stored response is never lost by a release | `release` only deletes `IN_PROGRESS`; `CHECK` ties COMPLETED to a response | `releaseNeverDeletesACompletedKey` |
 
+## 1f. Booking lifecycle (W3·D4, ADR-008)
+
+| Rule | Enforced by | Proven by |
+|---|---|---|
+| Only legal state changes (no double confirm, no expiring paid bookings, terminal is final) | State pattern (`BookingState`) | `BookingLifecycleTest` (all 30 status × action pairs) |
+| A hold becomes at most one booking | `uq_bookings_hold_id` + re-check for the winner | 5 concurrent conversions → exactly one 201, same booking for all |
+| Conversion is all or nothing | one transaction: compare-and-set `markHeld` + booking insert | seat BOOKED meanwhile → 409, other seat back to AVAILABLE |
+| No oversell even if Redis lost a hold | partial unique index `ux_booking_seats_live_seat`, flushed inside the transaction | `theDatabaseIndexRejectsASeatAlreadyInALiveBooking` |
+| Unpaid bookings expire and free their seats | sweeper: `FOR UPDATE SKIP LOCKED` + `expire()` + `markAvailable` | `expiresOnlyUnpaidBookingsWhoseTimeIsUpAndFreesTheirSeats`; expired seat can be sold again |
+| Two sweepers never double-process | `SKIP LOCKED` batches | 2 sweepers × 30 bookings → counts add up to exactly 30 |
+| Sweeper never blocks on a busy row | `SKIP LOCKED` | locked booking skipped in < 5 s, expired on the next run |
+| Cancel vs sweeper can't both win | `SELECT … FOR UPDATE` on cancel; state machine | expired booking → cancel 409; cancel twice → 200 |
+
 ## 2. Query plans (catalog reads)
 
 **Method:** `docs/explain/catalog-queries.sql` on the seeded local DB (30 events, 90 shows,

@@ -245,6 +245,34 @@ sequenceDiagram
 - The seat map (§2c) reads the same seat keys, so a new hold shows as HELD on the next fetch.
 - No DB transaction around the request; booking only calls catalog's public service (booking → catalog).
 
+## 2e. Bookings (W3·D4, ADR-008)
+
+| Endpoint | Who | Result |
+|---|---|---|
+| `POST /api/v1/holds/{holdId}/booking` | hold owner | 201 + `Location` (new) / 200 (already converted) · 404 hold expired or not mine · 409 `SEATS_UNAVAILABLE` |
+| `GET /api/v1/bookings/{publicId}` | owner | 200, else 404 |
+| `POST /api/v1/bookings/{publicId}/cancel` | owner | 200 `CANCELLED` (also when already cancelled) · 409 `INVALID_BOOKING_TRANSITION` |
+
+```mermaid
+stateDiagram-v2
+    [*] --> HELD: POST /holds/{id}/booking
+    HELD --> PAYMENT_PENDING: startPayment (W4)
+    PAYMENT_PENDING --> CONFIRMED: confirm (W4 webhook)
+    CONFIRMED --> REFUNDED: refund (W4)
+    HELD --> EXPIRED: sweeper (expiresAt passed)
+    PAYMENT_PENDING --> EXPIRED: sweeper
+    HELD --> CANCELLED: user cancel
+    PAYMENT_PENDING --> CANCELLED: user cancel
+    EXPIRED --> [*]
+    CANCELLED --> [*]
+    REFUNDED --> [*]
+```
+
+- Conversion: one transaction (`show_seats` → HELD, booking + active `booking_seats`), then the Redis hold is released.
+- Leaving a live state (EXPIRED / CANCELLED / REFUNDED) deactivates `booking_seats` and sets the seats AVAILABLE.
+- Sweeper: every 30 s, `FOR UPDATE SKIP LOCKED` batches; user actions take a row lock. Seat statuses change only
+  through catalog's `ShowSeatStatusService`.
+
 ## 3. Conventions
 - Internal keys are `bigint` identity. Bookings expose a random `public_id` (UUID), so IDs in URLs can't be enumerated.
 - Enums are `varchar` + `CHECK`, not Postgres `ENUM` types: easier to evolve with Flyway, and mapped with `@Enumerated(EnumType.STRING)`.

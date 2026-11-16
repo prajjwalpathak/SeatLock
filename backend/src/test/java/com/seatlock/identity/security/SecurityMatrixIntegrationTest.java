@@ -143,4 +143,27 @@ class SecurityMatrixIntegrationTest {
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("AUTHENTICATION_REQUIRED"));
     }
+
+    /** Bookings: any signed-in role; unknown bookings / holds are 404 for everyone signed in. */
+    @ParameterizedTest(name = "{0} GET + cancel /bookings/:id, POST /holds/:id/booking → {1}")
+    @CsvSource({
+            "ANONYMOUS, 401, AUTHENTICATION_REQUIRED",
+            "USER,      404, NOT_FOUND",
+            "ORGANIZER, 404, NOT_FOUND",
+            "ADMIN,     404, NOT_FOUND",
+    })
+    void bookingsMatrix(String caller, int expectedStatus, String expectedCode) throws Exception {
+        String unknown = UUID.randomUUID().toString();
+        for (MockHttpServletRequestBuilder request : List.of(
+                get("/api/v1/bookings/{id}", unknown),
+                post("/api/v1/bookings/{id}/cancel", unknown),
+                post("/api/v1/holds/{id}/booking", unknown))) {
+            if (!caller.equals("ANONYMOUS")) {
+                request.header(HttpHeaders.AUTHORIZATION, "Bearer " + tokens.get(Role.valueOf(caller)));
+            }
+            mvc.perform(request)
+                    .andExpect(status().is(expectedStatus))
+                    .andExpect(jsonPath("$.code").value(expectedCode));
+        }
+    }
 }

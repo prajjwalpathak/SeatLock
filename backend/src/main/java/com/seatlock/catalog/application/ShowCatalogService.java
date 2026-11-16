@@ -78,6 +78,11 @@ public class ShowCatalogService {
                         seatIds.isEmpty() ? List.of() : showQueries.seatsById(showId, seatIds)));
     }
 
+    /** Seat labels (section, row, number) for any show, bookable or not; used to display stored bookings. */
+    public List<HoldableShow.Seat> findSeatLabels(long showId, Collection<Long> seatIds) {
+        return seatIds.isEmpty() ? List.of() : showQueries.seatsById(showId, seatIds);
+    }
+
     private record LiveHolds(Set<Long> held, boolean available) {}
 
     /** Redis down or slow → degrade to the DB view; the seat map must never fail because of holds. */
