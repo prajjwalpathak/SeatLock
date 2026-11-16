@@ -68,6 +68,10 @@ seatlock:
   holds:
     ttl: 8m                      # how long seats stay held (decision #83); all hold keys share this TTL
     max-seats: 6                 # seats per hold; the UI uses the same cap
+  bookings:
+    sweep-interval: PT30S        # BookingExpirySweeper: expire unpaid bookings past expiresAt
+    sweep-batch-size: 100        # rows locked (SKIP LOCKED) and expired per transaction
+    sweep-max-batches: 20        # per run; a backlog continues on the next run
   idempotency:
     ttl: 24h                     # how long a key's response is replayed (decision #90)
     lease: 30s                   # an IN_PROGRESS claim older than this may be taken over by a retry
