@@ -3,15 +3,15 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 3 · Day 4 (not started, planned Fri Nov 27): booking entities + **State pattern** lifecycle, hold → booking, expiry sweeper releasing seats. Branch `w3-d4`
-- **Last completed:** Week 3 · Day 3: Idempotency-Key infrastructure (V7 table, `@Idempotent` interceptor, replay/422/409, lease takeover, hourly cleanup) on `POST /holds` (planned Thu Nov 26, done Mon Nov 16)
+- **Current day:** Week 3 · Day 5 (not started, planned Sat Nov 28): Bucket4j rate limiting on holds (429), frontend hold flow + countdown + booking page. Branch `w3-d5`
+- **Last completed:** Week 3 · Day 4: State-pattern booking lifecycle, hold → booking (one transaction behind the DB seat index), SKIP LOCKED expiry sweeper, booking read/cancel (planned Fri Nov 27, done Tue Nov 17)
 - **Live URLs:** Frontend https://seatlock-nu.vercel.app · Backend https://seatlock-prajjwal.duckdns.org · Swagger https://seatlock-prajjwal.duckdns.org/swagger-ui.html · Version https://seatlock-prajjwal.duckdns.org/api/v1/system/version · Grafana —
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public) · CI + Deploy badges in README · `main` protected (ruleset `protect-main`)
 - **Hosting:** Azure VM `seatlock-vm` (India South Central, B2als_v2 x64) + Vercel; images from GHCR (ADR-005, #62, #71–#74); decommission after ~2–3 months
 - **Git workflow:** commit per task on a daily branch → PR → squash-merge when CI is green (#9, #75)
-- **Carry-overs:** JetBrains student license · IntelliJ vulnerable-dependency scan · D5 UI: show "This show has started" instead of a clickable map for started shows
-- **Schedule:** **~10 days ahead** (W3·D3 done Mon Nov 16 instead of Thu Nov 26); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
-- **Top risk:** hold → booking state machine + sweeper (D4); 200-thread test (D6); VM burst credits (load tests stay local)
+- **Carry-overs:** D5 UI: "This show has started" state; fresh `Idempotency-Key` per hold attempt · JetBrains student license · IntelliJ vulnerable-dependency scan
+- **Schedule:** **~10 days ahead** (W3·D4 done Tue Nov 17 instead of Fri Nov 27); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
+- **Top risk:** 200-thread concurrency test (D6); payments + webhooks (W4); VM burst credits (load tests stay local)
 
 ## Decisions Log (ADR summary)
 | # | Date | Decision | Why |
@@ -112,6 +112,13 @@
 | 94 | 2026-11-16 | Interceptor wired as a plain Spring AOP `Advisor` (`@Idempotent` pointcut, `ROLE_INFRASTRUCTURE`, lowest precedence → after `@PreAuthorize`), interceptor looked up via `ObjectProvider`; header documented by an `OperationCustomizer`; 422 = `HttpStatus.UNPROCESSABLE_CONTENT` | No AspectJ dependency; unauthorized calls never touch the table; `@Lazy` can't proxy a record (final) |
 | 95 | 2026-11-16 | `SchedulingConfig` (`@EnableScheduling`, `seatlock.scheduling.enabled`, **false in the test profile**); `IdempotencyCleanupJob` hourly (`PT1H`, first run after 1 min), no distributed lock | Jobs never interfere with tests; DELETE of expired rows is idempotent on two instances |
 | 96 | 2026-11-16 | Git: create the next day's branch **only after** the previous PR is squash-merged; if branched early, `git rebase --onto origin/main <last commit of the old day>` before the PR | Squash merges rewrite history: a branch carrying the old day's commits conflicts on every shared file (happened on W3·D2) |
+| 97 | 2026-11-17 | Workflow: Claude **always picks the recommended option** after a Council review and decides what's feasible, instead of asking (user preference from W3·D4); asks only for scope/stack changes or irreversible steps | Faster days; decisions still recorded here and in ADRs |
+| 98 | 2026-11-17 | **ADR-008:** booking lifecycle as a sealed **State pattern** (`BookingState`); invalid moves → 409 `INVALID_BOOKING_TRANSITION` (status + action); no `HELD → CONFIRMED`; terminal states final; expiry refused before `expiresAt` | Rules live in one place per state; a duplicate webhook can't confirm twice |
+| 99 | 2026-11-17 | Hold → booking at **"Proceed to pay"** (`POST /api/v1/holds/{holdId}/booking`), booking keeps the hold's `expiresAt`; one transaction: `show_seats` AVAILABLE→HELD compare-and-set + booking + `booking_seats` via `saveAndFlush`; Redis hold released after commit (user-approved defaults) | Redis for contention, Postgres for commitment; the partial unique index fires inside the transaction |
+| 100 | 2026-11-17 | Conversion is **naturally idempotent** (`hold_id` UNIQUE → 201 new / 200 existing, no Idempotency-Key); every lost race (hold released, seats already HELD, `uq_bookings_hold_id`) re-checks for the winner's booking | Retries and double-clicks get the same booking instead of 404/409 |
+| 101 | 2026-11-17 | Booking changes seat statuses only via catalog's **`ShowSeatStatusService`** (`markHeld` / `markAvailable`, conditional UPDATE, joins the caller's transaction); seats released by **deactivating** `booking_seats` | Module rule (#16); the index frees seats for resale while history stays |
+| 102 | 2026-11-17 | **Expiry sweeper** every 30 s, batches of 100 (max 20/run), `FOR UPDATE SKIP LOCKED`, `expire()` via the state machine; user actions (cancel) take `PESSIMISTIC_WRITE`; cancel of a cancelled booking → 200; no sweeper index until measured (W6·D5) | Parallel sweepers split rows and never block; cancel waits for a sweeper's commit then answers correctly |
+| 103 | 2026-11-17 | `@EntityGraph("seats")` on booking finders (open-in-view off); hold `expiresAt` truncated to **milliseconds** | No LazyInitializationException outside a session; POST/GET hold and the booking report the same instant |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -132,6 +139,8 @@
 | Tests | 234 (187 + 47 new) | `mvnw verify` | 2026-11-16 |
 | Idempotent holds | 20 concurrent claims of one key → **1 winner**; 10 concurrent identical `POST /holds` → **1 hold** (rest replay or 409) | `IdempotencyStoreIntegrationTest`, `HoldIdempotencyIntegrationTest` | 2026-11-16 |
 | Tests | 259 (234 + 25 new) | `mvnw verify` | 2026-11-16 |
+| Booking races | 5 concurrent conversions of one hold → **1 booking**; 2 sweepers × 30 expired bookings → **each expired once**; locked row skipped in < 5 s | `BookingConversionIntegrationTest`, `BookingExpiryIntegrationTest` | 2026-11-17 |
+| Tests | 313 (259 + 54 new) | `mvnw verify` | 2026-11-17 |
 
 ## Accounts & Config (no secrets here, only where they live)
 | Item | Status | Where stored |
@@ -748,3 +757,43 @@
 - Scheduled jobs on multiple instances (idempotent work vs distributed locks); disabling schedulers in tests
 - OpenAPI customizers; HTTP 422 (RFC 9110 "Unprocessable Content")
 **Commit:** `feat(common): Idempotency-Key infrastructure, applied to POST /holds (W3·D3)` (squashed into one commit on `main`)
+
+### Week 3 · Day 4: Bookings with a State-pattern lifecycle (planned Fri, Nov 27; done Tue, Nov 17, 2026)
+**Status:** ✅ Done
+**Built:**
+- `BookingState` (sealed: `Held`, `PaymentPending`, `Confirmed`, `Terminal`) + `Booking.startPayment/confirm/expire/cancel/refund`, `isLive()`; `IllegalBookingTransitionException` (409); `BookingSeat.release()`
+- `BookingService.createFromHold` + `POST /api/v1/holds/{holdId}/booking` (201 + Location / 200), `BookingView`; catalog `ShowSeatStatusService` + `ShowCatalogService.findSeatLabels`; `@EntityGraph` finders
+- `BookingExpiryService.expireBatch` (`lockExpiredIds` native `FOR UPDATE SKIP LOCKED`) + `BookingExpirySweeper` (30 s, 100 × 20); `seatlock.bookings.*`
+- `GET /api/v1/bookings/{publicId}`, `POST …/cancel` (`findForUpdateByPublicId`, PESSIMISTIC_WRITE)
+- Fix: hold `expiresAt` truncated to ms (found by the conversion test)
+- Verified locally: 1-min TTL → booking HELD → `Expired 1 unpaid bookings` → seat AVAILABLE; cancel → seat AVAILABLE
+- Docs: ADR-008, architecture §2e (state diagram), CORRECTNESS §1f
+- Tests: **313** (new: `BookingLifecycleTest` 32, `BookingConversionIntegrationTest` 6, `BookingExpiryIntegrationTest` 4, `BookingExpirySweeperTest` 3, `BookingApiIntegrationTest` 4, security matrix +4, `HoldServiceTest` +1)
+**Files created/changed:**
+- `booking\domain\{BookingState, IllegalBookingTransitionException, Booking, BookingSeat, BookingStatus, BookingRepository}.java`
+- `booking\application\{BookingService, BookingView, BookingExpiryService, BookingExpirySweeper}.java`; `booking\api\BookingController.java`; `booking\hold\HoldService.java`
+- `catalog\application\{ShowSeatStatusService, ShowCatalogService}.java`; `application.yml` (`seatlock.bookings`)
+- Tests: `booking\domain\BookingLifecycleTest`, `booking\api\{BookingConversionIntegrationTest, BookingApiIntegrationTest}`, `booking\application\{BookingExpiryIntegrationTest, BookingExpirySweeperTest}`, `booking\hold\HoldServiceTest`, `identity\security\SecurityMatrixIntegrationTest`
+- `docs\decisions\ADR-008-booking-lifecycle.md`, `docs\{architecture.md, CORRECTNESS.md}`, `progress.md`
+**Decisions:**
+- See Decisions Log #97–#103
+**Metrics recorded:**
+- 5 concurrent conversions → 1 booking; 2 sweepers → each booking expired once; 313 tests
+**Problems & fixes:**
+- Hold `expiresAt` had nanoseconds in the POST response but milliseconds in Redis/GET/booking → truncate at creation
+- Open-in-view is off → loading `booking.getSeats()` outside a session would throw → `@EntityGraph`; but `FOR UPDATE` can't apply to an outer join → the locked finder loads seats lazily inside its transaction
+- Concurrent conversions: the loser could see 404 (hold released) or 409 (seats HELD) → re-check for the winner's booking on every failure path
+- Multi-catch `SeatLockException | RuntimeException` is a compile error (subclass) → `RuntimeException`
+- New PowerShell window has no `$h` → log in again (`/api/v1/auth/login`)
+**Carry-over:**
+- D5 UI: "This show has started"; fresh `Idempotency-Key` per hold attempt
+- JetBrains student license; IntelliJ vulnerable-dependency scan
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- State pattern vs enum switches; sealed hierarchies; making invalid transitions unrepresentable
+- Two-phase reservation: ephemeral Redis hold → durable DB booking; where the oversell guarantee really lives
+- Compare-and-set UPDATEs; flushing inside a transaction to surface constraint violations; translating constraint names
+- Natural idempotency via unique business keys vs idempotency keys; handling every losing branch of a race
+- `SELECT … FOR UPDATE SKIP LOCKED` job queues; batching; pessimistic vs optimistic locking per use case
+- JPA: entity graphs, open-in-view, lazy loading, `FOR UPDATE` with outer joins
+- Time precision across stores (ns `Instant` vs ms Redis vs µs Postgres)
+**Commit:** `feat(booking): State-pattern booking lifecycle, hold → booking and expiry sweeper (W3·D4)` (squashed into one commit on `main`)
