@@ -17,4 +17,10 @@ class HoldKeysTest {
         // "show 1, seat 23" vs "show 12, seat 3": the separators keep them apart
         assertThat(HoldKeys.seatKey(1, 23)).isNotEqualTo(HoldKeys.seatKey(12, 3));
     }
+
+    @Test
+    void userAndRecordKeys() {
+        assertThat(HoldKeys.userShowKey(9, 42)).isEqualTo("hold:user:9:show:42");
+        assertThat(HoldKeys.recordKey("abc")).isEqualTo("hold:id:abc");
+    }
 }
