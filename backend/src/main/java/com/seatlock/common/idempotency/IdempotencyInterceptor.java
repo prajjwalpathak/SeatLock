@@ -17,6 +17,7 @@ import org.aopalliance.intercept.MethodInterceptor;
 import org.aopalliance.intercept.MethodInvocation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -110,7 +111,9 @@ public class IdempotencyInterceptor implements MethodInterceptor {
     // ------------------------------------------------------------------ helpers
 
     private static ResponseEntity<String> replay(IdempotencyRecord record) {
+        // Status + body only (headers like Location aren't stored); never cacheable, like the original.
         return ResponseEntity.status(record.responseStatus())
+                .cacheControl(CacheControl.noStore())
                 .contentType(MediaType.APPLICATION_JSON)
                 .header(Idempotent.REPLAYED_HEADER, "true")
                 .body(record.responseBody());

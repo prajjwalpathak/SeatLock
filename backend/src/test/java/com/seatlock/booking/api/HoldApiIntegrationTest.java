@@ -148,9 +148,11 @@ class HoldApiIntegrationTest {
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("UNKNOWN_SEATS"));
 
         mvc.perform(post("/api/v1/shows/{id}/holds", Long.MAX_VALUE).header(HttpHeaders.AUTHORIZATION, bearer(alice))
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType(MediaType.APPLICATION_JSON).content("{\"seatIds\":[1]}"))
                 .andExpect(status().isNotFound());
         mvc.perform(post("/api/v1/shows/{id}/holds", showId).header(HttpHeaders.AUTHORIZATION, bearer(alice))
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
                         .contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isBadRequest());
         mvc.perform(get("/api/v1/holds/{id}", "not-a-uuid").header(HttpHeaders.AUTHORIZATION, bearer(alice)))
@@ -174,6 +176,7 @@ class HoldApiIntegrationTest {
         String json = "{\"seatIds\":[" + List.of(seatIds).stream().map(String::valueOf).collect(Collectors.joining(",")) + "]}";
         return mvc.perform(post("/api/v1/shows/{id}/holds", showId)
                 .header(HttpHeaders.AUTHORIZATION, bearer(token))
+                .header("Idempotency-Key", UUID.randomUUID().toString()) // a fresh attempt every call
                 .contentType(MediaType.APPLICATION_JSON).content(json));
     }
 

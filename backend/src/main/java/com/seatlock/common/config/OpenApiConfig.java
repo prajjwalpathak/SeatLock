@@ -1,6 +1,10 @@
 package com.seatlock.common.config;
 
+import com.seatlock.common.idempotency.Idempotent;
 import io.swagger.v3.oas.models.Components;
+import io.swagger.v3.oas.models.media.StringSchema;
+import io.swagger.v3.oas.models.parameters.HeaderParameter;
+import org.springdoc.core.customizers.OperationCustomizer;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.info.Info;
 import io.swagger.v3.oas.models.security.SecurityScheme;
@@ -13,6 +17,21 @@ public class OpenApiConfig {
 
     /** Name to reference with @SecurityRequirement(name = BEARER_AUTH) on protected endpoints. */
     public static final String BEARER_AUTH = "bearerAuth";
+
+    /** Documents the required Idempotency-Key header on every {@link Idempotent} endpoint. */
+    @Bean
+    OperationCustomizer idempotencyKeyHeader() {
+        return (operation, handlerMethod) -> {
+            if (handlerMethod.hasMethodAnnotation(Idempotent.class)) {
+                operation.addParametersItem(new HeaderParameter()
+                        .name(Idempotent.HEADER)
+                        .required(true)
+                        .description("New random value (e.g. a UUID) per attempt; reuse it only to retry the same request")
+                        .schema(new StringSchema().minLength(8).maxLength(64).pattern("^[A-Za-z0-9_-]+$")));
+            }
+            return operation;
+        };
+    }
 
     @Bean
     OpenAPI seatLockOpenApi() {
