@@ -3,15 +3,15 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 3 · Day 5 (not started, planned Sat Nov 28): Bucket4j rate limiting on holds (429), frontend hold flow + countdown + booking page. Branch `w3-d5`
-- **Last completed:** Week 3 · Day 4: State-pattern booking lifecycle, hold → booking (one transaction behind the DB seat index), SKIP LOCKED expiry sweeper, booking read/cancel (planned Fri Nov 27, done Tue Nov 17)
+- **Current day:** Week 3 · Day 6 (not started, planned Mon Nov 30): **200-thread concurrency test** (exactly 1 winner, oversells = 0), `CORRECTNESS.md` pass, Week 3 review. Branch `w3-d6`
+- **Last completed:** Week 3 · Day 5: Bucket4j rate limiting on holds (429), frontend hold → countdown → booking flow, booking page (planned Sat Nov 28, done Tue Nov 17)
 - **Live URLs:** Frontend https://seatlock-nu.vercel.app · Backend https://seatlock-prajjwal.duckdns.org · Swagger https://seatlock-prajjwal.duckdns.org/swagger-ui.html · Version https://seatlock-prajjwal.duckdns.org/api/v1/system/version · Grafana —
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public) · CI + Deploy badges in README · `main` protected (ruleset `protect-main`)
 - **Hosting:** Azure VM `seatlock-vm` (India South Central, B2als_v2 x64) + Vercel; images from GHCR (ADR-005, #62, #71–#74); decommission after ~2–3 months
 - **Git workflow:** commit per task on a daily branch → PR → squash-merge when CI is green (#9, #75)
-- **Carry-overs:** D5 UI: "This show has started" state; fresh `Idempotency-Key` per hold attempt · JetBrains student license · IntelliJ vulnerable-dependency scan
-- **Schedule:** **~10 days ahead** (W3·D4 done Tue Nov 17 instead of Fri Nov 27); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
-- **Top risk:** 200-thread concurrency test (D6); payments + webhooks (W4); VM burst credits (load tests stay local)
+- **Carry-overs:** silence Mockito's dynamic-agent warning (W6·D1) · JetBrains student license · IntelliJ vulnerable-dependency scan
+- **Schedule:** **~11 days ahead** (W3·D5 done Tue Nov 17 instead of Sat Nov 28); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
+- **Top risk:** payments + webhooks (W4); VM burst credits (load tests stay local)
 
 ## Decisions Log (ADR summary)
 | # | Date | Decision | Why |
@@ -119,6 +119,13 @@
 | 101 | 2026-11-17 | Booking changes seat statuses only via catalog's **`ShowSeatStatusService`** (`markHeld` / `markAvailable`, conditional UPDATE, joins the caller's transaction); seats released by **deactivating** `booking_seats` | Module rule (#16); the index frees seats for resale while history stays |
 | 102 | 2026-11-17 | **Expiry sweeper** every 30 s, batches of 100 (max 20/run), `FOR UPDATE SKIP LOCKED`, `expire()` via the state machine; user actions (cancel) take `PESSIMISTIC_WRITE`; cancel of a cancelled booking → 200; no sweeper index until measured (W6·D5) | Parallel sweepers split rows and never block; cancel waits for a sweeper's commit then answers correctly |
 | 103 | 2026-11-17 | `@EntityGraph("seats")` on booking finders (open-in-view off); hold `expiresAt` truncated to **milliseconds** | No LazyInitializationException outside a session; POST/GET hold and the booking report the same instant |
+| 104 | 2026-11-17 | **ADR-009:** rate limiting with **Bucket4j 8.22.0** (`bucket4j_jdk17-lettuce`, buckets in Redis via CAS) on the app's own Lettuce 7 client; policy `holds`: per IP 30/min, per user burst 5 + 10/min → 429 `RATE_LIMITED` + `Retry-After` (+ `RateLimit-Remaining`) | Shared across instances; locked stack; Lettuce 7 compatibility proven by a real-Redis test |
+| 105 | 2026-11-17 | `@RateLimited("policy")` + `HandlerInterceptor` after Spring Security; registered by a `@Bean WebMvcConfigurer` (not a WebMvcConfigurer class) and logs `Rate limiting enabled/DISABLED` at startup | Absent from `@WebMvcTest` slices, always present in full contexts; switch state visible (F3) |
+| 106 | 2026-11-17 | `RateLimiter` **fails open**; on a failure it drops the cached proxy and **retries once** on a fresh one; it's a `SmartLifecycle` that drops the proxy on stop | Protection, not correctness (holds 503 themselves); a stale connection after a client restart heals on the next call |
+| 107 | 2026-11-17 | Test profile: per-IP limit 100000, per-user 20/min | The whole suite runs from 127.0.0.1; real behaviour checked with small limits in `RateLimiterIntegrationTest` |
+| 108 | 2026-11-17 | Frontend: **one `Idempotency-Key` per user attempt**, automatic retries (network/503/`IDEMPOTENCY_IN_PROGRESS`, max 2) reuse it; `ApiError.details` (seatIds, holdId) + `retryAfterSeconds`; countdowns on the **server clock** (`/system/time` offset) | A flaky network can't create a second hold; precise UI reactions; laptop clock skew can't fake expiry |
+| 109 | 2026-11-17 | Seat map hold flow: green hold panel (countdown, Release, Proceed to pay), own seats "✓ Your hold", map read-only while holding or after start; hold remembered per show in `sessionStorage` (F5 resumes; 404 → forgotten; `HOLD_EXISTS` resumes too); booking page polls every 10 s while unpaid and shows Expired at 0:00 before the sweeper runs | Holds survive refreshes; every server error has a specific, honest message |
+| 110 | 2026-11-17 | **Git rule, enforced:** never resolve squash-merge conflicts with "accept incoming/current"; stop and rebase (`git rebase --onto origin/main <old day's last commit>`); next day's branch only after the merge (#96) | "Accept incoming" silently dropped 99 lines incl. the rate-limit config (FAILURES F3) |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -141,6 +148,8 @@
 | Tests | 259 (234 + 25 new) | `mvnw verify` | 2026-11-16 |
 | Booking races | 5 concurrent conversions of one hold → **1 booking**; 2 sweepers × 30 expired bookings → **each expired once**; locked row skipped in < 5 s | `BookingConversionIntegrationTest`, `BookingExpiryIntegrationTest` | 2026-11-17 |
 | Tests | 313 (259 + 54 new) | `mvnw verify` | 2026-11-17 |
+| Rate limiting | burst/refill/independent keys verified against real Redis (Lettuce 7); 21st hold in a minute → **429** + Retry-After | `RateLimiterIntegrationTest`, `HoldRateLimitIntegrationTest` | 2026-11-17 |
+| Tests | 319 (313 + 6 new) | `mvnw verify` / CI | 2026-11-17 |
 
 ## Accounts & Config (no secrets here, only where they live)
 | Item | Status | Where stored |
@@ -797,3 +806,38 @@
 - JPA: entity graphs, open-in-view, lazy loading, `FOR UPDATE` with outer joins
 - Time precision across stores (ns `Instant` vs ms Redis vs µs Postgres)
 **Commit:** `feat(booking): State-pattern booking lifecycle, hold → booking and expiry sweeper (W3·D4)` (squashed into one commit on `main`)
+
+### Week 3 · Day 5: Rate-limited holds + frontend hold → booking flow (planned Sat, Nov 28; done Tue, Nov 17, 2026)
+**Status:** ✅ Done
+**Built:**
+- Bucket4j 8.22.0 (`bucket4j_jdk17-lettuce`): `RateLimiter` (fail-open, lazy proxy, retry once on a fresh proxy, SmartLifecycle), `RateLimitInterceptor`, `@RateLimited`, `RateLimitProperties`, `RateLimitConfig`, `RateLimitWebConfig`, `RateLimitedException` → 429 + Retry-After; `@RateLimited("holds")` on `POST /holds`
+- Frontend API: `ApiError.details` + `retryAfterSeconds`, `apiPostWithStatus` / `apiDelete` / `hasCode`, `api/holds.ts`, `lib/serverClock.ts`, `lib/useNow.ts`
+- Seat map: `HoldPanel`, `holdStorage`, real Hold button / sign-in prompt, "✓ Your hold", started-show state, per-error messages, automatic retries with the same key
+- Booking page `/bookings/:publicId` (RequireAuth): status, seats, total, time left to pay, Cancel, 10 s polling while unpaid, expired/cancelled/not-found
+- Docs: ADR-009, architecture §2f, CORRECTNESS §1g, FAILURES F3
+- Tests: **319** (new: `RateLimiterIntegrationTest` 3, `RateLimiterTest` 2, `HoldRateLimitIntegrationTest` 1); frontend `tsc` + ESLint clean
+**Files created/changed:**
+- `backend\pom.xml`; `common\ratelimit\*` (7 classes); `common\exception\GlobalExceptionHandler.java`; `booking\api\HoldController.java`; `application.yml` / `application-test.yml` (`seatlock.rate-limit`)
+- Frontend: `src\api\{client.ts, holds.ts}`, `src\types\api.ts`, `src\lib\{serverClock.ts, useNow.ts}`, `src\features\seatmap\{HoldPanel.tsx, holdStorage.ts, SelectionSummary.tsx, SeatMap.tsx, SeatLegend.tsx, seats.ts}`, `src\pages\{ShowSeatsPage.tsx, BookingPage.tsx}`, `src\router.tsx`
+- `docs\decisions\ADR-009-rate-limiting.md`, `docs\{architecture.md, CORRECTNESS.md, FAILURES.md}`, `progress.md`
+**Decisions:**
+- See Decisions Log #104–#110
+**Metrics recorded:**
+- 21st hold per minute → 429; Bucket4j on Lettuce 7 verified; 319 tests
+**Problems & fixes:**
+- Maven Central blocked from Claude's workspaces → coded against the documented 8.x API; compiled first time on the laptop
+- `Connection is closed`: paused Spring test contexts stop the Lettuce client under a cached Bucket4j proxy → SmartLifecycle reset + self-healing retry
+- `@WebMvcTest` slices failed (they load WebMvcConfigurer classes; limiter needs Redis) → `@Bean WebMvcConfigurer`
+- CI-only `RateLimit-Remaining` missing → the GitHub merge of `main` (conflicts resolved "accept incoming") had dropped the `seatlock.rate-limit` block (and D4/D5 doc sections) → restored from the pre-merge commit (F3, #110)
+- Hold countdown showed 1:00: the backend window still had `SEATLOCK_HOLDS_TTL=PT1M` from the sweeper check → remove env vars after experiments
+- CI log links are too long / blocked for Claude → paste the `Results:` block or the specific log lines
+**Carry-over:**
+- Silence Mockito's dynamic agent warning (W6·D1); JetBrains student license; IntelliJ vulnerable-dependency scan
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- Token bucket vs leaky bucket vs fixed/sliding windows; burst vs sustained rate; distributed buckets (CAS in Redis); fail-open vs fail-closed
+- 429 + Retry-After + RateLimit headers; per-IP vs per-user limits; client IP behind a reverse proxy
+- Library compatibility across major versions (provided-scope dependencies), lifecycle of pooled clients, self-healing connections
+- Idempotent client retries (same key per attempt), server-clock offsets for countdowns, resumable UI state (sessionStorage) vs server truth
+- Spring test-context caching/pausing; slice tests and which components they load
+- Git: squash merges vs branch history, why "accept incoming" loses work, rebase --onto
+**Commit:** `feat: rate-limited holds (Bucket4j) and frontend hold → booking flow with countdowns (W3·D5)` (squashed into one commit on `main`)

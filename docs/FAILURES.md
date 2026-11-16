@@ -67,3 +67,33 @@ sub-millisecond, so latency numbers in `benchmarks.md` are unaffected in practic
 
 **Lesson:** when a fix works "most of the time", look for the mechanism that makes timing matter (here: who
 performs the write, and when) instead of patching each symptom.
+
+## F3. A merge that silently disabled rate limiting (W3·D5, 2026-11-17)
+
+**Symptom:** CI red on one test only: `HoldRateLimitIntegrationTest` expected `RateLimit-Remaining: 19`, got no
+header at all. No "Rate limiter unavailable" warning either. Locally the same test later failed the same way.
+
+**Wrong turns (each fixed something real, none fixed this):**
+1. Locally, `RateLimiterIntegrationTest` failed with `RedisException: Connection is closed`: Spring 7 pauses cached
+   test contexts, which stops `LettuceConnectionFactory` and shuts its client down; the limiter's cached Bucket4j
+   proxy still used the old client → `RateLimiter` became a `SmartLifecycle` that drops the proxy on stop.
+2. `@WebMvcTest` slices failed to start (they load every `WebMvcConfigurer`, the limiter needs Redis) → optional
+   `ObjectProvider` wiring, later replaced by a `@Bean WebMvcConfigurer` (deterministic, logs at startup).
+3. Made the limiter self-heal: on failure drop the proxy and retry once on a fresh one, then fail open.
+
+**Root cause:** the startup line added in step 2 printed `Rate limiting DISABLED for policies [holds]`.
+`application.yml` no longer had a `seatlock.rate-limit` block. `w3-d5` had been branched from `w3-d4` before #4
+was squash-merged; GitHub then merged `main` into the branch, every file both days touched conflicted, and the
+conflicts were resolved with "accept incoming", which **dropped 99 lines of the branch's own changes**
+(`application.yml`, `CORRECTNESS.md`, `architecture.md`, `progress.md`). With the block gone, `enabled`
+defaulted to `false` and the interceptor let everything through.
+
+**Fix:** restored the four files from the branch's last pre-merge commit (`ac12ede`, which already contained
+`main`'s content) and pushed; CI green.
+
+**Lessons:**
+- Never resolve squash-merge conflicts with "accept incoming/current"; rebase instead
+  (`git rebase --onto origin/main <last commit of the old day>`), and create a day's branch only after the
+  previous PR is merged (#96, now enforced in the workflow).
+- A feature that can be switched off should **say so at startup**. One log line ended an hour of guessing.
+- When a test says "header missing", first prove the code path ran at all before debugging the code inside it.
