@@ -3,15 +3,15 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 3 · Day 3 (not started, planned Thu Nov 26): Idempotency-Key infrastructure (table + interceptor/aspect), applied to `POST /holds`. Branch `w3-d3`
-- **Last completed:** Week 3 · Day 2: atomic multi-seat holds (Lua), `HoldService`, hold API, race tests, async-cache-write fix (planned Wed Nov 25, done Mon Nov 16)
+- **Current day:** Week 3 · Day 4 (not started, planned Fri Nov 27): booking entities + **State pattern** lifecycle, hold → booking, expiry sweeper releasing seats. Branch `w3-d4`
+- **Last completed:** Week 3 · Day 3: Idempotency-Key infrastructure (V7 table, `@Idempotent` interceptor, replay/422/409, lease takeover, hourly cleanup) on `POST /holds` (planned Thu Nov 26, done Mon Nov 16)
 - **Live URLs:** Frontend https://seatlock-nu.vercel.app · Backend https://seatlock-prajjwal.duckdns.org · Swagger https://seatlock-prajjwal.duckdns.org/swagger-ui.html · Version https://seatlock-prajjwal.duckdns.org/api/v1/system/version · Grafana —
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public) · CI + Deploy badges in README · `main` protected (ruleset `protect-main`)
 - **Hosting:** Azure VM `seatlock-vm` (India South Central, B2als_v2 x64) + Vercel; images from GHCR (ADR-005, #62, #71–#74); decommission after ~2–3 months
 - **Git workflow:** commit per task on a daily branch → PR → squash-merge when CI is green (#9, #75)
 - **Carry-overs:** JetBrains student license · IntelliJ vulnerable-dependency scan · D5 UI: show "This show has started" instead of a clickable map for started shows
-- **Schedule:** **~9 days ahead** (W3·D2 done Mon Nov 16 instead of Wed Nov 25); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
-- **Top risk:** idempotency (D3) and hold → booking state machine (D4); 200-thread test (D6); VM burst credits (load tests stay local)
+- **Schedule:** **~10 days ahead** (W3·D3 done Mon Nov 16 instead of Thu Nov 26); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
+- **Top risk:** hold → booking state machine + sweeper (D4); 200-thread test (D6); VM burst credits (load tests stay local)
 
 ## Decisions Log (ADR summary)
 | # | Date | Decision | Why |
@@ -105,6 +105,13 @@
 | 87 | 2026-11-16 | **ADR-006:** Redis Lua hold + DB partial unique index as the final guard; optimistic locking kept only as the W4·D6 benchmark strategy; per-seat `SETNX` and `FOR UPDATE` rejected | Redis prevents conflicts cheaply; Postgres makes oversells impossible even if Redis loses data (no persistence in prod) |
 | 88 | 2026-11-16 | Cache writer `RedisCacheWriter.create(factory, c -> c.batchStrategy(scan(1000)).immediateWrites())` (**root-cause fix behind #76**) | Spring Data Redis 4 writes cache entries asynchronously by default; puts/evictions must be visible immediately (FAILURES.md F2) |
 | 89 | 2026-11-16 | Race tests run through the real `HoldService` with fixed thread pools released by a `CountDownLatch`, each `@RepeatedTest(5)`; every outcome collected (unexpected exceptions fail) | Real interleaving, repeated to beat luck; no swallowed errors. 200-thread HTTP version on W3·D6 |
+| 90 | 2026-11-16 | **`Idempotency-Key` required** on `POST /holds` (8–64 chars `[A-Za-z0-9_-]`), responses kept **24 h** (user-approved defaults) | Retries/double-clicks get their original result; a missing key is a client bug, not a silent duplicate |
+| 91 | 2026-11-16 | **ADR-007:** keys in Postgres `idempotency_keys` (V7), `UNIQUE (user_id, idem_key)`, claim = `INSERT … ON CONFLICT DO NOTHING RETURNING id`, every store call auto-committed | Unique constraint decides races across instances; durable (Redis has no persistence in prod, #64); claim visible immediately |
+| 92 | 2026-11-16 | Fingerprint SHA-256 of `METHOD path` + re-serialized `@RequestBody` → mismatch **422 `IDEMPOTENCY_KEY_REUSED`**; only **2xx** stored and replayed (status + body, `Idempotent-Replayed: true`, `no-store`); any exception **releases** the key; duplicate while running → 409 `IDEMPOTENCY_IN_PROGRESS` | Whitespace-insensitive match; holds fail without side effects, so re-running a failure is safe; headers (Location) not replayed |
+| 93 | 2026-11-16 | Crash recovery: **30 s lease** (`locked_at`) + compare-and-set takeover; `HOLD_EXISTS` now carries `holdId`; if storing the response fails after success the key is **not** released | A crashed request can't block its key for 24 h; the re-run answers with the existing hold; never pretend a done operation didn't happen |
+| 94 | 2026-11-16 | Interceptor wired as a plain Spring AOP `Advisor` (`@Idempotent` pointcut, `ROLE_INFRASTRUCTURE`, lowest precedence → after `@PreAuthorize`), interceptor looked up via `ObjectProvider`; header documented by an `OperationCustomizer`; 422 = `HttpStatus.UNPROCESSABLE_CONTENT` | No AspectJ dependency; unauthorized calls never touch the table; `@Lazy` can't proxy a record (final) |
+| 95 | 2026-11-16 | `SchedulingConfig` (`@EnableScheduling`, `seatlock.scheduling.enabled`, **false in the test profile**); `IdempotencyCleanupJob` hourly (`PT1H`, first run after 1 min), no distributed lock | Jobs never interfere with tests; DELETE of expired rows is idempotent on two instances |
+| 96 | 2026-11-16 | Git: create the next day's branch **only after** the previous PR is squash-merged; if branched early, `git rebase --onto origin/main <last commit of the old day>` before the PR | Squash merges rewrite history: a branch carrying the old day's commits conflicts on every shared file (happened on W3·D2) |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -123,6 +130,8 @@
 | Tests | 187 (174 + 13 new) | `mvnw verify` / CI | 2026-11-16 |
 | Hold races (smoke) | 20 threads × 5 runs: **exactly 1 winner** per seat; overlapping multi-seat holds never share a seat, no partial writes; one user racing → 1 hold | `HoldRaceIntegrationTest` (Testcontainers) | 2026-11-16 |
 | Tests | 234 (187 + 47 new) | `mvnw verify` | 2026-11-16 |
+| Idempotent holds | 20 concurrent claims of one key → **1 winner**; 10 concurrent identical `POST /holds` → **1 hold** (rest replay or 409) | `IdempotencyStoreIntegrationTest`, `HoldIdempotencyIntegrationTest` | 2026-11-16 |
+| Tests | 259 (234 + 25 new) | `mvnw verify` | 2026-11-16 |
 
 ## Accounts & Config (no secrets here, only where they live)
 | Item | Status | Where stored |
@@ -701,3 +710,41 @@
 - Concurrency testing: start gates (`CountDownLatch`), real thread pools, repeated runs, collecting every outcome
 - Async vs immediate cache writes; diagnosing flaky tests by mechanism, not symptom
 **Commit:** `feat(booking): atomic multi-seat holds with Lua, HoldService and hold API (W3·D2)` (squashed into one commit on `main`)
+
+### Week 3 · Day 3: Idempotency keys for `POST /holds` (planned Thu, Nov 26; done Mon, Nov 16, 2026)
+**Status:** ✅ Done
+**Built:**
+- Flyway `V7__idempotency_keys.sql`: per-user unique key, fingerprint, IN_PROGRESS/COMPLETED + stored response (`CHECK` ties them), `locked_at` lease, `expires_at` + index
+- `IdempotencyStore` (claim / find / takeOver / complete / release / deleteExpired; single auto-committed statements), `IdempotencyRecord`, `IdempotencyProperties` (24 h, 30 s)
+- `@Idempotent` + `IdempotencyInterceptor` (400 missing/malformed key, 422 reuse, replay with `Idempotent-Replayed`, 409 in progress, lease takeover, release on failure, never release after success) + `IdempotencyConfig` (Spring AOP advisor); `UnprocessableRequestException` → 422
+- `POST /api/v1/shows/{showId}/holds` requires the key; Swagger header via `OperationCustomizer`; `HoldExistsException` with `holdId`
+- `SchedulingConfig` + hourly `IdempotencyCleanupJob`; verified locally (planted expired row → `Deleted 1 expired idempotency keys`)
+- Docs: ADR-007, CORRECTNESS §1e, architecture §2d update
+- Tests: **259** (new: `IdempotencyStoreIntegrationTest` 9, `IdempotencyInterceptorTest` 8, `HoldIdempotencyIntegrationTest` 6, `IdempotencyCleanupJobTest` 2; `HoldApiIntegrationTest` sends keys; `OpenApiDocsTest` checks the header)
+**Files created/changed:**
+- `db\migration\V7__idempotency_keys.sql`; `application.yml` (`seatlock.idempotency`), `application-test.yml` (`seatlock.scheduling.enabled: false`)
+- `common\idempotency\{Idempotent, IdempotencyInterceptor, IdempotencyConfig, IdempotencyStore, IdempotencyRecord, IdempotencyProperties, IdempotencyCleanupJob}.java`; `common\config\{SchedulingConfig, OpenApiConfig}.java`; `common\exception\{UnprocessableRequestException, GlobalExceptionHandler}.java`
+- `booking\api\HoldController.java`; `booking\hold\{HoldExistsException, HoldService}.java`
+- Tests: `common\idempotency\{IdempotencyStoreIntegrationTest, IdempotencyInterceptorTest, IdempotencyCleanupJobTest}`, `booking\api\{HoldIdempotencyIntegrationTest, HoldApiIntegrationTest}`, `common\config\OpenApiDocsTest`
+- `docs\decisions\ADR-007-idempotency-keys.md`, `docs\{CORRECTNESS.md, architecture.md}`, `progress.md`
+**Decisions:**
+- See Decisions Log #90–#96
+**Metrics recorded:**
+- 20 concurrent claims → 1 winner; 10 concurrent duplicate POSTs → 1 hold; 259 tests
+**Problems & fixes:**
+- W3·D2 PR conflicted on every file: `w3-d2` was branched before #1 was squash-merged → `git rebase --onto origin/main cdd7850` + `--force-with-lease` (#96)
+- `@Lazy` on the advisor's dependencies would need a CGLIB proxy of the `IdempotencyProperties` record (final) → `ObjectProvider` lookup on first call
+- Mockito trap: re-stubbing `when(store.claim(any…))` calls the previous `thenAnswer` with `""` arguments and overwrote the captured hash → copy the value before re-stubbing
+- PowerShell multi-line `psql -c "…"` got split → pipe a here-string into `docker exec -i … psql`
+- `git fetch` from Claude's shell left `.git` lock files (shell can't delete) → renamed out of the way; delete `.git\*.stale-claude` files when convenient
+**Carry-over:**
+- D5 UI: "This show has started" state; frontend sends a fresh `Idempotency-Key` per hold attempt
+- JetBrains student license; IntelliJ vulnerable-dependency scan
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- Idempotency keys (Stripe-style): scope, fingerprints, replay vs reject, 409 in-progress vs 422 reuse, what to store, retention
+- Race-safe claims with unique constraints and `INSERT … ON CONFLICT … RETURNING`; why autocommit matters for visibility
+- Crash windows between side effect and record; leases + compare-and-set takeover; at-least-once vs exactly-once
+- Spring AOP without AspectJ: advisors, pointcuts, infrastructure role, advice ordering vs method security; early-instantiated post-processors
+- Scheduled jobs on multiple instances (idempotent work vs distributed locks); disabling schedulers in tests
+- OpenAPI customizers; HTTP 422 (RFC 9110 "Unprocessable Content")
+**Commit:** `feat(common): Idempotency-Key infrastructure, applied to POST /holds (W3·D3)` (squashed into one commit on `main`)
