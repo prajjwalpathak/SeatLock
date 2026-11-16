@@ -3,14 +3,15 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 2 · Day 6 (not started, planned Mon Nov 23): GitHub Actions `ci.yml` (build, test, JaCoCo) + `deploy.yml` (build image → GHCR → SSH deploy to the Azure VM); buffer/review
-- **Last completed:** Week 2 · Day 5: Docker image, prod Compose + Nginx/TLS, **first live deploy** on Azure + Vercel (planned Sat Nov 21, done Mon Nov 16)
-- **Live URLs:** Frontend https://seatlock-nu.vercel.app · Backend https://seatlock-prajjwal.duckdns.org · Swagger https://seatlock-prajjwal.duckdns.org/swagger-ui.html · Grafana —
-- **Repo:** https://github.com/prajjwalpathak/SeatLock (public)
-- **Hosting:** Azure VM `seatlock-vm` (India South Central, Standard_B2als_v2 x64, ~USD 24/month) + Vercel (ADR-005, #62); decommission after ~2–3 months (`docs/deploy.md` §8)
-- **Carry-overs:** after the push, re-test F5 on a deep link + Google sign-in on the live site · JetBrains student license · IntelliJ vulnerable-dependency scan · re-upload `progress.md` to Project knowledge
-- **Schedule:** **~5 days ahead** (W2·D5 done Mon Nov 16 instead of Sat Nov 21); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
-- **Top risk:** CI/CD (W2·D6): GitHub → VM SSH deploy secrets, GHCR auth on the VM; VM burst credits (load tests stay local)
+- **Current day:** Week 3 · Day 1 (not started, planned Tue Nov 24): seat map API with live seat status (layout + status from Redis), static seat-map UI component. Branch `w3-d1`
+- **Last completed:** Week 2 · Day 6: GitHub Actions CI + GHCR image + SSH deploy with health-wait/rollback, version endpoint, CI cache-race fix (planned Mon Nov 23, done Mon Nov 16)
+- **Live URLs:** Frontend https://seatlock-nu.vercel.app · Backend https://seatlock-prajjwal.duckdns.org · Swagger https://seatlock-prajjwal.duckdns.org/swagger-ui.html · Version https://seatlock-prajjwal.duckdns.org/api/v1/system/version · Grafana —
+- **Repo:** https://github.com/prajjwalpathak/SeatLock (public) · CI + Deploy badges in README · `main` protected (ruleset `protect-main`)
+- **Hosting:** Azure VM `seatlock-vm` (India South Central, B2als_v2 x64) + Vercel; images from GHCR (ADR-005, #62, #71–#74); decommission after ~2–3 months
+- **Git workflow:** commit per task on a daily branch → PR → squash-merge when CI is green (#9, #75)
+- **Carry-overs:** create the `protect-main` ruleset + squash-only merge settings (before W3·D1) · JetBrains student license · IntelliJ vulnerable-dependency scan · re-upload `progress.md` to Project knowledge
+- **Schedule:** **~7 days ahead** (W2·D6 done Mon Nov 16 instead of Mon Nov 23); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
+- **Top risk:** Week 3 seat holds (Redis Lua atomicity, idempotency, 200-thread test); VM burst credits (load tests stay local)
 
 ## Decisions Log (ADR summary)
 | # | Date | Decision | Why |
@@ -23,7 +24,7 @@
 | 6 | 2026-11-10 | App reads repo-root `.env` via `spring.config.import: optional:file:../.env[.properties]` | One source of values for Compose + app; OS env vars override; skipped in Docker/prod |
 | 7 | 2026-11-10 | **ADR-001** dependency vulnerability triage; `jackson-databind` overridden → 3.1.8 | CVE-2026-110879 (9.8); fix in same minor line. Logback + test-scope findings accepted, revisit W8·D1 |
 | 8 | 2026-11-10 | No Lombok | Records for DTOs; explicit Java for entities |
-| 9 | 2026-11-10 | **One git commit per day**, made at "next" after the progress.md update | Clean, day-aligned history |
+| 9 | 2026-11-10 | ~~One git commit per day~~ **superseded 2026-11-16 by #75** (commit per task on a daily branch, squash-merged PR) | Clean, day-aligned history |
 | 10 | 2026-11-10 | **No interview-angle sections until after v1.0.0**; daily entries list topics covered only | Focus on building now; interview prep after the project |
 | 11 | 2026-11-10 | **Hosting:** Oracle Always Free preferred (needs a family Visa/Mastercard credit card); **Azure for Students** ($100, active) as fallback; AWS free plan unavailable (already used). Decide by W2·D4 | No personal credit card; Oracle is free forever and keeps the plan unchanged; Azure lasts ~4–5 months at 24/7 on B2pls_v2 (ARM, 4 GB) |
 | 12 | 2026-11-11 | Error contract: RFC 7807 `ProblemDetail` + `code` + `requestId`; 500s never leak internals | One predictable error shape for the frontend; errors traceable in logs |
@@ -85,6 +86,12 @@
 | 68 | 2026-11-16 | Until W2·D6, code reaches the VM via `tar` + `scp` (backend + infra only) and is built there | Keeps one commit per day; Day 6 switches to CI-built images from GHCR |
 | 69 | 2026-11-16 | Load tests/benchmarks stay **local**; the VM is decommissioned (resource group deleted) after ~2–3 months | B-series burst credits make VM numbers unreliable; honest resume line: deployed, then decommissioned to save cost |
 | 70 | 2026-11-16 | `spring.data.redis.repositories.enabled: false` | Redis is cache + plain keys; removes repository-scan noise at startup |
+| 71 | 2026-11-16 | **CI** (`ci.yml`): push to `main` + every PR; backend `mvnw verify` (Testcontainers on GitHub's Docker, JaCoCo summary + report artifact, surefire reports on failure), frontend `npm ci`/lint/build on Node 26; `contents: read`; concurrency cancels superseded runs | Every change tested on a clean machine; coverage visible per run |
+| 72 | 2026-11-16 | **Deploy** (`deploy.yml`) via `workflow_run` on CI **success** on `main` (checks out the tested SHA): image built once (`linux/amd64`, BuildKit `gha` cache), pushed to **GHCR** as `sha-<12>` + `latest` with `GITHUB_TOKEN` (`packages: write`); package public; `concurrency: deploy-production` (no cancel) | Build once, deploy the tested artifact; immutable tags make rollback trivial; no personal tokens |
+| 73 | 2026-11-16 | **SSH push-deploy (option A, user-approved):** NSG SSH open to Any + key-only sshd + **fail2ban**; CI key generated on the VM, pinned in `authorized_keys` with `command="…/deploy.sh",restrict`; host key pinned (`StrictHostKeyChecking=yes`); secrets `DEPLOY_HOST`/`DEPLOY_SSH_KEY`/`DEPLOY_KNOWN_HOSTS`. Rejected: VM pull loop (no feedback), Azure run-command/OIDC (student tenant), Tailscale (extra account) | Real deploy result in Actions; a leaked CI key can only redeploy |
+| 74 | 2026-11-16 | `deploy.sh`: validates `sha-<12 hex>`/`latest`, `flock`, pull → `APP_IMAGE` in `.env.prod` → `up -d --no-deps app` → wait healthy (~2.5 min) → else logs + **automatic rollback**. Image carries `GIT_SHA` → `GET /api/v1/system/version`; CI smoke test requires readiness UP **and** the deployed revision. Manual `workflow_dispatch` `tag` = one-click rollback | A broken build can't take the site down; "deployed" means the new commit is actually serving |
+| 75 | 2026-11-16 | **Git workflow (supersedes #9, user-approved option B):** a commit per task on a daily branch (`w3-d1`, …), PR at day end, **squash merge** once CI is green; ruleset `protect-main`: PR required (0 approvals), required checks `Backend (build, test, coverage)` + `Frontend (lint, build)`, linear history, no force-push, no deletion; head branches auto-deleted | Real quality gate on the deployed branch; still one squashed commit per day on `main` |
+| 76 | 2026-11-16 | Cache evictions use **immediate** semantics: `evictIfPresent()` / `invalidate()` (never `evict()`/`clear()`, which the `Cache` contract allows to be deferred and Spring Data Redis 4 defers) in `CatalogCacheEvictor` and tests | Deferred deletes raced with fresh writes (found by CI: keys vanished after put); after-commit eviction must be visible immediately |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -96,6 +103,7 @@
 | Event list latency, Redis cache vs original code | p50 5.35 → **4.16 ms (−22%)**; p95 6.46 → **5.12 ms (−21%)**; p99 8.34 → 6.14 ms | same | 2026-11-15 |
 | Seat map: cached layout/prices vs single query | p95 7.72 → 12.29 ms (**+59%, rejected**; kept the single indexed query) | same | 2026-11-15 |
 | Test coverage (JaCoCo) | **92.5% instructions, 92.1% lines, 73.1% branches**; 173 tests | `mvnw verify` (`target/site/jacoco/jacoco.csv`) | 2026-11-16 |
+| CI pipeline | CI ~5–8 min first run (cached later); image build ~1 min with BuildKit cache; deploy + health-wait < 2.5 min | GitHub Actions run times | 2026-11-16 |
 | Container startup (prod profile) | **~9.0 s** to `Started`; image content 194 MB | `docker run` on the laptop (Docker Desktop) | 2026-11-16 |
 
 ## Accounts & Config (no secrets here, only where they live)
@@ -560,4 +568,41 @@
 - CORS (exact origins, preflight), SPA history-API routing and server rewrites, build-time vs runtime env vars in Vite
 - Cloud cost control: burstable VMs, deallocate vs shutdown, region policies, budget alerts, decommissioning
 **Commit:** `feat(infra): containerize backend and deploy to Azure VM with Nginx, TLS and Vercel`
+
+### Week 2 · Day 6: CI/CD with GitHub Actions (planned Mon, Nov 23; done Mon, Nov 16, 2026)
+**Status:** ✅ Done (ruleset/merge settings created by me after the final push)
+**Built:**
+- `.github\workflows\ci.yml`: backend verify (Testcontainers, JaCoCo summary + artifact), frontend lint + build
+- `.github\workflows\deploy.yml`: `image` (GHCR, `sha-<12>` + `latest`, `GIT_SHA` build-arg, gha cache) → `deploy` (SSH forced-command key, pinned host key) → smoke test (readiness + revision); manual `tag` input for rollback; `production` environment
+- `infra\scripts\deploy.sh` (validate → lock → pull → switch → health-wait → auto-rollback); Compose `app` now `image: ${APP_IMAGE}` from GHCR (no builds on the VM)
+- `GET /api/v1/system/version` (`VersionResponse`, `seatlock.build.revision` ← `SEATLOCK_REVISION` ← Docker `ARG GIT_SHA`) + test (174 tests)
+- VM: CI key with `command=…deploy.sh,restrict`, fail2ban, NSG SSH → Any; GitHub secrets; GHCR package public
+- Drills: rollback to an earlier tag via Run workflow; bad tag fails at pull without touching the live version; roll forward
+- **Bug found by CI:** `CacheConfigIntegrationTest` / `CatalogCachingIntegrationTest` flaked only on GitHub: cache keys vanished right after being written. Cause: `Cache.evict()`/`clear()` may be deferred (Spring Data Redis 4 defers them), so a deferred delete landed after the next write. Fix: `evictIfPresent()`/`invalidate()` in tests **and** in production `CatalogCacheEvictor`
+- README CI/Deploy badges; `docs\deploy.md` §3 CI/CD (pipeline, rollback, version check, security setup table, key rotation) + troubleshooting rows; ADR-005 CI/CD consequence
+**Files created/changed:**
+- `.github\workflows\{ci.yml, deploy.yml}`; `infra\scripts\deploy.sh`; `infra\{docker-compose.prod.yml, .env.prod.example}`
+- `backend\Dockerfile`; `backend\src\main\resources\application.yml`; `common\system\{SystemController, VersionResponse}.java`; `catalog\application\CatalogCacheEvictor.java`
+- Tests: `SystemControllerTest`, `CacheConfigIntegrationTest`, `CatalogCachingIntegrationTest`, `CacheEvictionIntegrationTest`
+- `README.md`, `docs\deploy.md`, `docs\decisions\ADR-005-hosting.md`, `.gitignore` (`ci-reports/`), `progress.md`; `mvnw`/`*.sh` stored executable in Git
+**Decisions:**
+- See Decisions Log #71–#76 (and #9 superseded)
+**Metrics recorded:**
+- 174 tests; CI/deploy timings (see Metrics)
+**Problems & fixes:**
+- CI-only test failures (TTL `-2`; +1 DB connection during "hits") → deferred cache deletes; immediate `evictIfPresent`/`invalidate` (#76). Diagnosed from the downloaded `surefire-reports` (re-run failed differently = timing, not a fixed order)
+- GitHub runners have random IPs, SSH was limited to my IP → option A (open + key-only + fail2ban + forced-command CI key)
+- `mvnw` committed from Windows without the executable bit → `chmod +x` in CI + `git update-index --chmod=+x`
+- One-commit-per-day required amend + force-push to `main`, which conflicts with branch protection → workflow changed to daily branch + squash-merged PR (#75)
+**Carry-over:**
+- Create ruleset `protect-main` + squash-only merge settings (before W3·D1)
+- JetBrains student license; IntelliJ vulnerable-dependency scan; re-upload `progress.md` to Project knowledge
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- CI vs CD; workflow triggers (`push`, `pull_request`, `workflow_run`, `workflow_dispatch`), jobs/steps, caching, artifacts, concurrency, least-privilege `permissions`
+- Build once / deploy the same artifact; immutable SHA tags vs `latest`; container registries (GHCR) and token scopes
+- Push vs pull deployments; SSH key auth, `authorized_keys` forced commands (`restrict`), host-key pinning (MITM), fail2ban; secrets management in CI
+- Health-gated deploys, automatic rollback, smoke tests that verify the running version; deploy locking
+- Flaky tests: order/timing dependence, CI vs local differences, reading surefire reports; `Cache.evict` vs `evictIfPresent` semantics
+- Trunk protection: PRs, required status checks, squash merge, linear history
+**Commit:** `ci: add GitHub Actions CI, GHCR images and SSH deploy with rollback` (squashed into one commit on `main`)
 
