@@ -49,5 +49,6 @@ export const SEAT_STYLES = {
   available: 'border-slate-300 bg-white text-slate-600 hover:border-indigo-500 hover:bg-indigo-50',
   selected: 'border-indigo-600 bg-indigo-600 text-white',
   held: 'border-amber-300 bg-amber-100 text-amber-700',
+  mine: 'border-emerald-600 bg-emerald-600 text-white',
   booked: 'border-slate-200 bg-slate-200 text-slate-400',
 } as const
