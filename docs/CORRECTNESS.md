@@ -76,15 +76,6 @@ The seat map reads BOOKED from Postgres and HELD from Redis hold keys. Rules:
 | Sweeper never blocks on a busy row | `SKIP LOCKED` | locked booking skipped in < 5 s, expired on the next run |
 | Cancel vs sweeper can't both win | `SELECT … FOR UPDATE` on cancel; state machine | expired booking → cancel 409; cancel twice → 200 |
 
-## 1g. Rate limits (W3·D5, ADR-009)
-
-| Rule | Enforced by | Proven by |
-|---|---|---|
-| A user can't flood `POST /holds` | per-user token bucket in Redis (shared by all instances) | `HoldRateLimitIntegrationTest`: 20 pass (test profile), 21st → 429 + Retry-After |
-| One user's limit never blocks another | buckets keyed by user id | same test: second user unaffected |
-| Bursts allowed, sustained floods not; refill over time | Bucket4j greedy refill | `RateLimiterIntegrationTest` (burst 3, 4th rejected; refills after the period) |
-| Redis down never blocks requests | fail-open in `RateLimiter` | `RateLimiterTest` |
-
 ## 2. Query plans (catalog reads)
 
 **Method:** `docs/explain/catalog-queries.sql` on the seeded local DB (30 events, 90 shows,
