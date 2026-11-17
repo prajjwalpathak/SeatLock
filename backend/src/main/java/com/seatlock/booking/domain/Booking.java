@@ -101,6 +101,16 @@ public class Booking extends AuditableEntity {
     /** CONFIRMED → REFUNDED; frees the seats so they can be sold again. */
     public void refund(Instant now) { apply(state().refund(this, now)); }
 
+    /**
+     * A (new) payment attempt may start: HELD (first attempt) or PAYMENT_PENDING (retry after a failed attempt).
+     * Anything else → 409 {@code INVALID_BOOKING_TRANSITION}. Doesn't check the deadline (the service does, with its clock).
+     */
+    public void requirePayable() {
+        if (status != BookingStatus.HELD && status != BookingStatus.PAYMENT_PENDING) {
+            throw IllegalBookingTransitionException.of(status, "startPayment");
+        }
+    }
+
     /** True while the booking still claims its seats (HELD, PAYMENT_PENDING, CONFIRMED). */
     public boolean isLive() {
         return status == BookingStatus.HELD || status == BookingStatus.PAYMENT_PENDING || status == BookingStatus.CONFIRMED;

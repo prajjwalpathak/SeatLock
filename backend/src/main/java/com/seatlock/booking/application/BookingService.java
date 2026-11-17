@@ -22,6 +22,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -124,6 +125,52 @@ public class BookingService {
         booking.cancel(clock.instant());
         seatStatus.markAvailable(booking.getShowId(), seatIds);
         return view(booking);
+    }
+
+    // ------------------------------------------------------------------ payment module API
+
+    /**
+     * Read-only check before a gateway call: the caller's booking exists (else 404), is HELD or PAYMENT_PENDING
+     * (else 409 INVALID_BOOKING_TRANSITION), its deadline hasn't passed (else 409 BOOKING_EXPIRED), and its
+     * server-side amount is consistent. No lock: {@link #startPayment} repeats the checks under one.
+     */
+    public PayableBooking checkPayable(long userId, String publicId) {
+        UUID id = parseUuid(publicId).orElseThrow(() -> new NotFoundException("Booking", "(invalid id)"));
+        Booking booking = bookings.findByPublicId(id)
+                .filter(b -> b.getUserId() == userId)
+                .orElseThrow(() -> new NotFoundException("Booking", id));
+        return payable(booking);
+    }
+
+    /**
+     * Locks the booking row (PESSIMISTIC_WRITE), repeats {@link #checkPayable}'s checks and moves HELD →
+     * PAYMENT_PENDING (a retry on PAYMENT_PENDING stays as is). Must run inside the caller's transaction, so the
+     * payment row is written under the same lock: concurrent attempts for one booking are serialized here.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public PayableBooking startPayment(long userId, String publicId) {
+        UUID id = parseUuid(publicId).orElseThrow(() -> new NotFoundException("Booking", "(invalid id)"));
+        Booking booking = bookings.findForUpdateByPublicId(id)
+                .filter(b -> b.getUserId() == userId)
+                .orElseThrow(() -> new NotFoundException("Booking", id));
+        PayableBooking payable = payable(booking);
+        if (booking.getStatus() == BookingStatus.HELD) {
+            booking.startPayment(clock.instant());
+        }
+        return new PayableBooking(payable.bookingId(), payable.publicId(), booking.getStatus(),
+                payable.amountPaise(), payable.currency(), payable.expiresAt());
+    }
+
+    private PayableBooking payable(Booking booking) {
+        if (booking.getStatus() == BookingStatus.EXPIRED) {
+            throw new BookingExpiredException();
+        }
+        booking.requirePayable(); // CANCELLED / CONFIRMED / REFUNDED → 409 INVALID_BOOKING_TRANSITION
+        if (!clock.instant().isBefore(booking.getExpiresAt())) {
+            throw new BookingExpiredException(); // deadline passed, sweeper hasn't run yet
+        }
+        return new PayableBooking(booking.getId(), booking.getPublicId(), booking.getStatus(),
+                BookingPricing.amountDue(booking), booking.getCurrency(), booking.getExpiresAt());
     }
 
     // ------------------------------------------------------------------ internals
