@@ -303,6 +303,40 @@ sequenceDiagram
 - The seat map shows the user's own held seats as "✓ Your hold"; F5 resumes a hold from `sessionStorage`
   (`GET /holds/{id}`; 404 → forgotten). Countdowns use the server's clock, not the laptop's.
 
+## 2g. Payment orders (W4·D1, ADR-010)
+
+- `payment` module: `PaymentGateway` port (`MockGateway` today, Razorpay from D2), `Payment` attempts (V8),
+  `PaymentService`, `POST /api/v1/bookings/{publicId}/payment-order` (no body: the amount is computed on the server).
+- Dependencies: `payment → booking` (only `BookingService.checkPayable` / `startPayment` and the `PayableBooking`
+  record) `→ catalog`. No entity crosses a module boundary.
+- At most one open or successful payment per booking: `ux_payments_live_booking`; failed attempts are history.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as User
+    participant API as PaymentController
+    participant PS as PaymentService
+    participant BS as BookingService
+    participant GW as PaymentGateway
+    participant DB as Postgres
+    U->>API: POST /bookings/{publicId}/payment-order
+    API->>PS: createOrder(userId, publicId)
+    PS->>BS: checkPayable (owner, HELD/PAYMENT_PENDING, before expiresAt, amount from seats)
+    PS->>DB: open payment for this booking?
+    alt open order exists
+        PS-->>U: 200 same order
+    else none
+        PS->>GW: createOrder(receipt, amountPaise, INR) (no transaction held)
+        GW-->>PS: order_...
+        PS->>DB: BEGIN
+        PS->>BS: startPayment (SELECT ... FOR UPDATE, re-check, HELD → PAYMENT_PENDING)
+        PS->>DB: open payment now? (a concurrent request may have won)
+        PS->>DB: INSERT payments (attempt n, CREATED); COMMIT
+        PS-->>U: 201 order (orderId, amountPaise, payBy)
+    end
+```
+
 ## 3. Conventions
 - Internal keys are `bigint` identity. Bookings expose a random `public_id` (UUID), so IDs in URLs can't be enumerated.
 - Enums are `varchar` + `CHECK`, not Postgres `ENUM` types: easier to evolve with Flyway, and mapped with `@Enumerated(EnumType.STRING)`.

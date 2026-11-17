@@ -36,6 +36,8 @@ class OpenApiDocsTest {
                         .value(true))
                 .andExpect(jsonPath("$.paths['/api/v1/holds/{holdId}'].delete.parameters[?(@.name == 'Idempotency-Key')]")
                         .isEmpty())
+                .andExpect(jsonPath("$.paths['/api/v1/bookings/{publicId}/payment-order'].post.security[0].bearerAuth").exists())
+                .andExpect(jsonPath("$.paths['/api/v1/bookings/{publicId}/payment-order'].post.requestBody").doesNotExist())
                 .andExpect(jsonPath("$.paths['/api/v1/events'].get.security").doesNotExist()); // public
     }
 }

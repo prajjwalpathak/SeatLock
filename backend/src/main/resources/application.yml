@@ -78,6 +78,8 @@ seatlock:
     sweep-interval: PT30S        # BookingExpirySweeper: expire unpaid bookings past expiresAt
     sweep-batch-size: 100        # rows locked (SKIP LOCKED) and expired per transaction
     sweep-max-batches: 20        # per run; a backlog continues on the next run
+  payments:
+    gateway: ${SEATLOCK_PAYMENTS_GATEWAY:mock}   # mock | razorpay (W4·D2); local, tests and load tests use mock
   idempotency:
     ttl: 24h                     # how long a key's response is replayed (decision #90)
     lease: 30s                   # an IN_PROGRESS claim older than this may be taken over by a retry
