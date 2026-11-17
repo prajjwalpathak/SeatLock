@@ -3,6 +3,7 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
+<<<<<<< Updated upstream
 - **Current day:** Week 3 · Day 5 (not started, planned Sat Nov 28): Bucket4j rate limiting on holds (429), frontend hold flow + countdown + booking page. Branch `w3-d5`
 - **Last completed:** Week 3 · Day 4: State-pattern booking lifecycle, hold → booking (one transaction behind the DB seat index), SKIP LOCKED expiry sweeper, booking read/cancel (planned Fri Nov 27, done Tue Nov 17)
 - **Live URLs:** Frontend https://seatlock-nu.vercel.app · Backend https://seatlock-prajjwal.duckdns.org · Swagger https://seatlock-prajjwal.duckdns.org/swagger-ui.html · Version https://seatlock-prajjwal.duckdns.org/api/v1/system/version · Grafana —
@@ -12,6 +13,17 @@
 - **Carry-overs:** D5 UI: "This show has started" state; fresh `Idempotency-Key` per hold attempt · JetBrains student license · IntelliJ vulnerable-dependency scan
 - **Schedule:** **~10 days ahead** (W3·D4 done Tue Nov 17 instead of Fri Nov 27); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
 - **Top risk:** 200-thread concurrency test (D6); payments + webhooks (W4); VM burst credits (load tests stay local)
+=======
+- **Current day:** Week 4 · Day 1 (in progress, planned Tue Dec 1): payment gateway abstraction + create-order endpoint, as 3 combined tasks (A: V8 + Payment entity + gateway/MockGateway · B: pricing + `startPayment` + `PaymentService` + endpoint · C: tests + ADR-010/docs/OpenAPI). Branch `w4-d1`
+- **Last completed:** Week 3 · Day 6: 200-user concurrency proof (races A/B/C over real HTTP and straight to the DB, 0 double-sold), CORRECTNESS section 1h, Week 3 review (planned Mon Nov 30, done Wed Nov 18)
+- **Live URLs:** Frontend https://seatlock-nu.vercel.app · Backend https://seatlock-prajjwal.duckdns.org · Swagger https://seatlock-prajjwal.duckdns.org/swagger-ui.html · Version https://seatlock-prajjwal.duckdns.org/api/v1/system/version · Grafana —
+- **Repo:** https://github.com/prajjwalpathak/SeatLock (public) · CI + Deploy badges in README · `main` protected (ruleset `protect-main`)
+- **Hosting:** Azure VM `seatlock-vm` (India South Central, B2als_v2 x64) + Vercel; images from GHCR (ADR-005, #62, #71–#74); decommission after ~2–3 months
+- **Git workflow (from W4):** 3 combined tasks per day (2 plan tasks each); each combined task = changes → one verify/test block → one commit + push on the daily branch; day end → PR → squash-merge when CI is green (#9, #75, #116)
+- **Carry-overs:** silence Mockito's dynamic-agent warning (W6·D1) · JetBrains student license · IntelliJ vulnerable-dependency scan
+- **Schedule:** **~12 days ahead** (W3·D6 done Wed Nov 18 instead of Mon Nov 30); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
+- **Top risk:** payments + webhooks (W4); VM burst credits (load tests stay local)
+>>>>>>> Stashed changes
 
 ## Decisions Log (ADR summary)
 | # | Date | Decision | Why |
@@ -119,6 +131,22 @@
 | 101 | 2026-11-17 | Booking changes seat statuses only via catalog's **`ShowSeatStatusService`** (`markHeld` / `markAvailable`, conditional UPDATE, joins the caller's transaction); seats released by **deactivating** `booking_seats` | Module rule (#16); the index frees seats for resale while history stays |
 | 102 | 2026-11-17 | **Expiry sweeper** every 30 s, batches of 100 (max 20/run), `FOR UPDATE SKIP LOCKED`, `expire()` via the state machine; user actions (cancel) take `PESSIMISTIC_WRITE`; cancel of a cancelled booking → 200; no sweeper index until measured (W6·D5) | Parallel sweepers split rows and never block; cancel waits for a sweeper's commit then answers correctly |
 | 103 | 2026-11-17 | `@EntityGraph("seats")` on booking finders (open-in-view off); hold `expiresAt` truncated to **milliseconds** | No LazyInitializationException outside a session; POST/GET hold and the booking report the same instant |
+<<<<<<< Updated upstream
+=======
+| 104 | 2026-11-17 | **ADR-009:** rate limiting with **Bucket4j 8.22.0** (`bucket4j_jdk17-lettuce`, buckets in Redis via CAS) on the app's own Lettuce 7 client; policy `holds`: per IP 30/min, per user burst 5 + 10/min → 429 `RATE_LIMITED` + `Retry-After` (+ `RateLimit-Remaining`) | Shared across instances; locked stack; Lettuce 7 compatibility proven by a real-Redis test |
+| 105 | 2026-11-17 | `@RateLimited("policy")` + `HandlerInterceptor` after Spring Security; registered by a `@Bean WebMvcConfigurer` (not a WebMvcConfigurer class) and logs `Rate limiting enabled/DISABLED` at startup | Absent from `@WebMvcTest` slices, always present in full contexts; switch state visible (F3) |
+| 106 | 2026-11-17 | `RateLimiter` **fails open**; on a failure it drops the cached proxy and **retries once** on a fresh one; it's a `SmartLifecycle` that drops the proxy on stop | Protection, not correctness (holds 503 themselves); a stale connection after a client restart heals on the next call |
+| 107 | 2026-11-17 | Test profile: per-IP limit 100000, per-user 20/min | The whole suite runs from 127.0.0.1; real behaviour checked with small limits in `RateLimiterIntegrationTest` |
+| 108 | 2026-11-17 | Frontend: **one `Idempotency-Key` per user attempt**, automatic retries (network/503/`IDEMPOTENCY_IN_PROGRESS`, max 2) reuse it; `ApiError.details` (seatIds, holdId) + `retryAfterSeconds`; countdowns on the **server clock** (`/system/time` offset) | A flaky network can't create a second hold; precise UI reactions; laptop clock skew can't fake expiry |
+| 109 | 2026-11-17 | Seat map hold flow: green hold panel (countdown, Release, Proceed to pay), own seats "✓ Your hold", map read-only while holding or after start; hold remembered per show in `sessionStorage` (F5 resumes; 404 → forgotten; `HOLD_EXISTS` resumes too); booking page polls every 10 s while unpaid and shows Expired at 0:00 before the sweeper runs | Holds survive refreshes; every server error has a specific, honest message |
+| 110 | 2026-11-17 | **Git rule, enforced:** never resolve squash-merge conflicts with "accept incoming/current"; stop and rebase (`git rebase --onto origin/main <old day's last commit>`); next day's branch only after the merge (#96) | "Accept incoming" silently dropped 99 lines incl. the rate-limit config (FAILURES F3) |
+| 111 | 2026-11-18 | Concurrency proof = 3 races: **A** 200 users, 1 seat over real HTTP; **B** 200 users, random overlapping 1–4 seats in a 12-seat block, then all winners book at once; **C** 200 direct DB transactions on one seat with Redis bypassed | Covers the single-seat case, realistic overlap end to end, and the last line of defence on its own |
+| 112 | 2026-11-18 | Races run on a **real Tomcat port** (`@RealServerTest`, `RANDOM_PORT`) with a start-gate harness (`ConcurrencyHarness`, one platform thread per request); a request without an HTTP response fails the test | MockMvc bypasses sockets and Tomcat's pool; dropped requests must never count as a pass |
+| 113 | 2026-11-18 | Race context only: `server.tomcat.accept-count=512` + one unasserted warm-up race; overlap asserted as `peakInFlight` ≥ 10% | A 200-connect burst overflowed the default backlog of 100 on a cold server (Windows resets the extras); warm servers answer early requests before late threads wake |
+| 114 | 2026-11-18 | Race B seeds its random seat picks and logs the seed; invariant SQL `DOUBLE_SOLD_SEATS` (live claims per seat > 1) must return 0 rows | Any failing interleaving can be replayed; the DB, not status codes, is the final word |
+| 115 | 2026-11-18 | Never use the section-sign character in docs/code; existing ones replaced with "section" except the applied `V4` migration comment | Readability preference; editing an applied migration changes its Flyway checksum |
+| 116 | 2026-11-18 | **Workflow from Week 4 (refines #36/#75):** each day's 6 plan tasks are paired into **3 combined tasks**; each pair gets one PowerShell verify/test block and one commit (pushed to the daily branch); at day end one PR, squash-merged once CI is green. Pace unchanged (~6 h/day) | Fewer round trips and commits per day; same scope and timeline |
+>>>>>>> Stashed changes
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
