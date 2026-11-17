@@ -3,14 +3,14 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 3 · Day 6 (not started, planned Mon Nov 30): **200-thread concurrency test** (exactly 1 winner, oversells = 0), `CORRECTNESS.md` pass, Week 3 review. Branch `w3-d6`
-- **Last completed:** Week 3 · Day 5: Bucket4j rate limiting on holds (429), frontend hold → countdown → booking flow, booking page (planned Sat Nov 28, done Tue Nov 17)
+- **Current day:** Week 4 · Day 1 (not started, planned Tue Dec 1): `PaymentGateway` interface + `MockGateway`, payment entity, server-side pricing, create-order endpoint. Branch `w4-d1`
+- **Last completed:** Week 3 · Day 6: 200-user concurrency proof (races A/B/C over real HTTP and straight to the DB, 0 double-sold), CORRECTNESS section 1h, Week 3 review (planned Mon Nov 30, done Wed Nov 18)
 - **Live URLs:** Frontend https://seatlock-nu.vercel.app · Backend https://seatlock-prajjwal.duckdns.org · Swagger https://seatlock-prajjwal.duckdns.org/swagger-ui.html · Version https://seatlock-prajjwal.duckdns.org/api/v1/system/version · Grafana —
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public) · CI + Deploy badges in README · `main` protected (ruleset `protect-main`)
 - **Hosting:** Azure VM `seatlock-vm` (India South Central, B2als_v2 x64) + Vercel; images from GHCR (ADR-005, #62, #71–#74); decommission after ~2–3 months
 - **Git workflow:** commit per task on a daily branch → PR → squash-merge when CI is green (#9, #75)
 - **Carry-overs:** silence Mockito's dynamic-agent warning (W6·D1) · JetBrains student license · IntelliJ vulnerable-dependency scan
-- **Schedule:** **~11 days ahead** (W3·D5 done Tue Nov 17 instead of Sat Nov 28); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
+- **Schedule:** **~12 days ahead** (W3·D6 done Wed Nov 18 instead of Mon Nov 30); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
 - **Top risk:** payments + webhooks (W4); VM burst credits (load tests stay local)
 
 ## Decisions Log (ADR summary)
@@ -126,6 +126,11 @@
 | 108 | 2026-11-17 | Frontend: **one `Idempotency-Key` per user attempt**, automatic retries (network/503/`IDEMPOTENCY_IN_PROGRESS`, max 2) reuse it; `ApiError.details` (seatIds, holdId) + `retryAfterSeconds`; countdowns on the **server clock** (`/system/time` offset) | A flaky network can't create a second hold; precise UI reactions; laptop clock skew can't fake expiry |
 | 109 | 2026-11-17 | Seat map hold flow: green hold panel (countdown, Release, Proceed to pay), own seats "✓ Your hold", map read-only while holding or after start; hold remembered per show in `sessionStorage` (F5 resumes; 404 → forgotten; `HOLD_EXISTS` resumes too); booking page polls every 10 s while unpaid and shows Expired at 0:00 before the sweeper runs | Holds survive refreshes; every server error has a specific, honest message |
 | 110 | 2026-11-17 | **Git rule, enforced:** never resolve squash-merge conflicts with "accept incoming/current"; stop and rebase (`git rebase --onto origin/main <old day's last commit>`); next day's branch only after the merge (#96) | "Accept incoming" silently dropped 99 lines incl. the rate-limit config (FAILURES F3) |
+| 111 | 2026-11-18 | Concurrency proof = 3 races: **A** 200 users, 1 seat over real HTTP; **B** 200 users, random overlapping 1–4 seats in a 12-seat block, then all winners book at once; **C** 200 direct DB transactions on one seat with Redis bypassed | Covers the single-seat case, realistic overlap end to end, and the last line of defence on its own |
+| 112 | 2026-11-18 | Races run on a **real Tomcat port** (`@RealServerTest`, `RANDOM_PORT`) with a start-gate harness (`ConcurrencyHarness`, one platform thread per request); a request without an HTTP response fails the test | MockMvc bypasses sockets and Tomcat's pool; dropped requests must never count as a pass |
+| 113 | 2026-11-18 | Race context only: `server.tomcat.accept-count=512` + one unasserted warm-up race; overlap asserted as `peakInFlight` ≥ 10% | A 200-connect burst overflowed the default backlog of 100 on a cold server (Windows resets the extras); warm servers answer early requests before late threads wake |
+| 114 | 2026-11-18 | Race B seeds its random seat picks and logs the seed; invariant SQL `DOUBLE_SOLD_SEATS` (live claims per seat > 1) must return 0 rows | Any failing interleaving can be replayed; the DB, not status codes, is the final word |
+| 115 | 2026-11-18 | Never use the section-sign character in docs/code; existing ones replaced with "section" except the applied `V4` migration comment | Readability preference; editing an applied migration changes its Flyway checksum |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -139,7 +144,7 @@
 | Test coverage (JaCoCo) | **92.5% instructions, 92.1% lines, 73.1% branches**; 173 tests | `mvnw verify` (`target/site/jacoco/jacoco.csv`) | 2026-11-16 |
 | CI pipeline | CI ~5–8 min first run (cached later); image build ~1 min with BuildKit cache; deploy + health-wait < 2.5 min | GitHub Actions run times | 2026-11-16 |
 | Container startup (prod profile) | **~9.0 s** to `Started`; image content 194 MB | `docker run` on the laptop (Docker Desktop) | 2026-11-16 |
-| Seat map with live hold overlay vs W2·D6 code | p50 6.00 → **5.41 ms**, p95 6.87 → **6.36 ms** (session 1); 6.25 → 5.30 / 9.62 → 6.19 (session 2): **no measurable overlay cost**; 50 holds ≈ 0 holds | `bench-catalog.ps1 -Only seats -ShowId 34`, 500 req after 200 warm-up, medians per session (`docs/benchmarks.md` §2) | 2026-11-16 |
+| Seat map with live hold overlay vs W2·D6 code | p50 6.00 → **5.41 ms**, p95 6.87 → **6.36 ms** (session 1); 6.25 → 5.30 / 9.62 → 6.19 (session 2): **no measurable overlay cost**; 50 holds ≈ 0 holds | `bench-catalog.ps1 -Only seats -ShowId 34`, 500 req after 200 warm-up, medians per session (`docs/benchmarks.md` section 2) | 2026-11-16 |
 | Seat map with Redis down | **~512 ms → ~5 ms** per request (Lettuce `REJECT_COMMANDS`); recovery ~10 ms within 3 s of Redis restart | `docker stop seatlock-redis` drill + B3 benchmark (`docs/FAILURES.md` F1) | 2026-11-16 |
 | Tests | 187 (174 + 13 new) | `mvnw verify` / CI | 2026-11-16 |
 | Hold races (smoke) | 20 threads × 5 runs: **exactly 1 winner** per seat; overlapping multi-seat holds never share a seat, no partial writes; one user racing → 1 hold | `HoldRaceIntegrationTest` (Testcontainers) | 2026-11-16 |
@@ -150,6 +155,10 @@
 | Tests | 313 (259 + 54 new) | `mvnw verify` | 2026-11-17 |
 | Rate limiting | burst/refill/independent keys verified against real Redis (Lettuce 7); 21st hold in a minute → **429** + Retry-After | `RateLimiterIntegrationTest`, `HoldRateLimitIntegrationTest` | 2026-11-17 |
 | Tests | 319 (313 + 6 new) | `mvnw verify` / CI | 2026-11-17 |
+| Concurrency (race A) | 200 users, 1 seat, real HTTP: **exactly 1 winner, 199 × 409**, 3/3 runs; warm p50 0.7–1.2 s, p99 1.8–2.3 s (cold p50 ~7 s) | `HoldRace200IntegrationTest` | 2026-11-18 |
+| Concurrency (race B) | 200 users, overlapping seats, 12-seat block → 7–8 winners, **12/12 sold, oversells = 0**, 3/3 runs | `OverlappingHoldsRaceIntegrationTest` | 2026-11-18 |
+| Concurrency (race C) | Redis bypassed, 200 DB transactions on one seat → **1 commit, 199 × 23505** (unique index), 248 ms | `LiveSeatIndexRaceIntegrationTest` | 2026-11-18 |
+| Tests | 327 (319 + 8 new incl. repetitions) | `mvnw verify` / CI | 2026-11-18 |
 
 ## Accounts & Config (no secrets here, only where they live)
 | Item | Status | Where stored |
@@ -421,7 +430,7 @@
 - `POST /api/v1/auth/register` (201; `EMAIL_TAKEN` 409 incl. race via unique index; `PASSWORD_TOO_LONG`); BCrypt-only `DelegatingPasswordEncoder`
 - `POST /api/v1/auth/login`: `DaoAuthenticationProvider` + `AccountUserDetailsService`, `TokenService` (15-min token, `jti`, `roles`), `Cache-Control: no-store`, `INVALID_CREDENTIALS`
 - Resource server: bearer validation, `roles` → `ROLE_*`, `INVALID_TOKEN` with `WWW-Authenticate: Bearer error="invalid_token"`; `GET /api/v1/me`; Swagger `bearerAuth` (Authorize button)
-- ADR-002; architecture §2a (login sequence diagram)
+- ADR-002; architecture section 2a (login sequence diagram)
 - Tests: **82** (new: security rules 5, slice security cases 3, `RsaKeysTest` 5, `JwtConfigTest` 5, `PasswordConfigTest` 2, `RegisterRequestTest` 1, `RegisterIntegrationTest` 5, `TokenServiceTest` 3, `LoginIntegrationTest` 5, `MeIntegrationTest` 7, `UserServiceTest` 3, `JwtAuthenticationConverterTest` 1, `AuthFlowIntegrationTest` 1; `OpenApiDocsTest` extended)
 **Files created/changed:**
 - `backend\pom.xml` (security, security-oauth2-resource-server, security-test); `application.yml` (`seatlock.jwt`), `application-prod.yml` (required keys), `application-test.yml` (ephemeral keys); `.env.example` (JWT keys + generation steps)
@@ -462,7 +471,7 @@
 - `GET /api/v1/admin/users` (ADMIN, offset `PageResponse`, size 1–100, no hashes)
 - `GET /api/v1/organizer/events` (ORGANIZER; own events incl. drafts, `showCount`, `upcomingShowCount`, `nextShowAt`; one `JdbcClient` query with `FILTER` aggregates); `@CurrentUserId`
 - Flyway `V5__demo_users.sql`: demo USER + unlocked demo ORGANIZER (`seatlock-demo`); `AdminBootstrap` from env vars; local admin credentials generated into `.env`
-- README "Demo accounts"; Swagger "Try it" instructions; ADR-002 §7–§8 + role-staleness consequence; architecture §2a protected-routes table
+- README "Demo accounts"; Swagger "Try it" instructions; ADR-002 sections 7–8 + role-staleness consequence; architecture section 2a protected-routes table
 - Tests: **123** (new: `MethodSecurityTest` 12, `RoleEndpointsIntegrationTest` 4, `AdminBootstrapTest` 6, `DemoAccountsIntegrationTest` 3, `SecurityMatrixIntegrationTest` 16; `OpenApiDocsTest` extended; `LoginIntegrationTest` / `MeIntegrationTest` updated for 8 h)
 **Files created/changed:**
 - `identity\security\{MethodSecurityConfig, CurrentUserId}.java` (new), `SecurityConfig.java` (role gates)
@@ -500,7 +509,7 @@
 - `GoogleAccountService` (B1 linking), `OneTimeCodeService` (A2), `GoogleLoginHandlers` (success → `/auth/callback?code=`, failure → `/login?error=`), `FrontendProperties`
 - `POST /api/v1/auth/oauth/exchange` → `TokenResponse`; `UnauthorizedException` → 401 with code (`INVALID_OAUTH_CODE`)
 - Frontend: `api/client.ts` (Bearer, `INVALID_TOKEN` handling, `apiPost`), `api/auth.ts`, `api/organizer.ts`, `lib/tokenStorage.ts`, `features/auth/*` (`AuthProvider`, `useAuth`, `RequireAuth`, roles, safe redirects, Google button, demo buttons), pages `LoginPage`, `RegisterPage`, `AuthCallbackPage`, `AccountPage`, `OrganizerEventsPage`; header `UserMenu`
-- ADR-003 (with sequence diagram); architecture §2a; README demo + local Google setup
+- ADR-003 (with sequence diagram); architecture section 2a; README demo + local Google setup
 - Tests: backend **144** (new: `GoogleSignInStartIntegrationTest` 2, `RedisOAuth2AuthorizationRequestRepositoryTest` 2, `GoogleAccountServiceTest` 4, `OneTimeCodeServiceTest` 3, `GoogleLoginHandlersTest` 4, `GoogleCallbackIntegrationTest` 2, `OAuthCodeExchangeIntegrationTest` 4); frontend `tsc` + ESLint clean
 **Files created/changed:**
 - Backend: `pom.xml`; `application.yml` (Google registration), `application-local.yml` / `-prod.yml` / `-test.yml` (`seatlock.frontend.base-url`, test client); `.env.example` (`GOOGLE_*`, `FRONTEND_BASE_URL`)
@@ -539,7 +548,7 @@
 - `POST /api/v1/organizer/events/{eventId}/shows` (`CreateShowRequest` / `CreatedShowResponse`, `ShowCreationRepository` set-based seat insert, `SHOW_OVERLAP` / `SECTION_PRICES_MISMATCH` / `SHOW_TOO_SOON` / `UNKNOWN_VENUE` / `EVENT_CANCELLED`)
 - `ShowScheduledEvent` + `CatalogCacheEvictor` (AFTER_COMMIT eviction)
 - Benchmarks: `load-tests/bench-catalog.ps1`, `load-tests/cache-stats.ps1`, `docs/benchmarks.md` (Run 1 superseded, Run 2 valid); seat-map split + `venueLayout`/`showPrices` caches **reverted** after measurement
-- ADR-004; CORRECTNESS.md §1b (venue guard); architecture §2b
+- ADR-004; CORRECTNESS.md section 1b (venue guard); architecture section 2b
 - Tests: **173** (new: `CacheConfigIntegrationTest` 3, `TypedJsonRedisSerializerTest` 3, `CacheKillSwitchTest` 2, `CatalogCachingIntegrationTest` 6, `EventSearchKeyTest` 4, `CreateShowIntegrationTest` 5, `CacheEvictionIntegrationTest` 2, `SecurityMatrixIntegrationTest` +4 create-show rows)
 **Files created/changed:**
 - `backend\pom.xml` (`spring-boot-starter-cache`); `application.yml` (`seatlock.cache.enabled`, Redis timeout), `application-local.yml` (actuator metrics/caches)
@@ -624,7 +633,7 @@
 - VM: CI key with `command=…deploy.sh,restrict`, fail2ban, NSG SSH → Any; GitHub secrets; GHCR package public
 - Drills: rollback to an earlier tag via Run workflow; bad tag fails at pull without touching the live version; roll forward
 - **Bug found by CI:** `CacheConfigIntegrationTest` / `CatalogCachingIntegrationTest` flaked only on GitHub: cache keys vanished right after being written. Cause: `Cache.evict()`/`clear()` may be deferred (Spring Data Redis 4 defers them), so a deferred delete landed after the next write. Fix: `evictIfPresent()`/`invalidate()` in tests **and** in production `CatalogCacheEvictor`
-- README CI/Deploy badges; `docs\deploy.md` §3 CI/CD (pipeline, rollback, version check, security setup table, key rotation) + troubleshooting rows; ADR-005 CI/CD consequence
+- README CI/Deploy badges; `docs\deploy.md` section 3 CI/CD (pipeline, rollback, version check, security setup table, key rotation) + troubleshooting rows; ADR-005 CI/CD consequence
 **Files created/changed:**
 - `.github\workflows\{ci.yml, deploy.yml}`; `infra\scripts\deploy.sh`; `infra\{docker-compose.prod.yml, .env.prod.example}`
 - `backend\Dockerfile`; `backend\src\main\resources\application.yml`; `common\system\{SystemController, VersionResponse}.java`; `catalog\application\CatalogCacheEvictor.java`
@@ -659,7 +668,7 @@
 - Redis-down drill found 512 ms per request (commands queued during reconnect) → `RedisClientConfig` with Lettuce `REJECT_COMMANDS` → ~5 ms
 - Benchmark B0 (`main` via git worktree) / B1 overlay 0 holds / B2 50 holds / B3 Redis down, two sessions; `load-tests/seed-holds.ps1`; `bench-catalog.ps1 -Only seats -ShowId`
 - Frontend `/shows/:showId`: seat grid by `gridCol` (aisle gap), section headings + prices, legend with symbol per state, native buttons with `aria-pressed`/labels, selection ≤ 6 derived from the latest map ("taken by someone else" notice), ₹ total, disabled "Hold seats", Refresh + "Updated" time, Redis-down banner, not-found page; "Select seats" links enabled
-- Docs: architecture §2c (sequence diagram), CORRECTNESS §1c, ADR-004 update, new `docs/FAILURES.md` (F1), benchmarks §2
+- Docs: architecture section 2c (sequence diagram), CORRECTNESS section 1c, ADR-004 update, new `docs/FAILURES.md` (F1), benchmarks section 2
 - Tests: **187** (new: `HoldKeysTest` 2, `SeatHoldReaderIntegrationTest` 4, `ShowCatalogServiceTest` 4, `SeatMapLiveStatusIntegrationTest` 2, `RedisClientConfigIntegrationTest` 1); frontend `tsc` + ESLint clean
 **Files created/changed:**
 - Backend: `booking\hold\{HoldKeys, SeatHoldReader}.java`; `catalog\application\{SeatHoldLookup, ShowCatalogService}.java`; `catalog\api\{ShowSeatMapResponse, ShowController}.java`; `common\config\RedisClientConfig.java`
@@ -697,7 +706,7 @@
 - API: `HoldController` (`POST /api/v1/shows/{showId}/holds`, `GET`/`DELETE /api/v1/holds/{holdId}`), `CreateHoldRequest`, `HoldResponse`; `SeatLockException.getProperties()` → `seatIds` in 409; `ServiceUnavailableException` → 503 + `Retry-After`
 - Race tests (20 threads ×5): one winner, overlapping holds never share a seat, one user → one hold
 - Fix: SDR 4 async cache writes → `immediateWrites()` + regression test (FAILURES.md F2)
-- Docs: ADR-006, architecture §2d (sequence diagram), CORRECTNESS §1d, FAILURES F2
+- Docs: ADR-006, architecture section 2d (sequence diagram), CORRECTNESS section 1d, FAILURES F2
 - Tests: **234** (new: `RedisHoldStoreIntegrationTest` 7, `HoldServiceTest` 12, `HoldApiIntegrationTest` 6, `HoldRaceIntegrationTest` 15, security matrix +5, `HoldKeysTest` +1, `CacheConfigIntegrationTest` +1)
 **Files created/changed:**
 - `backend\src\main\resources\redis\{hold_seats.lua, release_seats.lua}`; `application.yml` (`seatlock.holds`)
@@ -737,7 +746,7 @@
 - `@Idempotent` + `IdempotencyInterceptor` (400 missing/malformed key, 422 reuse, replay with `Idempotent-Replayed`, 409 in progress, lease takeover, release on failure, never release after success) + `IdempotencyConfig` (Spring AOP advisor); `UnprocessableRequestException` → 422
 - `POST /api/v1/shows/{showId}/holds` requires the key; Swagger header via `OperationCustomizer`; `HoldExistsException` with `holdId`
 - `SchedulingConfig` + hourly `IdempotencyCleanupJob`; verified locally (planted expired row → `Deleted 1 expired idempotency keys`)
-- Docs: ADR-007, CORRECTNESS §1e, architecture §2d update
+- Docs: ADR-007, CORRECTNESS section 1e, architecture section 2d update
 - Tests: **259** (new: `IdempotencyStoreIntegrationTest` 9, `IdempotencyInterceptorTest` 8, `HoldIdempotencyIntegrationTest` 6, `IdempotencyCleanupJobTest` 2; `HoldApiIntegrationTest` sends keys; `OpenApiDocsTest` checks the header)
 **Files created/changed:**
 - `db\migration\V7__idempotency_keys.sql`; `application.yml` (`seatlock.idempotency`), `application-test.yml` (`seatlock.scheduling.enabled: false`)
@@ -776,7 +785,7 @@
 - `GET /api/v1/bookings/{publicId}`, `POST …/cancel` (`findForUpdateByPublicId`, PESSIMISTIC_WRITE)
 - Fix: hold `expiresAt` truncated to ms (found by the conversion test)
 - Verified locally: 1-min TTL → booking HELD → `Expired 1 unpaid bookings` → seat AVAILABLE; cancel → seat AVAILABLE
-- Docs: ADR-008, architecture §2e (state diagram), CORRECTNESS §1f
+- Docs: ADR-008, architecture section 2e (state diagram), CORRECTNESS section 1f
 - Tests: **313** (new: `BookingLifecycleTest` 32, `BookingConversionIntegrationTest` 6, `BookingExpiryIntegrationTest` 4, `BookingExpirySweeperTest` 3, `BookingApiIntegrationTest` 4, security matrix +4, `HoldServiceTest` +1)
 **Files created/changed:**
 - `booking\domain\{BookingState, IllegalBookingTransitionException, Booking, BookingSeat, BookingStatus, BookingRepository}.java`
@@ -814,7 +823,7 @@
 - Frontend API: `ApiError.details` + `retryAfterSeconds`, `apiPostWithStatus` / `apiDelete` / `hasCode`, `api/holds.ts`, `lib/serverClock.ts`, `lib/useNow.ts`
 - Seat map: `HoldPanel`, `holdStorage`, real Hold button / sign-in prompt, "✓ Your hold", started-show state, per-error messages, automatic retries with the same key
 - Booking page `/bookings/:publicId` (RequireAuth): status, seats, total, time left to pay, Cancel, 10 s polling while unpaid, expired/cancelled/not-found
-- Docs: ADR-009, architecture §2f, CORRECTNESS §1g, FAILURES F3
+- Docs: ADR-009, architecture section 2f, CORRECTNESS section 1g, FAILURES F3
 - Tests: **319** (new: `RateLimiterIntegrationTest` 3, `RateLimiterTest` 2, `HoldRateLimitIntegrationTest` 1); frontend `tsc` + ESLint clean
 **Files created/changed:**
 - `backend\pom.xml`; `common\ratelimit\*` (7 classes); `common\exception\GlobalExceptionHandler.java`; `booking\api\HoldController.java`; `application.yml` / `application-test.yml` (`seatlock.rate-limit`)
@@ -841,3 +850,40 @@
 - Spring test-context caching/pausing; slice tests and which components they load
 - Git: squash merges vs branch history, why "accept incoming" loses work, rebase --onto
 **Commit:** `feat: rate-limited holds (Bucket4j) and frontend hold → booking flow with countdowns (W3·D5)` (squashed into one commit on `main`)
+
+### Week 3 · Day 6: 200-user concurrency proof + Week 3 review (planned Mon, Nov 30; done Wed, Nov 18, 2026)
+**Status:** ✅ Done
+**Built:**
+- Test support: `RealServerTest` (full app on a random Tomcat port), `TestUsers` (N users + real JWTs, no BCrypt), `ConcurrencyHarness` (start gate, every outcome kept, status/code counts, p50/p95/p99, `peakInFlight`, transport errors)
+- Race A `HoldRace200IntegrationTest`: 200 users, 1 seat → 1 × 201, 199 × `SEATS_UNAVAILABLE`, Redis points at the winner, 1 hold record (×3, after a warm-up race)
+- Race B `OverlappingHoldsRaceIntegrationTest`: 200 users, random 1–4 seats of a 12-seat block, then all winners book at once → no seat in two holds, Redis = API, all bookings 201, double-sold query 0 rows, `booking_seats` = `show_seats` HELD = winners' seats (×3, seed logged)
+- Race C `LiveSeatIndexRaceIntegrationTest`: Redis/Lua/CAS bypassed, 200 transactions insert the same live seat → 1 commit, 199 × 23505 on `ux_booking_seats_live_seat`, losers fully rolled back
+- Docs: CORRECTNESS section 1h (method, results, Postgres waiting-then-23505 behaviour, latency) and stale ⏳ rows flipped; benchmarks section 3 (contention latencies); section-sign characters replaced across docs and code comments
+- Tests: **327** (8 new incl. repetitions)
+**Files created/changed:**
+- `backend\src\test\java\testsupport\{RealServerTest, TestUsers, ConcurrencyHarness}.java`
+- `backend\src\test\java\com\seatlock\common\concurrency\ConcurrencyHarnessIntegrationTest.java`
+- `backend\src\test\java\com\seatlock\booking\api\{HoldRace200IntegrationTest, OverlappingHoldsRaceIntegrationTest}.java`, `...\booking\domain\LiveSeatIndexRaceIntegrationTest.java`
+- `docs\{CORRECTNESS.md, benchmarks.md, architecture.md, FAILURES.md}`, `docs\decisions\ADR-004-catalog-caching.md`, `GlobalExceptionHandler.java`, `AuthController.java` (comments only), `progress.md`
+**Decisions:**
+- See Decisions Log #111–#115
+**Metrics recorded:**
+- Races A/B/C (see Metrics table): 1 winner per seat, oversells = 0, DB index alone stops 199/200; contention p99 ~2 s on the laptop
+**Problems & fixes:**
+- Test in `testsupport` couldn't find `@SpringBootConfiguration` (searched upwards from a package outside `com.seatlock`) → test class moved under `com.seatlock.common.concurrency`, helpers stay in `testsupport`
+- 3/200 requests without a response on the cold first race: TCP backlog (`accept-count` 100) overflowed, Windows reset the extras → `accept-count=512` for the race context + warm-up race; `transportErrors` now asserted empty
+- `peakInFlight > 100` flaked (53 on a fast warm run) → ≥ 10%; correctness asserts unchanged
+**Carry-over:**
+- Silence Mockito's dynamic agent warning (W6·D1); JetBrains student license; IntelliJ vulnerable-dependency scan
+**Week 3 review:**
+- Plan D1–D6 all delivered, ~12 days ahead: live seat map with hold overlay, atomic Lua holds, idempotency keys, State-pattern bookings + expiry sweeper, Bucket4j rate limiting + frontend hold/booking flow, 200-user concurrency proof
+- Oversell defence is now proven at every layer: Lua (atomic, all-or-nothing), `show_seats` compare-and-set, partial unique index (alone: race C); end to end with real HTTP (races A/B)
+- ADRs to date: 001 dependency triage · 002 JWT · 003 Google sign-in · 004 catalog caching · 005 hosting · 006 seat holds · 007 idempotency keys · 008 booking lifecycle · 009 rate limiting
+- Lessons: verify the switch is on before debugging the code behind it (F3); never "accept incoming" on squash-merge conflicts (#110); real-port tests find problems MockMvc can't (backlog, cold start)
+- Risks for Week 4: (1) Razorpay test account/keys and Checkout.js on W4·D2; (2) webhook testing needs a public tunnel (cloudflared/ngrok) on W4·D5; (3) confirm-on-payment must reuse the holdId check + unique constraint under concurrency (reuse the harness)
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- Testing concurrency: start gates (`CountDownLatch`), proving overlap, why a loop isn't a race, seeded randomness for replay
+- MockMvc vs real server tests; TCP accept backlog; cold vs warm JVM (JIT, pools, script cache)
+- Defence in depth: Redis as fast path, DB constraint as the guarantee; how Postgres unique indexes behave under concurrent inserts (wait, then 23505 or success on rollback)
+- Invariant queries vs status-code assertions; latency percentiles under contention vs throughput benchmarks
+**Commit:** `test(booking): 200-user concurrency proof (races A/B/C) and Week 3 review (W3·D6)` (squashed into one commit on `main`)

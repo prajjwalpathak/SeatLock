@@ -73,10 +73,10 @@ consistent with the request counts, so statistics work).
 ## 2. Seat map with the live hold overlay (W3·D1)
 
 **What:** `GET /api/v1/shows/34/seats` (252 seats) after adding the Redis hold overlay (one `MGET` of
-every AVAILABLE seat's hold key, merged into the DB statuses). Same script and method as §1
+every AVAILABLE seat's hold key, merged into the DB statuses). Same script and method as section 1
 (`load-tests/bench-catalog.ps1 -Only seats -ShowId 34`, 200 warm-up + 500 timed requests,
 `LOGGING_LEVEL_COM_SEATLOCK=INFO`, median of the runs). Fake holds written with `load-tests/seed-holds.ps1`.
-**Machine:** same laptop as §1.
+**Machine:** same laptop as section 1.
 
 | Variant | Code | Redis |
 |---|---|---|
@@ -112,7 +112,7 @@ p50 / p95 / p99 in ms, median of the runs in that session (number of runs in bra
 
 ## 3. Hold contention: 200 users at once (W3·D6)
 
-From the concurrency tests (`docs/CORRECTNESS.md` §1h). Real HTTP to a real Tomcat port, Testcontainers
+From the concurrency tests (`docs/CORRECTNESS.md` section 1h). Real HTTP to a real Tomcat port, Testcontainers
 Postgres + Redis, Windows laptop. Correctness runs, not load tests: numbers are indicative only.
 
 | Scenario | Outcome | p50 | p95 | p99 | Wall |

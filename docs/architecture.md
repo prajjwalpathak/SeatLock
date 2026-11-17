@@ -137,7 +137,7 @@ Swagger. Everything else requires a valid token (deny by default).
 | `GET /api/v1/organizer/events` | ORGANIZER, ADMIN | URL prefix + `@PreAuthorize`; data scoped to token `sub` |
 | `GET /api/v1/admin/users` | ADMIN | URL prefix + `@PreAuthorize` |
 
-Role hierarchy: ADMIN ⊃ ORGANIZER ⊃ USER. Demo logins and admin bootstrap: ADR-002 §8.
+Role hierarchy: ADMIN ⊃ ORGANIZER ⊃ USER. Demo logins and admin bootstrap: ADR-002 section 8.
 
 **Google sign-in (W2·D3, ADR-003):** a separate filter chain for `/oauth2/**` and
 `/login/oauth2/**` runs the OAuth2 authorization-code flow (PKCE, state in Redis + a binding
@@ -155,7 +155,7 @@ guards `/account` and `/organizer/events` (UX only; the API enforces).
   because benchmarks showed p95 −32% and −21% against the uncached code. The seat map is **not**
   cached: its single indexed query was faster than every cached variant, and it carries live seat
   status. Cache hits never borrow a DB connection; evictions run after commit (`ShowScheduledEvent`).
-- **No overlapping shows (CORRECTNESS.md §1b):** `shows.ends_at` = start + duration + 30 min, and
+- **No overlapping shows (CORRECTNESS.md section 1b):** `shows.ends_at` = start + duration + 30 min, and
   the exclusion constraint `ex_shows_venue_no_overlap` makes two scheduled shows at one venue at
   the same time impossible. Organizers create shows with `POST /api/v1/organizer/events/{id}/shows`
   (one price per section; ownership from the token).
@@ -193,7 +193,7 @@ sequenceDiagram
 - **No transaction around the request:** each query borrows a connection for itself, so no DB
   connection is held while waiting on Redis (a hung Redis can't drain the Hikari pool).
 - **Never cached** (ADR-004) and sent with `Cache-Control: no-store`. Measured cost of the overlay:
-  none beyond noise (`benchmarks.md` §2).
+  none beyond noise (`benchmarks.md` section 2).
 - **Fail fast:** Lettuce `REJECT_COMMANDS` while disconnected; Redis down costs ~5 ms instead of the
   500 ms command timeout (`FAILURES.md` F1). Being shown as AVAILABLE while Redis is down is safe:
   the hold script (W3·D2) and the DB oversell guard still reject a taken seat.
@@ -242,7 +242,7 @@ sequenceDiagram
   after authorization: claim the key in `idempotency_keys` → run → store the 2xx response (replayed for 24 h with
   `Idempotent-Replayed: true`). Same key + different body → 422; duplicate while running → 409
   `IDEMPOTENCY_IN_PROGRESS`; failure → key released. Expired keys are deleted hourly.
-- The seat map (§2c) reads the same seat keys, so a new hold shows as HELD on the next fetch.
+- The seat map (section 2c) reads the same seat keys, so a new hold shows as HELD on the next fetch.
 - No DB transaction around the request; booking only calls catalog's public service (booking → catalog).
 
 ## 2e. Bookings (W3·D4, ADR-008)

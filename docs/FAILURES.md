@@ -30,7 +30,7 @@ Test: `RedisClientConfigIntegrationTest` (the option reaches the auto-configured
 | | Redis down, per request | Recovery after `docker start` |
 |---|---|---|
 | Before (default Lettuce) | **~512 ms** (5/5 requests) | — |
-| After (`REJECT_COMMANDS`) | **~5 ms** (p50 4.5–5.5 ms, `benchmarks.md` §2, variant B3) | ~10 ms within 3 s, `holdsLive: true` |
+| After (`REJECT_COMMANDS`) | **~5 ms** (p50 4.5–5.5 ms, `benchmarks.md` section 2, variant B3) | ~10 ms within 3 s, `holdsLive: true` |
 
 **Other safeguards that made this a non-event:**
 - No DB transaction is open while calling Redis, so the outage couldn't pin Hikari connections.

@@ -103,7 +103,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     ResponseEntity<ProblemDetail> handleInvalidToken(InvalidBearerTokenException ex) {
         log.debug("Rejected bearer token: {}", ex.getMessage());
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                .header(HttpHeaders.WWW_AUTHENTICATE, "Bearer error=\"invalid_token\"") // RFC 6750 §3.1
+                .header(HttpHeaders.WWW_AUTHENTICATE, "Bearer error=\"invalid_token\"") // RFC 6750 section 3.1
                 .body(problem(HttpStatus.UNAUTHORIZED, "Invalid token",
                         "The access token is invalid or has expired.", "INVALID_TOKEN"));
     }
