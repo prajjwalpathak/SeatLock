@@ -132,7 +132,7 @@
 | Test coverage (JaCoCo) | **92.5% instructions, 92.1% lines, 73.1% branches**; 173 tests | `mvnw verify` (`target/site/jacoco/jacoco.csv`) | 2026-11-16 |
 | CI pipeline | CI ~5–8 min first run (cached later); image build ~1 min with BuildKit cache; deploy + health-wait < 2.5 min | GitHub Actions run times | 2026-11-16 |
 | Container startup (prod profile) | **~9.0 s** to `Started`; image content 194 MB | `docker run` on the laptop (Docker Desktop) | 2026-11-16 |
-| Seat map with live hold overlay vs W2·D6 code | p50 6.00 → **5.41 ms**, p95 6.87 → **6.36 ms** (session 1); 6.25 → 5.30 / 9.62 → 6.19 (session 2): **no measurable overlay cost**; 50 holds ≈ 0 holds | `bench-catalog.ps1 -Only seats -ShowId 34`, 500 req after 200 warm-up, medians per session (`docs/benchmarks.md` §2) | 2026-11-16 |
+| Seat map with live hold overlay vs W2·D6 code | p50 6.00 → **5.41 ms**, p95 6.87 → **6.36 ms** (session 1); 6.25 → 5.30 / 9.62 → 6.19 (session 2): **no measurable overlay cost**; 50 holds ≈ 0 holds | `bench-catalog.ps1 -Only seats -ShowId 34`, 500 req after 200 warm-up, medians per session (`docs/benchmarks.md` section 2) | 2026-11-16 |
 | Seat map with Redis down | **~512 ms → ~5 ms** per request (Lettuce `REJECT_COMMANDS`); recovery ~10 ms within 3 s of Redis restart | `docker stop seatlock-redis` drill + B3 benchmark (`docs/FAILURES.md` F1) | 2026-11-16 |
 | Tests | 187 (174 + 13 new) | `mvnw verify` / CI | 2026-11-16 |
 | Hold races (smoke) | 20 threads × 5 runs: **exactly 1 winner** per seat; overlapping multi-seat holds never share a seat, no partial writes; one user racing → 1 hold | `HoldRaceIntegrationTest` (Testcontainers) | 2026-11-16 |
@@ -412,7 +412,7 @@
 - `POST /api/v1/auth/register` (201; `EMAIL_TAKEN` 409 incl. race via unique index; `PASSWORD_TOO_LONG`); BCrypt-only `DelegatingPasswordEncoder`
 - `POST /api/v1/auth/login`: `DaoAuthenticationProvider` + `AccountUserDetailsService`, `TokenService` (15-min token, `jti`, `roles`), `Cache-Control: no-store`, `INVALID_CREDENTIALS`
 - Resource server: bearer validation, `roles` → `ROLE_*`, `INVALID_TOKEN` with `WWW-Authenticate: Bearer error="invalid_token"`; `GET /api/v1/me`; Swagger `bearerAuth` (Authorize button)
-- ADR-002; architecture §2a (login sequence diagram)
+- ADR-002; architecture section 2a (login sequence diagram)
 - Tests: **82** (new: security rules 5, slice security cases 3, `RsaKeysTest` 5, `JwtConfigTest` 5, `PasswordConfigTest` 2, `RegisterRequestTest` 1, `RegisterIntegrationTest` 5, `TokenServiceTest` 3, `LoginIntegrationTest` 5, `MeIntegrationTest` 7, `UserServiceTest` 3, `JwtAuthenticationConverterTest` 1, `AuthFlowIntegrationTest` 1; `OpenApiDocsTest` extended)
 **Files created/changed:**
 - `backend\pom.xml` (security, security-oauth2-resource-server, security-test); `application.yml` (`seatlock.jwt`), `application-prod.yml` (required keys), `application-test.yml` (ephemeral keys); `.env.example` (JWT keys + generation steps)
@@ -453,7 +453,7 @@
 - `GET /api/v1/admin/users` (ADMIN, offset `PageResponse`, size 1–100, no hashes)
 - `GET /api/v1/organizer/events` (ORGANIZER; own events incl. drafts, `showCount`, `upcomingShowCount`, `nextShowAt`; one `JdbcClient` query with `FILTER` aggregates); `@CurrentUserId`
 - Flyway `V5__demo_users.sql`: demo USER + unlocked demo ORGANIZER (`seatlock-demo`); `AdminBootstrap` from env vars; local admin credentials generated into `.env`
-- README "Demo accounts"; Swagger "Try it" instructions; ADR-002 §7–§8 + role-staleness consequence; architecture §2a protected-routes table
+- README "Demo accounts"; Swagger "Try it" instructions; ADR-002 sections 7–8 + role-staleness consequence; architecture section 2a protected-routes table
 - Tests: **123** (new: `MethodSecurityTest` 12, `RoleEndpointsIntegrationTest` 4, `AdminBootstrapTest` 6, `DemoAccountsIntegrationTest` 3, `SecurityMatrixIntegrationTest` 16; `OpenApiDocsTest` extended; `LoginIntegrationTest` / `MeIntegrationTest` updated for 8 h)
 **Files created/changed:**
 - `identity\security\{MethodSecurityConfig, CurrentUserId}.java` (new), `SecurityConfig.java` (role gates)
@@ -491,7 +491,7 @@
 - `GoogleAccountService` (B1 linking), `OneTimeCodeService` (A2), `GoogleLoginHandlers` (success → `/auth/callback?code=`, failure → `/login?error=`), `FrontendProperties`
 - `POST /api/v1/auth/oauth/exchange` → `TokenResponse`; `UnauthorizedException` → 401 with code (`INVALID_OAUTH_CODE`)
 - Frontend: `api/client.ts` (Bearer, `INVALID_TOKEN` handling, `apiPost`), `api/auth.ts`, `api/organizer.ts`, `lib/tokenStorage.ts`, `features/auth/*` (`AuthProvider`, `useAuth`, `RequireAuth`, roles, safe redirects, Google button, demo buttons), pages `LoginPage`, `RegisterPage`, `AuthCallbackPage`, `AccountPage`, `OrganizerEventsPage`; header `UserMenu`
-- ADR-003 (with sequence diagram); architecture §2a; README demo + local Google setup
+- ADR-003 (with sequence diagram); architecture section 2a; README demo + local Google setup
 - Tests: backend **144** (new: `GoogleSignInStartIntegrationTest` 2, `RedisOAuth2AuthorizationRequestRepositoryTest` 2, `GoogleAccountServiceTest` 4, `OneTimeCodeServiceTest` 3, `GoogleLoginHandlersTest` 4, `GoogleCallbackIntegrationTest` 2, `OAuthCodeExchangeIntegrationTest` 4); frontend `tsc` + ESLint clean
 **Files created/changed:**
 - Backend: `pom.xml`; `application.yml` (Google registration), `application-local.yml` / `-prod.yml` / `-test.yml` (`seatlock.frontend.base-url`, test client); `.env.example` (`GOOGLE_*`, `FRONTEND_BASE_URL`)
@@ -530,7 +530,7 @@
 - `POST /api/v1/organizer/events/{eventId}/shows` (`CreateShowRequest` / `CreatedShowResponse`, `ShowCreationRepository` set-based seat insert, `SHOW_OVERLAP` / `SECTION_PRICES_MISMATCH` / `SHOW_TOO_SOON` / `UNKNOWN_VENUE` / `EVENT_CANCELLED`)
 - `ShowScheduledEvent` + `CatalogCacheEvictor` (AFTER_COMMIT eviction)
 - Benchmarks: `load-tests/bench-catalog.ps1`, `load-tests/cache-stats.ps1`, `docs/benchmarks.md` (Run 1 superseded, Run 2 valid); seat-map split + `venueLayout`/`showPrices` caches **reverted** after measurement
-- ADR-004; CORRECTNESS.md §1b (venue guard); architecture §2b
+- ADR-004; CORRECTNESS.md section 1b (venue guard); architecture section 2b
 - Tests: **173** (new: `CacheConfigIntegrationTest` 3, `TypedJsonRedisSerializerTest` 3, `CacheKillSwitchTest` 2, `CatalogCachingIntegrationTest` 6, `EventSearchKeyTest` 4, `CreateShowIntegrationTest` 5, `CacheEvictionIntegrationTest` 2, `SecurityMatrixIntegrationTest` +4 create-show rows)
 **Files created/changed:**
 - `backend\pom.xml` (`spring-boot-starter-cache`); `application.yml` (`seatlock.cache.enabled`, Redis timeout), `application-local.yml` (actuator metrics/caches)
@@ -615,7 +615,7 @@
 - VM: CI key with `command=…deploy.sh,restrict`, fail2ban, NSG SSH → Any; GitHub secrets; GHCR package public
 - Drills: rollback to an earlier tag via Run workflow; bad tag fails at pull without touching the live version; roll forward
 - **Bug found by CI:** `CacheConfigIntegrationTest` / `CatalogCachingIntegrationTest` flaked only on GitHub: cache keys vanished right after being written. Cause: `Cache.evict()`/`clear()` may be deferred (Spring Data Redis 4 defers them), so a deferred delete landed after the next write. Fix: `evictIfPresent()`/`invalidate()` in tests **and** in production `CatalogCacheEvictor`
-- README CI/Deploy badges; `docs\deploy.md` §3 CI/CD (pipeline, rollback, version check, security setup table, key rotation) + troubleshooting rows; ADR-005 CI/CD consequence
+- README CI/Deploy badges; `docs\deploy.md` section 3 CI/CD (pipeline, rollback, version check, security setup table, key rotation) + troubleshooting rows; ADR-005 CI/CD consequence
 **Files created/changed:**
 - `.github\workflows\{ci.yml, deploy.yml}`; `infra\scripts\deploy.sh`; `infra\{docker-compose.prod.yml, .env.prod.example}`
 - `backend\Dockerfile`; `backend\src\main\resources\application.yml`; `common\system\{SystemController, VersionResponse}.java`; `catalog\application\CatalogCacheEvictor.java`
@@ -650,7 +650,7 @@
 - Redis-down drill found 512 ms per request (commands queued during reconnect) → `RedisClientConfig` with Lettuce `REJECT_COMMANDS` → ~5 ms
 - Benchmark B0 (`main` via git worktree) / B1 overlay 0 holds / B2 50 holds / B3 Redis down, two sessions; `load-tests/seed-holds.ps1`; `bench-catalog.ps1 -Only seats -ShowId`
 - Frontend `/shows/:showId`: seat grid by `gridCol` (aisle gap), section headings + prices, legend with symbol per state, native buttons with `aria-pressed`/labels, selection ≤ 6 derived from the latest map ("taken by someone else" notice), ₹ total, disabled "Hold seats", Refresh + "Updated" time, Redis-down banner, not-found page; "Select seats" links enabled
-- Docs: architecture §2c (sequence diagram), CORRECTNESS §1c, ADR-004 update, new `docs/FAILURES.md` (F1), benchmarks §2
+- Docs: architecture section 2c (sequence diagram), CORRECTNESS section 1c, ADR-004 update, new `docs/FAILURES.md` (F1), benchmarks section 2
 - Tests: **187** (new: `HoldKeysTest` 2, `SeatHoldReaderIntegrationTest` 4, `ShowCatalogServiceTest` 4, `SeatMapLiveStatusIntegrationTest` 2, `RedisClientConfigIntegrationTest` 1); frontend `tsc` + ESLint clean
 **Files created/changed:**
 - Backend: `booking\hold\{HoldKeys, SeatHoldReader}.java`; `catalog\application\{SeatHoldLookup, ShowCatalogService}.java`; `catalog\api\{ShowSeatMapResponse, ShowController}.java`; `common\config\RedisClientConfig.java`
@@ -688,7 +688,7 @@
 - API: `HoldController` (`POST /api/v1/shows/{showId}/holds`, `GET`/`DELETE /api/v1/holds/{holdId}`), `CreateHoldRequest`, `HoldResponse`; `SeatLockException.getProperties()` → `seatIds` in 409; `ServiceUnavailableException` → 503 + `Retry-After`
 - Race tests (20 threads ×5): one winner, overlapping holds never share a seat, one user → one hold
 - Fix: SDR 4 async cache writes → `immediateWrites()` + regression test (FAILURES.md F2)
-- Docs: ADR-006, architecture §2d (sequence diagram), CORRECTNESS §1d, FAILURES F2
+- Docs: ADR-006, architecture section 2d (sequence diagram), CORRECTNESS section 1d, FAILURES F2
 - Tests: **234** (new: `RedisHoldStoreIntegrationTest` 7, `HoldServiceTest` 12, `HoldApiIntegrationTest` 6, `HoldRaceIntegrationTest` 15, security matrix +5, `HoldKeysTest` +1, `CacheConfigIntegrationTest` +1)
 **Files created/changed:**
 - `backend\src\main\resources\redis\{hold_seats.lua, release_seats.lua}`; `application.yml` (`seatlock.holds`)
@@ -728,7 +728,7 @@
 - `@Idempotent` + `IdempotencyInterceptor` (400 missing/malformed key, 422 reuse, replay with `Idempotent-Replayed`, 409 in progress, lease takeover, release on failure, never release after success) + `IdempotencyConfig` (Spring AOP advisor); `UnprocessableRequestException` → 422
 - `POST /api/v1/shows/{showId}/holds` requires the key; Swagger header via `OperationCustomizer`; `HoldExistsException` with `holdId`
 - `SchedulingConfig` + hourly `IdempotencyCleanupJob`; verified locally (planted expired row → `Deleted 1 expired idempotency keys`)
-- Docs: ADR-007, CORRECTNESS §1e, architecture §2d update
+- Docs: ADR-007, CORRECTNESS section 1e, architecture section 2d update
 - Tests: **259** (new: `IdempotencyStoreIntegrationTest` 9, `IdempotencyInterceptorTest` 8, `HoldIdempotencyIntegrationTest` 6, `IdempotencyCleanupJobTest` 2; `HoldApiIntegrationTest` sends keys; `OpenApiDocsTest` checks the header)
 **Files created/changed:**
 - `db\migration\V7__idempotency_keys.sql`; `application.yml` (`seatlock.idempotency`), `application-test.yml` (`seatlock.scheduling.enabled: false`)

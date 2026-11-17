@@ -1,6 +1,6 @@
 # ADR-004: Redis caching for catalog reads, kept only where measured to help
 
-**Date:** 2026-11-20 (W2·D4) · **Status:** Accepted · Evidence: `docs/benchmarks.md` §1
+**Date:** 2026-11-20 (W2·D4) · **Status:** Accepted · Evidence: `docs/benchmarks.md` section 1
 
 ## Context
 Catalog reads (event list, event detail, seat map) are the busiest public endpoints and the
@@ -28,7 +28,7 @@ failure modes, so it has to pay for itself in measured latency.
    from Redis cost more than the join it replaced. It also carries live seat status, which
    must never be stale. W3·D1 (status in Redis) will be measured on its own.
    **Update W3·D1:** live HELD status now comes from Redis hold keys via one `MGET` per request;
-   still uncached, no measurable cost vs the W2·D6 code (`benchmarks.md` §2).
+   still uncached, no measurable cost vs the W2·D6 code (`benchmarks.md` section 2).
 3. **Cache hits never touch the database.** The cache advice runs before the transaction advice
    (`@EnableCaching(order = HIGHEST_PRECEDENCE)`) and the read services are not `@Transactional`;
    only a miss opens its read-only transaction (`CatalogReadCache`). Verified by

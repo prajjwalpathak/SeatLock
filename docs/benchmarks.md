@@ -73,10 +73,10 @@ consistent with the request counts, so statistics work).
 ## 2. Seat map with the live hold overlay (W3·D1)
 
 **What:** `GET /api/v1/shows/34/seats` (252 seats) after adding the Redis hold overlay (one `MGET` of
-every AVAILABLE seat's hold key, merged into the DB statuses). Same script and method as §1
+every AVAILABLE seat's hold key, merged into the DB statuses). Same script and method as section 1
 (`load-tests/bench-catalog.ps1 -Only seats -ShowId 34`, 200 warm-up + 500 timed requests,
 `LOGGING_LEVEL_COM_SEATLOCK=INFO`, median of the runs). Fake holds written with `load-tests/seed-holds.ps1`.
-**Machine:** same laptop as §1.
+**Machine:** same laptop as section 1.
 
 | Variant | Code | Redis |
 |---|---|---|
@@ -109,3 +109,26 @@ p50 / p95 / p99 in ms, median of the runs in that session (number of runs in bra
 - **Redis down is fast.** B3 serves the DB view in ~5 ms. Before the `REJECT_COMMANDS` fix, the same
   drill took **0.51 s per request** (every call waited the 500 ms command timeout); see `FAILURES.md`.
 - Seat map stays uncached (ADR-004): a live overlay can't be cached, and the uncached path is ~5–6 ms.
+
+## 3. Hold contention: 200 users at once (W3·D6)
+
+From the concurrency tests (`docs/CORRECTNESS.md` section 1h). Real HTTP to a real Tomcat port, Testcontainers
+Postgres + Redis, Windows laptop. Correctness runs, not load tests: numbers are indicative only.
+
+| Scenario | Outcome | p50 | p95 | p99 | Wall |
+|---|---|---|---|---|---|
+| Harness baseline: `GET /system/time` ×200 | 200 × 200 | 12 ms | 147 ms | 160 ms | 164 ms |
+| Race A cold (warm-up, not asserted) | 1 × 201, 199 × 409 | 7.2 s | 8.3 s | 8.4 s | 8.4 s |
+| Race A warm, run 1 / 2 / 3 | 1 × 201, 199 × 409 | 1.19 / 0.72 / 1.01 s | 2.18 / 1.63 / 1.79 s | 2.33 / 1.79 / 1.88 s | 1.9–2.3 s |
+| Race B holds (12-seat block), run 2 / 3 | 8 × 201, 192 × 409 | 2.5 / 2.1 s | 3.7 / 3.4 s | 3.8 / 3.5 s | 3.5–3.8 s |
+| Race B bookings (8 winners at once) | 8 × 201 | 56–63 ms | 79–86 ms | 79–86 ms | 79–86 ms |
+| Race C: 200 direct DB transactions, one seat | 1 COMMIT, 199 × 23505 | — | — | — | 248 ms |
+
+Race B run 1 (cold context, no warm-up) took p50 9.4 s for holds and 530 ms for bookings; excluded above.
+
+**Takeaways**
+- Contention costs latency, never correctness: every run had exactly the right number of winners.
+- The cold first race is ~6× slower (connection pools, JIT, Lua `SCRIPT LOAD`): production warm-up matters.
+- Under a 200-request burst, each hold waits on DB connections (pool of 10) and Tomcat threads; that's queuing,
+  not lock contention (Redis decides in microseconds). Pool sizing is revisited with k6 in W6.
+

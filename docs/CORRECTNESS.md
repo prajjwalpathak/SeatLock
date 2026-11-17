@@ -10,8 +10,8 @@ perform, with evidence. Updated as each guard and optimisation lands.
 | DB | Partial unique index `ux_booking_seats_live_seat` on `booking_seats (show_id, seat_id) WHERE active`: at most one live claim per seat | `BookingPersistenceTest.databaseRejectsSecondLiveBookingForTheSameSeat`; manual SQL demo (W1·D3) | ✅ W1·D3 |
 | DB | Composite FK `booking_seats (show_id, seat_id)` → `show_seats`: a claimed seat must belong to that show | Schema (`V1__init.sql`) | ✅ W1·D3 |
 | DB | `UNIQUE (hold_id)` on `bookings`: a hold becomes at most one booking (idempotent confirm) | Schema (`V1__init.sql`) | ✅ W1·D3 |
-| Redis | Atomic multi-seat hold in one Lua script, with TTL and `holdId` | — | ⏳ W3·D2 |
-| App | 200-thread concurrency test: exactly one winner per seat | — | ⏳ W3·D6 |
+| Redis | Atomic multi-seat hold in one Lua script, with TTL and `holdId` | `RedisHoldStoreIntegrationTest`, `HoldRaceIntegrationTest` (section 1d) | ✅ W3·D2 |
+| App | 200-thread concurrency tests: exactly one winner per seat, 0 double-sold, DB index holds alone | `HoldRace200IntegrationTest`, `OverlappingHoldsRaceIntegrationTest`, `LiveSeatIndexRaceIntegrationTest` (section 1h) | ✅ W3·D6 |
 | App | Optimistic locking strategy (`@Version` on `show_seats`) | — | ⏳ W4·D6 |
 
 ## 1b. Venue double-booking guard (W2·D4)
@@ -27,7 +27,7 @@ create them at the same moment.
 
 Why not "check, then insert" in Java: two transactions can both see the venue free and both
 insert. With the exclusion constraint, the second insert waits for the first transaction and
-then fails, which is the same pattern as the seat guard in §1.
+then fails, which is the same pattern as the seat guard in section 1.
 
 ## 1c. Seat status from two sources (W3·D1)
 
@@ -38,7 +38,7 @@ The seat map reads BOOKED from Postgres and HELD from Redis hold keys. Rules:
   with no sweeper involved (`SeatHoldReaderIntegrationTest`).
 - **Redis down = display may under-report holds, never over-sell.** The map degrades to DB statuses
   (`holdsLive = false`); correctness lives in the atomic hold script (W3·D2) and the partial unique
-  index `ux_booking_seats_live_seat` (§1), not in the seat map.
+  index `ux_booking_seats_live_seat` (section 1), not in the seat map.
 
 ## 1d. Seat holds (W3·D2, ADR-006)
 
@@ -50,7 +50,7 @@ The seat map reads BOOKED from Postgres and HELD from Redis hold keys. Rules:
 | Releasing never frees someone else's seat | `release_seats.lua` compares the value with our `holdId` | `releaseNeverDeletesASeatThatNowBelongsToAnotherHold` |
 | Holds expire on their own | one TTL on every key of the hold | `anExpiredHoldDisappearsCompletely…` |
 | Booked seats can't be held | DB status check before Redis | `aSeatBookedInTheDatabaseCannotBeHeld` |
-| Even if Redis fails, no oversell | partial unique index `ux_booking_seats_live_seat` (§1) at booking time | W3·D4 + W3·D6 |
+| Even if Redis fails, no oversell | partial unique index `ux_booking_seats_live_seat` (section 1) at booking time | W3·D4 + W3·D6 |
 
 ## 1e. Idempotent `POST /holds` (W3·D3, ADR-007)
 

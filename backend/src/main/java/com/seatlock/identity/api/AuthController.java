@@ -39,7 +39,7 @@ public class AuthController {
     public ResponseEntity<TokenResponse> login(@Valid @RequestBody LoginRequest request) {
         TokenResponse body = TokenResponse.bearer(authService.login(request.email(), request.password()));
         return ResponseEntity.ok()
-                .cacheControl(CacheControl.noStore()) // RFC 6749 §5.1: token responses must not be cached
+                .cacheControl(CacheControl.noStore()) // RFC 6749 section 5.1: token responses must not be cached
                 .body(body);
     }
 
