@@ -125,6 +125,17 @@ winner):
 - `peakInFlight > 100` was too strict: on a warm server early requests finish before the last threads wake
   (53–200 seen) → assert ≥ 10% overlap; correctness asserts unchanged.
 
+## 1i. Payment orders (W4·D1, ADR-010)
+
+| Rule | Enforced by | Proven by |
+|---|---|---|
+| At most one open or successful payment per booking | partial unique index `ux_payments_live_booking`; booking row lock (`startPayment`) serializes attempts | `PaymentPersistenceTest`; `PaymentOrderRaceIntegrationTest`: 20 concurrent "Pay now" → 1 × 201, 19 × 200, same order, 1 row (×5) |
+| A failed attempt can be retried | FAILED rows drop out of the partial index; `attempt` = last + 1 (`UNIQUE (booking_id, attempt)`) | `PaymentPersistenceTest`, `PaymentOrderIntegrationTest.aNewAttemptIsAllowedAfterAFailedOne` |
+| The client can't choose the amount | no request body; `BookingPricing` = sum of live seat prices, must equal `total_paise`; gateway echo checked | `BookingPricingTest`, `PaymentServiceTest`, `PaymentOrderIntegrationTest.aTamperedTotalIsNeverCharged` |
+| Expired, cancelled or paid bookings can't be paid | `checkPayable` / `startPayment` (state machine + deadline on the app clock), repeated under the lock | `PaymentOrderIntegrationTest` (409 `BOOKING_EXPIRED` even before the sweeper, 409 `INVALID_BOOKING_TRANSITION`) |
+| A gateway order id is used once | `UNIQUE (gateway, gateway_order_id)` | `PaymentPersistenceTest` |
+| No DB connection or lock is held during the provider call | gateway called before the transaction opens | `PaymentServiceTest` (gateway failure: no transaction, nothing stored) |
+
 ## 2. Query plans (catalog reads)
 
 **Method:** `docs/explain/catalog-queries.sql` on the seeded local DB (30 events, 90 shows,

@@ -145,7 +145,7 @@ class SecurityMatrixIntegrationTest {
     }
 
     /** Bookings: any signed-in role; unknown bookings / holds are 404 for everyone signed in. */
-    @ParameterizedTest(name = "{0} GET + cancel /bookings/:id, POST /holds/:id/booking → {1}")
+    @ParameterizedTest(name = "{0} GET + cancel + payment-order /bookings/:id, POST /holds/:id/booking → {1}")
     @CsvSource({
             "ANONYMOUS, 401, AUTHENTICATION_REQUIRED",
             "USER,      404, NOT_FOUND",
@@ -157,7 +157,8 @@ class SecurityMatrixIntegrationTest {
         for (MockHttpServletRequestBuilder request : List.of(
                 get("/api/v1/bookings/{id}", unknown),
                 post("/api/v1/bookings/{id}/cancel", unknown),
-                post("/api/v1/holds/{id}/booking", unknown))) {
+                post("/api/v1/holds/{id}/booking", unknown),
+                post("/api/v1/bookings/{id}/payment-order", unknown))) {
             if (!caller.equals("ANONYMOUS")) {
                 request.header(HttpHeaders.AUTHORIZATION, "Bearer " + tokens.get(Role.valueOf(caller)));
             }
