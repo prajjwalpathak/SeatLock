@@ -85,46 +85,6 @@ The seat map reads BOOKED from Postgres and HELD from Redis hold keys. Rules:
 | Bursts allowed, sustained floods not; refill over time | Bucket4j greedy refill | `RateLimiterIntegrationTest` (burst 3, 4th rejected; refills after the period) |
 | Redis down never blocks requests; a stale connection heals itself | one retry on a freshly built proxy, then fail-open (`RateLimiter`) | `RateLimiterTest` |
 
-## 1h. Concurrency proof: 200 at once (W3·D6)
-
-**Method.** `ConcurrencyHarness` (test support) gives each request its own platform thread; all threads wait
-on a start gate (`CountDownLatch`) and are released together. Requests go over **real HTTP to a real Tomcat
-port** (`@RealServerTest`, `RANDOM_PORT`): sockets, worker pool, JWT filter, rate limiter, idempotency,
-DB checks, Lua. Every outcome is kept; a request that gets no HTTP response counts as a failure
-(`transportErrors` must be empty). `peakInFlight` (most requests open at once) proves real overlap.
-Each user is distinct with a real JWT and a fresh `Idempotency-Key`, so only the hold logic decides.
-
-| Race | Setup | Must hold | Result (2026-11-17/18, laptop, Testcontainers) |
-|---|---|---|---|
-| **A** one seat | 200 users hold the same seat (×3, after one unasserted warm-up) | exactly 1 × 201, 199 × 409 `SEATS_UNAVAILABLE`; Redis seat key = winner's holdId; exactly 1 hold record | ✅ 3/3: `{201=1, 409=199}`, peakInFlight 134–200 |
-| **B** overlapping sets | 200 users hold random 1–4 seats of one 12-seat block; then all winners convert to bookings at once (×3, seed logged) | only 201/409; no seat in two holds; Redis = API exactly; every winner's booking 201; **double-sold query → 0 rows**; `booking_seats` = `show_seats` HELD = winners' seats; one booking per winner, none for losers | ✅ 3/3: 7–8 winners, **12/12 seats sold, 0 double-sold**, peakInFlight 200 |
-| **C** DB alone | Redis, Lua and the `show_seats` CAS bypassed: 200 transactions (pool of 50) insert a live `booking_seats` row for one seat, each pausing 20 ms before COMMIT | exactly 1 COMMIT; 199 × `23505` on `ux_booking_seats_live_seat`; losers' whole transactions (booking row too) rolled back | ✅ `{COMMITTED=1, 23505 ux_booking_seats_live_seat=199}`, 248 ms wall |
-
-The invariant query (`OverlappingHoldsRaceIntegrationTest.DOUBLE_SOLD_SEATS`):
-
-```sql
-SELECT show_id, seat_id, count(*) AS live_claims FROM booking_seats
-WHERE active GROUP BY show_id, seat_id HAVING count(*) > 1;   -- must return 0 rows, always
-```
-
-**What race C shows about Postgres.** With a unique index, a second inserter of the same key does not fail
-immediately while the first is uncommitted: it **waits** on the first transaction, then raises 23505 when that
-one commits (it would succeed if the first rolled back). So the index is a correct last line of defence under
-any interleaving, at the cost of brief blocking, which is why Redis turns away almost all contenders first.
-
-**Latency under contention** (race A, 200 at once on one seat, warm): p50 0.7–1.2 s, p99 1.8–2.3 s;
-the first race on a cold server took p50 ~6–7 s. This is a correctness test on a laptop running two sets of
-containers, not a benchmark; throughput is measured with k6 later (W6). Uncontended baseline for the same
-harness (`GET /system/time` ×200): p50 12 ms, p99 160 ms.
-
-**Problems found while building it** (test setup, not product bugs; the race logic never produced a second
-winner):
-- 3 of 200 requests got no response on the cold first run: a burst of 200 connects overflowed Tomcat's TCP
-  backlog (`accept-count`, default 100) and Windows reset the extras → `server.tomcat.accept-count=512` for
-  the race context only (production sits behind Nginx) + one warm-up race.
-- `peakInFlight > 100` was too strict: on a warm server early requests finish before the last threads wake
-  (53–200 seen) → assert ≥ 10% overlap; correctness asserts unchanged.
-
 ## 2. Query plans (catalog reads)
 
 **Method:** `docs/explain/catalog-queries.sql` on the seeded local DB (30 events, 90 shows,
