@@ -134,6 +134,9 @@ winner):
 | The client can't choose the amount | no request body; `BookingPricing` = sum of live seat prices, must equal `total_paise`; gateway echo checked | `BookingPricingTest`, `PaymentServiceTest`, `PaymentOrderIntegrationTest.aTamperedTotalIsNeverCharged` |
 | Expired, cancelled or paid bookings can't be paid | `checkPayable` / `startPayment` (state machine + deadline on the app clock), repeated under the lock | `PaymentOrderIntegrationTest` (409 `BOOKING_EXPIRED` even before the sweeper, 409 `INVALID_BOOKING_TRANSITION`) |
 | A gateway order id is used once | `UNIQUE (gateway, gateway_order_id)` | `PaymentPersistenceTest` |
+| A slow or failing Razorpay never hangs a request or leaks the secret | `RestClient` 2 s connect / 5 s read; every failure → 503 `PAYMENTS_UNAVAILABLE`; only the error code is logged | `RazorpayGatewayTest` (401 without the secret in the message, 5xx, timeout) |
+| A Razorpay response for another amount (or without an order id) is never stored | adapter checks id prefix, amount, currency against the request | `RazorpayGatewayTest` |
+| Live keys can't take real money | startup refuses non-`rzp_test_` keys | `RazorpayGatewayTest.configNeedsTestModeKeys` |
 | No DB connection or lock is held during the provider call | gateway called before the transaction opens | `PaymentServiceTest` (gateway failure: no transaction, nothing stored) |
 
 ## 2. Query plans (catalog reads)

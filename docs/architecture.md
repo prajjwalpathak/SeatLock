@@ -305,7 +305,7 @@ sequenceDiagram
 
 ## 2g. Payment orders (W4·D1, ADR-010)
 
-- `payment` module: `PaymentGateway` port (`MockGateway` today, Razorpay from D2), `Payment` attempts (V8),
+- `payment` module: `PaymentGateway` port (`MockGateway`, `RazorpayGateway` on `RestClient`), `Payment` attempts (V8),
   `PaymentService`, `POST /api/v1/bookings/{publicId}/payment-order` (no body: the amount is computed on the server).
 - Dependencies: `payment → booking` (only `BookingService.checkPayable` / `startPayment` and the `PayableBooking`
   record) `→ catalog`. No entity crosses a module boundary.
@@ -336,6 +336,30 @@ sequenceDiagram
         PS-->>U: 201 order (orderId, amountPaise, payBy)
     end
 ```
+
+### Checkout in the browser (W4·D2)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as User
+    participant BP as Booking page
+    participant API as Backend
+    participant RZ as Razorpay
+    U->>BP: Pay ₹…
+    BP->>API: POST /bookings/{publicId}/payment-order
+    API->>RZ: POST /v1/orders (Basic auth, amount from the server, 2 s / 5 s timeouts)
+    RZ-->>API: order_…
+    API-->>BP: 201/200 {orderId, amountPaise, payBy, keyId}
+    BP->>RZ: load checkout.js (first time), open modal (key, order_id, timeout = time left)
+    U->>RZ: pays (test mode: netbanking mock bank / test card)
+    RZ-->>BP: handler {razorpay_payment_id, razorpay_order_id, razorpay_signature}
+    BP->>U: "Confirming your booking…" (poll; CONFIRMED after server-side verification, W4·D3)
+```
+
+- The browser never sends an amount, and its success callback is only a claim; the backend decides (D3).
+- `payment.failed` inside the modal shows the reason and Razorpay lets the user retry the same order; closing the
+  modal keeps the seats until the timer runs out, and "Pay" again reopens the same open order (200).
 
 ## 3. Conventions
 - Internal keys are `bigint` identity. Bookings expose a random `public_id` (UUID), so IDs in URLs can't be enumerated.

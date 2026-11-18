@@ -121,6 +121,12 @@ dc up -d --force-recreate app        # env is read only at container start
 - **Frontend URL changed** → update both `FRONTEND_BASE_URL` and `CORS_ALLOWED_ORIGINS` (exact origin, no trailing `/`).
 - **Admin password**: changing it in `.env.prod` does *not* update an existing admin (bootstrap only creates a missing one).
 - **Rotating JWT keys** logs everyone out (all existing tokens fail verification). That is expected.
+- **Payments (Razorpay test mode):** set `RAZORPAY_KEY_ID` (`rzp_test_...`) and `RAZORPAY_KEY_SECRET`, then
+  `SEATLOCK_PAYMENTS_GATEWAY=razorpay` and recreate the app. The log must show `Payment gateway: RAZORPAY`. Missing
+  or live (`rzp_live_`) keys stop the app at startup on purpose (deploy.sh then rolls back). Open orders created by the
+  other gateway can't be paid after a switch; they expire with their booking. Keep `mock` until W4·D3 (verification).
+- **Rotating the Razorpay key**: generate a new test key, update both values, recreate the app; old orders stay payable
+  only with the key that created them, so do it when no booking is waiting for payment.
 
 ## 5. Operations
 
@@ -164,6 +170,9 @@ The static IP survives, so DNS and the certificate keep working.
 | Deploy job: `refused: expected 'deploy sha-…'` | bad manual `tag` input | Use `sha-` + 12 hex chars, or empty |
 | Deploy job: `manifest unknown` | tag doesn't exist in GHCR | Pick a tag from the package page; site keeps the old version |
 | Smoke test: wrong `live revision` | rollback happened (new image unhealthy) | Read the deploy step's log output; fix, push again |
+| App won't start: `needs RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET` / `Only Razorpay test-mode keys` | gateway `razorpay` without (test) keys | Section 4: set the `rzp_test_` pair or go back to `mock` |
+| Pay now → 503 `PAYMENTS_UNAVAILABLE` | Razorpay rejected the key (401) or timed out | `dc logs app \| grep Razorpay` shows the HTTP status + error code; check the key pair |
+| Checkout modal doesn't open | `checkout.razorpay.com` blocked (ad blocker, offline) | The page says so; allow the domain |
 | CI green locally red in CI | test order/timing differences (e.g. deferred cache `evict`/`clear`) | Use `evictIfPresent`/`invalidate` (immediate) |
 
 ## 8. Decommission (planned after ~2–3 months)

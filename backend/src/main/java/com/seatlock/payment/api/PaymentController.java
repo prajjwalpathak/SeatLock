@@ -34,7 +34,10 @@ public class PaymentController {
      * same order with 200 instead of 201.
      */
     @Operation(summary = "Pay now: create my booking's payment order (201 new, 200 open order returned; "
-            + "404 unknown/not mine; 409 BOOKING_EXPIRED or INVALID_BOOKING_TRANSITION; 503 PAYMENTS_UNAVAILABLE)")
+            + "404 unknown/not mine; 409 BOOKING_EXPIRED or INVALID_BOOKING_TRANSITION; 503 PAYMENTS_UNAVAILABLE)",
+            description = "No request body: the amount is computed on the server from the booking's seats. Open Razorpay "
+                    + "Checkout with `keyId` (public key ID; null for the mock gateway) and `orderId`; close it by `payBy`. "
+                    + "The checkout success callback is confirmed server-side (signature verification).")
     @PostMapping("/api/v1/bookings/{publicId}/payment-order")
     public ResponseEntity<PaymentOrderView> createOrder(@CurrentUserId long userId, @PathVariable String publicId) {
         OrderResult result = payments.createOrder(userId, publicId);
