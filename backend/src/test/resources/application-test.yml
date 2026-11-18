@@ -30,6 +30,11 @@ seatlock:
       holds:                     # the whole suite runs from 127.0.0.1 → generous; RateLimit*Test checks the real behaviour
         per-ip:   { capacity: 100000, refill-tokens: 100000, refill-period: 1m }
         per-user: { capacity: 20,     refill-tokens: 20,     refill-period: 1m }
+  payments:
+    gateway: mock    # ignore SEATLOCK_PAYMENTS_GATEWAY in .env: tests never call a real provider
+    razorpay:
+      key-id: ""
+      key-secret: ""
   scheduling:
     enabled: false   # no background jobs during tests; they're called directly
   frontend:
