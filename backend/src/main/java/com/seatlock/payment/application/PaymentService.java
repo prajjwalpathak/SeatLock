@@ -118,8 +118,10 @@ public class PaymentService {
         return payable.publicId().toString().replace("-", "") + "-" + attempt;
     }
 
-    private static PaymentOrderView view(Payment p, PayableBooking booking) {
+    private PaymentOrderView view(Payment p, PayableBooking booking) {
+        // The key belongs to the gateway that created the order (switching gateways leaves old orders unpayable).
+        String keyId = p.getGateway() == gateway.name() ? gateway.checkoutKeyId() : null;
         return new PaymentOrderView(booking.publicId(), p.getAttempt(), p.getGateway(), p.getGatewayOrderId(),
-                p.getAmountPaise(), p.getCurrency(), p.getStatus(), booking.expiresAt());
+                p.getAmountPaise(), p.getCurrency(), p.getStatus(), booking.expiresAt(), keyId);
     }
 }

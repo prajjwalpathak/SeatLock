@@ -57,6 +57,11 @@ public class RazorpayGateway implements PaymentGateway {
     }
 
     @Override
+    public String checkoutKeyId() {
+        return keyId;
+    }
+
+    @Override
     public GatewayOrder createOrder(CreateOrderCommand command) {
         OrderResponse order;
         try {
