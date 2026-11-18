@@ -210,6 +210,24 @@ export type PaymentVerification = {
   booking: Booking
 }
 
+/** GET /bookings/{publicId}/refund-quote: what cancelling now would give back (refund policy). */
+export type RefundQuote = {
+  cancellable: boolean
+  percent: number
+  refundPaise: number
+  paidPaise: number
+  /** When the percentage drops next (null if it won't). */
+  nextChangeAt: string | null
+  rule: string
+}
+
+/** POST /bookings/{publicId}/refund. */
+export type PaidCancellation = {
+  booking: Booking
+  percent: number
+  refundPaise: number
+}
+
 export type ServerTime = {
   serverTime: string
   epochMillis: number

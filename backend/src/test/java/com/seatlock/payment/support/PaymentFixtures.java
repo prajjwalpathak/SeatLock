@@ -54,13 +54,18 @@ public final class PaymentFixtures {
         this.tokens = tokens;
         this.showId = jdbc.queryForObject("""
                 SELECT s.id FROM shows s JOIN events e ON e.id = s.event_id
-                WHERE e.status = 'PUBLISHED' AND s.status = 'SCHEDULED' AND s.starts_at > now() + interval '1 hour'
+                WHERE e.status = 'PUBLISHED' AND s.status = 'SCHEDULED' AND s.starts_at > now() + interval '3 days'
                 ORDER BY s.id LIMIT 1
                 """, Long.class);
     }
 
     public long showId() {
         return showId;
+    }
+
+    /** Seats handed out by this fixture so far (for assertions on show_seats). */
+    public List<Long> seatIds() {
+        return List.copyOf(seatIds);
     }
 
     public String newUserToken(String name) {

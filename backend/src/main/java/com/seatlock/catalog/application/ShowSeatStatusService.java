@@ -29,6 +29,11 @@ public class ShowSeatStatusService {
         return move(showId, seatIds, "HELD", "BOOKED");
     }
 
+    /** BOOKED → AVAILABLE (a paid booking was cancelled and refunded): back on sale. */
+    public int releaseBooked(long showId, Collection<Long> seatIds) {
+        return move(showId, seatIds, "BOOKED", "AVAILABLE");
+    }
+
     /** HELD → AVAILABLE (booking expired or cancelled). */
     public int markAvailable(long showId, Collection<Long> seatIds) {
         return move(showId, seatIds, "HELD", "AVAILABLE");

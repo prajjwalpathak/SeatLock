@@ -387,6 +387,23 @@ sequenceDiagram
 - Whoever locks the payment row first confirms; the other path finds it done (`ALREADY_DONE`).
 - The sweeper locks only the booking: if it wins, the capture records `CAPTURED_BOOKING_LOST` (refund on W4·D4).
 
+## 2i. Refunds and paid cancellation (W4·D4, ADR-012)
+
+```mermaid
+flowchart LR
+    A[capture: CAPTURED_BOOKING_LOST] -->|same tx| R[(refunds PENDING)]
+    B[capture: second payment id] -->|same tx| R
+    C[POST /bookings/:id/refund<br/>policy quote] -->|same tx: booking REFUNDED,<br/>seats BOOKED → AVAILABLE| R
+    R --> W[RefundWorker every 30 s]
+    W -->|claim: SKIP LOCKED + 2 min lease| S{{Razorpay: refunds with our receipt?}}
+    S -->|yes: adopt| OK[(SUBMITTED, payment REFUNDED)]
+    S -->|no: POST /payments/:id/refund| OK
+    S -->|error| RETRY[(PENDING, backoff 30 s … 1 h; FAILED after 8)]
+```
+
+- `payment.failed` only records the reason: the order stays open for a retry in Checkout.
+- Policy (config): ≥ 48 h → 100 %, ≥ 24 h → 50 %, less → not cancellable; round down.
+
 ## 3. Conventions
 - Internal keys are `bigint` identity. Bookings expose a random `public_id` (UUID), so IDs in URLs can't be enumerated.
 - Enums are `varchar` + `CHECK`, not Postgres `ENUM` types: easier to evolve with Flyway, and mapped with `@Enumerated(EnumType.STRING)`.

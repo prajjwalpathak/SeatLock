@@ -152,6 +152,18 @@ winner):
 | Money taken after expiry is never lost | payment stays CAPTURED, outcome `CAPTURED_BOOKING_LOST` | `PaymentCaptureIntegrationTest` (refund: W4·D4) |
 | Someone else's order can't be confirmed via my session | verify checks the booking owner (404) | `PaymentVerifyIntegrationTest` |
 
+## 1k. Refunds (W4·D4, ADR-012)
+
+| Rule | Enforced by | Proven by |
+|---|---|---|
+| A refund that is owed is never forgotten | outbox row written in the deciding transaction (capture / cancel) | `RefundProcessorIntegrationTest`, `PaidCancellationIntegrationTest` |
+| A refund is never queued twice | `UNIQUE (gateway_payment_id, reason)` + payment row lock; `request()` returns the existing row | late payment redelivered → 1 row; 6 concurrent cancels → 1 row |
+| A refund is never sent twice | claim with SKIP LOCKED + lease; provider lookup by receipt before creating | `RazorpayGatewayTest` (existing receipt → no POST), `RefundProcessorIntegrationTest` (second claim empty) |
+| A provider failure is retried, then escalated | backoff 30 s · 2ⁿ ≤ 1 h, FAILED after 8 with ERROR log | `RefundTest`, `RefundProcessorTest` |
+| A failed Checkout try never strands a booking | `payment.failed` keeps the order CREATED | `RazorpayWebhookIntegrationTest` (failed, then captured → CONFIRMED) |
+| Cancellation refunds follow the policy, never more | `RefundPolicyEngine` (tiers, inclusive bounds, floor) | `RefundPolicyEngineTest` |
+| Cancelled seats go back on sale at once, history kept | booking REFUNDED (booking_seats inactive) + BOOKED → AVAILABLE in one tx | `PaidCancellationIntegrationTest` (another user holds the seat) |
+
 ## 2. Query plans (catalog reads)
 
 **Method:** `docs/explain/catalog-queries.sql` on the seeded local DB (30 events, 90 shows,

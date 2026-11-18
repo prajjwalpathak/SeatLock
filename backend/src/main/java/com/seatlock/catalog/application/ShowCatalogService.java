@@ -9,6 +9,7 @@ import com.seatlock.catalog.api.ShowSeatMapResponse.VenueRef;
 import com.seatlock.catalog.application.ShowQueryRepository.ShowHeader;
 import com.seatlock.catalog.domain.ShowSeatStatus;
 import com.seatlock.common.exception.NotFoundException;
+import java.time.Instant;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
@@ -76,6 +77,11 @@ public class ShowCatalogService {
         return showQueries.findBookableShow(showId)
                 .map(show -> new HoldableShow(show.showId(), show.startsAt(),
                         seatIds.isEmpty() ? List.of() : showQueries.seatsById(showId, seatIds)));
+    }
+
+    /** When a show starts (any status); for the refund policy. */
+    public Instant startsAtOf(long showId) {
+        return showQueries.startsAt(showId).orElseThrow(() -> new NotFoundException("Show", showId));
     }
 
     /** Seat labels (section, row, number) for any show, bookable or not; used to display stored bookings. */

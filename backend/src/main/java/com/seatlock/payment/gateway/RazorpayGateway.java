@@ -76,7 +76,7 @@ public class RazorpayGateway implements PaymentGateway {
             log.error("Razorpay create order failed: HTTP {} {}", e.getStatusCode().value(), error);
             throw new PaymentGatewayException("Razorpay returned HTTP " + e.getStatusCode().value() + " " + error, e);
         } catch (ResourceAccessException e) {
-            throw new PaymentGatewayException("Razorpay unreachable: " + e.getMessage(), e);
+            throw new PaymentGatewayException("Razorpay unreachable: " + cause(e), e);
         } catch (RestClientException e) {
             throw new PaymentGatewayException("Razorpay call failed: " + e.getMessage(), e);
         }
@@ -91,8 +91,7 @@ public class RazorpayGateway implements PaymentGateway {
     public GatewayRefund refund(RefundCommand command) {
         String path = "/v1/payments/{id}";
         try {
-            RefundList existing = http.get().uri(path + "/refunds?count=100", command.gatewayPaymentId())
-                    .retrieve().body(RefundList.class);
+            RefundList existing = listRefunds(command.gatewayPaymentId());
             if (existing != null && existing.items() != null) {
                 for (RefundResponse r : existing.items()) {
                     if (command.receipt().equals(r.receipt())) {
@@ -120,10 +119,32 @@ public class RazorpayGateway implements PaymentGateway {
             log.error("Razorpay refund for {} failed: HTTP {} {}", command.gatewayPaymentId(), e.getStatusCode().value(), error);
             throw new PaymentGatewayException("Razorpay returned HTTP " + e.getStatusCode().value() + " " + error, e);
         } catch (ResourceAccessException e) {
-            throw new PaymentGatewayException("Razorpay unreachable: " + e.getMessage(), e);
+            throw new PaymentGatewayException("Razorpay unreachable: " + cause(e), e);
         } catch (RestClientException e) {
             throw new PaymentGatewayException("Razorpay call failed: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Read-only, so one immediate retry is safe: the first request after an idle period often lands on a pooled
+     * keep-alive connection the provider already closed (I/O error with no message), and the second one works.
+     */
+    private RefundList listRefunds(String gatewayPaymentId) {
+        try {
+            return http.get().uri("/v1/payments/{id}/refunds?count=100", gatewayPaymentId).retrieve().body(RefundList.class);
+        } catch (ResourceAccessException first) {
+            log.info("Razorpay refund lookup for {} failed ({}); retrying once", gatewayPaymentId, cause(first));
+            return http.get().uri("/v1/payments/{id}/refunds?count=100", gatewayPaymentId).retrieve().body(RefundList.class);
+        }
+    }
+
+    /** The innermost exception, class included: "null" messages hide what actually failed. */
+    private static String cause(Exception e) {
+        Throwable root = e;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        return root.getClass().getSimpleName() + (root.getMessage() == null ? "" : ": " + root.getMessage());
     }
 
     /** Never trust a provider response blindly: the order must be the one we asked for. */

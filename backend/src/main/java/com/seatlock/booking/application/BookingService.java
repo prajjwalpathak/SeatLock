@@ -201,6 +201,37 @@ public class BookingService {
         return ConfirmResult.CONFIRMED;
     }
 
+    /**
+     * Payment module API: the caller's booking with what a paid cancellation needs (404 if unknown or not theirs).
+     * Read-only; {@link #refundBooking} re-checks under a lock.
+     */
+    public PaidBooking paidBooking(long userId, String publicId) {
+        UUID id = parseUuid(publicId).orElseThrow(() -> new NotFoundException("Booking", "(invalid id)"));
+        Booking b = bookings.findByPublicId(id)
+                .filter(x -> x.getUserId() == userId)
+                .orElseThrow(() -> new NotFoundException("Booking", id));
+        return new PaidBooking(b.getId(), b.getPublicId(), b.getStatus(), b.getShowId(), catalog.startsAtOf(b.getShowId()));
+    }
+
+    /**
+     * Payment module API: a CONFIRMED booking is cancelled with a refund. Locks the booking row, CONFIRMED → REFUNDED
+     * (state machine; booking_seats deactivated) and show_seats BOOKED → AVAILABLE, so the seats are on sale again
+     * at commit. Must run in the caller's transaction (the refund row commits with it). Anything but CONFIRMED → 409.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void refundBooking(long bookingId) {
+        Booking booking = bookings.findForUpdateById(bookingId)
+                .orElseThrow(() -> new NotFoundException("Booking", bookingId));
+        List<Long> seatIds = booking.getSeats().stream().filter(BookingSeat::isActive).map(BookingSeat::getSeatId).toList();
+        booking.refund(clock.instant()); // only CONFIRMED may be refunded; else 409 INVALID_BOOKING_TRANSITION
+        int released = seatStatus.releaseBooked(booking.getShowId(), seatIds);
+        if (released != seatIds.size()) {
+            throw new IllegalStateException("Booking " + booking.getPublicId() + ": only " + released + "/"
+                    + seatIds.size() + " seats were BOOKED");
+        }
+        log.info("Booking {} cancelled and refunded; {} seats back on sale", booking.getPublicId(), seatIds.size());
+    }
+
     /** True if the booking (internal id) belongs to the user: ownership check for payment callbacks. */
     public boolean isOwnedBy(long bookingId, long userId) {
         return bookings.findById(bookingId).map(b -> b.getUserId() == userId).orElse(false);

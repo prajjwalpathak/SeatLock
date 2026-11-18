@@ -160,6 +160,19 @@ class RazorpayGatewayTest {
     }
 
     @Test
+    void aDroppedLookupIsRetriedOnceAtOnce() {
+        server.expect(requestTo("https://api.razorpay.test/v1/payments/pay_ABC/refunds?count=100"))
+                .andRespond(withException(new java.io.EOFException()));
+        server.expect(requestTo("https://api.razorpay.test/v1/payments/pay_ABC/refunds?count=100"))
+                .andRespond(withSuccess("""
+                        {"items":[{"id":"rfnd_DONE","amount":5000,"receipt":"rf123","status":"processed"}]}
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThat(gateway.refund(new RefundCommand("pay_ABC", 5000, "rf123")).refundId()).isEqualTo("rfnd_DONE");
+        server.verify();
+    }
+
+    @Test
     void aRefusedRefundIsAGatewayException() {
         server.expect(requestTo("https://api.razorpay.test/v1/payments/pay_ABC/refunds?count=100"))
                 .andRespond(withSuccess("{\"items\":[]}", MediaType.APPLICATION_JSON));
