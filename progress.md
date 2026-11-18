@@ -3,15 +3,15 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 4 · Day 1 (in progress, planned Tue Dec 1): payment gateway abstraction + create-order endpoint, as 3 combined tasks (A: V8 + Payment entity + gateway/MockGateway · B: pricing + `startPayment` + `PaymentService` + endpoint · C: tests + ADR-010/docs/OpenAPI). Branch `w4-d1`
-- **Last completed:** Week 3 · Day 6: 200-user concurrency proof (races A/B/C over real HTTP and straight to the DB, 0 double-sold), CORRECTNESS section 1h, Week 3 review (planned Mon Nov 30, done Wed Nov 18)
+- **Current day:** Week 4 · Day 3 (not started, planned Thu Dec 3): checkout signature verification, webhook endpoint (raw body, `X-Razorpay-Signature`, event-ID dedupe), confirm inside a transaction with the holdId check + unique constraint. Branch `w4-d3` (from `main`, only after #8 is squash-merged)
+- **Last completed:** Week 4 · Day 2: `RazorpayGateway` on `RestClient` (Orders API, test keys only), `keyId` in the order response, "Pay now" with Razorpay Checkout.js, prod config + runbook (planned Wed Dec 2, done Wed Nov 18)
 - **Live URLs:** Frontend https://seatlock-nu.vercel.app · Backend https://seatlock-prajjwal.duckdns.org · Swagger https://seatlock-prajjwal.duckdns.org/swagger-ui.html · Version https://seatlock-prajjwal.duckdns.org/api/v1/system/version · Grafana —
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public) · CI + Deploy badges in README · `main` protected (ruleset `protect-main`)
 - **Hosting:** Azure VM `seatlock-vm` (India South Central, B2als_v2 x64) + Vercel; images from GHCR (ADR-005, #62, #71–#74); decommission after ~2–3 months
-- **Git workflow (from W4):** 3 combined tasks per day (2 plan tasks each); each combined task = changes → one verify/test block → one commit + push on the daily branch; day end → PR → squash-merge when CI is green (#9, #75, #116)
-- **Carry-overs:** silence Mockito's dynamic-agent warning (W6·D1) · JetBrains student license · IntelliJ vulnerable-dependency scan
-- **Schedule:** **~12 days ahead** (W3·D6 done Wed Nov 18 instead of Mon Nov 30); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
-- **Top risk:** payments + webhooks (W4); VM burst credits (load tests stay local)
+- **Git workflow (from W4):** 3 combined tasks per day (2 plan tasks each); each combined task = changes → one verify/test block → one one-line commit + push on the daily branch; day end → PR → squash-merge when CI is green (#9, #75, #116)
+- **Carry-overs:** silence Mockito's dynamic-agent warning (W6·D1) · JetBrains student license · IntelliJ vulnerable-dependency scan · `.\mvnw.cmd clean` to drop the stale W3·D6 `ConcurrencyHarnessIntegrationTest` surefire report · prod `SEATLOCK_PAYMENTS_GATEWAY=razorpay` once D3 verification is live
+- **Schedule:** **~14 days ahead** (W4·D2 done Wed Nov 18 instead of Wed Dec 2); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
+- **Top risk:** webhooks need a public tunnel (cloudflared, D3/D5); confirm-vs-expiry races on payment (reuse the harness); VM burst credits (load tests stay local)
 
 ## Decisions Log (ADR summary)
 | # | Date | Decision | Why |
@@ -132,6 +132,17 @@
 | 114 | 2026-11-18 | Race B seeds its random seat picks and logs the seed; invariant SQL `DOUBLE_SOLD_SEATS` (live claims per seat > 1) must return 0 rows | Any failing interleaving can be replayed; the DB, not status codes, is the final word |
 | 115 | 2026-11-18 | Never use the section-sign character in docs/code; existing ones replaced with "section" except the applied `V4` migration comment | Readability preference; editing an applied migration changes its Flyway checksum |
 | 116 | 2026-11-18 | **Workflow from Week 4 (refines #36/#75):** each day's 6 plan tasks are paired into **3 combined tasks**; each pair gets one PowerShell verify/test block and one commit (pushed to the daily branch); at day end one PR, squash-merged once CI is green. Pace unchanged (~6 h/day) | Fewer round trips and commits per day; same scope and timeline |
+| 117 | 2026-11-18 | **ADR-010:** `PaymentGateway` port (Adapter/Strategy); `MockGateway` (in-process, `order_mock_` + 14 chars) is the default for local, tests and load tests; `seatlock.payments.gateway=mock\|razorpay` builds exactly one bean, logged at startup; `razorpay` fails startup until D2 | No real provider in tests/k6; adding a provider is one adapter |
+| 118 | 2026-11-18 | **V8 payments** = one row per attempt (`attempt` 1..n, CREATED/CAPTURED/FAILED/REFUNDED, timestamps tied by CHECKs); `UNIQUE (gateway, gateway_order_id)`, `UNIQUE (booking_id, attempt)`; partial unique **`ux_payments_live_booking` WHERE status IN (CREATED, CAPTURED)** | Retries keep history; the DB guarantees one live payment per booking whatever the code does |
+| 119 | 2026-11-18 | **Server-side amount:** payment-order has no body; `BookingPricing` = sum of the booking's live seat prices, must equal `total_paise` (mismatch → 500, nothing charged); gateway echo must match | Client can't tamper with the price; corrupted data is refused, never guessed |
+| 120 | 2026-11-18 | Create-order flow: read-only checks → open order? return it (200) → **gateway call outside any transaction** → short tx: `BookingService.startPayment` (`MANDATORY`, `PESSIMISTIC_WRITE`, re-check, HELD → PAYMENT_PENDING) → open order now? return it (ours left unused) → insert (201). Naturally idempotent, no Idempotency-Key | No DB connection/lock held across a network call (#79); concurrent clicks serialize on the booking row; unused provider orders cost nothing |
+| 121 | 2026-11-18 | Payment rules: deadline checked on the app clock (409 **`BOOKING_EXPIRED`** even before the sweeper runs); CANCELLED/CONFIRMED/REFUNDED → 409 `INVALID_BOOKING_TRANSITION` (`requirePayable`); PAYMENT_PENDING may start a new attempt after a FAILED one; `expiresAt` is **not** extended (late payments refunded W4·D4); receipt = public id without dashes + `-attempt` (≤ 40) | Clear, testable rules; matches Razorpay's receipt limit |
+| 122 | 2026-11-18 | Payment module talks to booking only via `BookingService.checkPayable` / `startPayment` and the `PayableBooking` record (internal id only for the FK); dependencies payment → booking → catalog | Module rule (#16) with no cycles |
+| 123 | 2026-11-18 | **Razorpay via Spring `RestClient`, not `razorpay-java`** (user-approved stack change; ADR-010 update): `POST /v1/orders`, HTTP Basic, JDK HttpClient **2 s connect / 5 s read** (`seatlock.payments.razorpay.*`) | SDK hard-codes the host (no WireMock on D5), fixed 60 s timeouts on a static client, OkHttp 3 + org.json; RestClient needs no new dependency |
+| 124 | 2026-11-18 | Adapter maps every failure (4xx/5xx, timeout, unreachable, unreadable) to `PaymentGatewayException` → 503 `PAYMENTS_UNAVAILABLE`, logs only Razorpay's error code; rejects responses without an `order_` id or with another amount/currency | A misbehaving provider can't hang requests, leak secrets or store a wrong order |
+| 125 | 2026-11-18 | **Test keys only:** `gateway=razorpay` without keys or with `rzp_live_` fails startup; `RazorpayProperties.toString()` masks the secret; test profile pins `gateway: mock` and blank keys | Portfolio never takes real money; misconfiguration fails the boot (deploy.sh rolls back); `.env` can't make tests call Razorpay |
+| 126 | 2026-11-18 | Order response carries public **`keyId`** (null for mock; only for orders of the active gateway); Checkout.js loaded **on demand**, `timeout` = seconds to `payBy`, prefill name/email, `confirm_close`; the success callback is only a claim until server-side verification (D3) | Secret stays server-side; no script on pages that don't pay; the modal can't outlive the booking |
+| 127 | 2026-11-18 | Prod stays on **`mock`** until W4·D3 (keys may already sit in `.env.prod`) | A live test payment that can't be confirmed would just expire in PAYMENT_PENDING |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -160,6 +171,9 @@
 | Concurrency (race B) | 200 users, overlapping seats, 12-seat block → 7–8 winners, **12/12 sold, oversells = 0**, 3/3 runs | `OverlappingHoldsRaceIntegrationTest` | 2026-11-18 |
 | Concurrency (race C) | Redis bypassed, 200 DB transactions on one seat → **1 commit, 199 × 23505** (unique index), 248 ms | `LiveSeatIndexRaceIntegrationTest` | 2026-11-18 |
 | Tests | 327 (319 + 8 new incl. repetitions) | `mvnw verify` / CI | 2026-11-18 |
+| Payment-order race | 20 concurrent "Pay now" for one booking over real HTTP → **1 × 201, 19 × 200, one order id, one payment row**, 5/5 runs | `PaymentOrderRaceIntegrationTest` | 2026-11-18 |
+| Tests | 364 (327 + 37 new incl. repetitions) | `mvnw verify` / CI | 2026-11-18 |
+| Tests | 371 (364 + 7 new) | `mvnw verify` / CI | 2026-11-18 |
 
 ## Accounts & Config (no secrets here, only where they live)
 | Item | Status | Where stored |
@@ -169,7 +183,7 @@
 | Azure for Students | ✅ Active ($100, 12 months; **production host**: `seatlock-vm` in RG `seatlock-vm_group`, India South Central; budget alert) | portal.azure.com (DTU email); SSH key `~\\.ssh\\azure_seatlock`; prod secrets in `~/seatlock/infra/.env.prod` on the VM |
 | AWS | ❌ Free plan already used up; not used for this project | — |
 | DuckDNS domain | ✅ `seatlock-prajjwal.duckdns.org` → VM static IP | duckdns.org (token in DuckDNS account) |
-| Razorpay test keys | — (W4·D2) | `.env` (git-ignored) |
+| Razorpay test mode | ✅ account + test API keys (W4·D2); test payments via netbanking mock bank or test cards (UPI ID option not offered in this checkout) | local `.env` (`RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET`, git-ignored); prod `infra/.env.prod` on the VM (gateway `mock` until D3) |
 | Google OAuth client | ✅ Web client "SeatLock local" (Testing mode, test user added); redirect `http://localhost:8080/login/oauth2/code/google`; prod URI `https://seatlock-prajjwal.duckdns.org/login/oauth2/code/google` added W2·D5 | `.env` (`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`, git-ignored) |
 | Gemini/Groq API key | — (W7·D1) | `.env` (git-ignored) |
 | Vercel project | ✅ imported from GitHub (root `frontend`), `https://seatlock-nu.vercel.app`; env `VITE_API_BASE_URL` | vercel.com (GitHub login) |
@@ -888,3 +902,73 @@
 - Defence in depth: Redis as fast path, DB constraint as the guarantee; how Postgres unique indexes behave under concurrent inserts (wait, then 23505 or success on rollback)
 - Invariant queries vs status-code assertions; latency percentiles under contention vs throughput benchmarks
 **Commit:** `test(booking): 200-user concurrency proof (races A/B/C) and Week 3 review (W3·D6)` (squashed into one commit on `main`)
+
+### Week 4 · Day 1: Payment gateway abstraction + create-order endpoint (planned Tue, Dec 1; done Wed, Nov 18, 2026)
+**Status:** ✅ Done
+**Built:**
+- A: Flyway `V8__payments.sql` (attempts, unique gateway order id + attempt number, status CHECKs, partial unique `ux_payments_live_booking`); `Payment` entity (booking by id, `@Version`, guarded `markCaptured` / `markFailed` / `markRefunded` → 409 `INVALID_PAYMENT_TRANSITION`), `PaymentStatus`, `PaymentRepository`; `PaymentGateway` port, `GatewayName`, `CreateOrderCommand`, `GatewayOrder`, `PaymentGatewayException`, `MockGateway`, `PaymentProperties` + `PaymentGatewayConfig` (`seatlock.payments.gateway`, default `mock`)
+- B: `Booking.requirePayable()`; `BookingPricing`, `PayableBooking`, `BookingExpiredException`; `BookingService.checkPayable` + `startPayment`; `PaymentService` + `PaymentOrderView`; `POST /api/v1/bookings/{publicId}/payment-order` (201 new / 200 open order; 404; 409 `BOOKING_EXPIRED` / `INVALID_BOOKING_TRANSITION`; 503 `PAYMENTS_UNAVAILABLE`)
+- C: tests (pricing, payable states, service with mocks, API integration, 20-request race ×5); security matrix + OpenAPI checks; ADR-010; architecture section 2g; CORRECTNESS section 1i
+- Repaired the W3·D6 squash merge (#6), which had dropped CORRECTNESS section 1h and progress.md's W3·D6 content (FAILURES F4)
+- Tests: **364** (37 new incl. repetitions), 0 failures locally and in CI
+**Files created/changed:**
+- `backend\src\main\resources\db\migration\V8__payments.sql`; `application.yml` (`seatlock.payments.gateway`)
+- `payment\domain\{Payment, PaymentStatus, PaymentRepository, IllegalPaymentTransitionException}.java`
+- `payment\gateway\{PaymentGateway, GatewayName, CreateOrderCommand, GatewayOrder, PaymentGatewayException, MockGateway, PaymentProperties, PaymentGatewayConfig}.java`
+- `payment\application\{PaymentService, PaymentOrderView}.java`; `payment\api\PaymentController.java`
+- `booking\domain\Booking.java`; `booking\application\{BookingService, PayableBooking, BookingPricing, BookingExpiredException}.java`
+- Tests: `payment\domain\{PaymentPersistenceTest, PaymentTest}`, `payment\gateway\MockGatewayTest`, `payment\application\PaymentServiceTest`, `payment\api\{PaymentOrderIntegrationTest, PaymentOrderRaceIntegrationTest}`, `booking\application\BookingPricingTest`, `booking\domain\BookingPayableTest`; `SecurityMatrixIntegrationTest`, `OpenApiDocsTest`
+- `docs\decisions\ADR-010-payment-gateway.md`, `docs\{architecture.md, CORRECTNESS.md, FAILURES.md}`, `progress.md`
+**Decisions:**
+- See Decisions Log #116–#122
+**Metrics recorded:**
+- 20 concurrent "Pay now" → 1 order, 1 row (5/5 runs); 364 tests
+**Problems & fixes:**
+- #6 squash merge kept `main`'s older `progress.md` and `CORRECTNESS.md` (W3·D6 work lost on `main`) → restored both from `w3-d6` (`4e5d154`); FAILURES F4
+- Task A was committed on `main` (branch created before the merge, then switched back) and `progress.md` was committed with `<<<<<<< Updated upstream` stash markers → `git branch -f w4-d1 HEAD`, `git branch -f main origin/main`, files restored; nothing reached `origin/main`
+- Claude's `git diff` in the connected folder left `.git\index.lock` (no delete permission) → renamed, removed by user; Claude now uses `git --no-optional-locks` for read-only git
+- A stale W3·D6 surefire report (`ConcurrencyHarnessIntegrationTest`, wrong package) still sits in `target` → `mvnw clean` (carry-over)
+**Carry-over:**
+- Silence Mockito's dynamic-agent warning (W6·D1); JetBrains student license; IntelliJ vulnerable-dependency scan
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- Ports and adapters / Strategy for payment providers; fakes vs mocks; keeping real providers out of tests and load tests
+- Server-side pricing and why clients never send amounts; refusing inconsistent data instead of guessing
+- Payment attempts vs payments; partial unique indexes for "at most one live row"; natural idempotency
+- Not holding DB transactions/locks across network calls; serializing on a parent row (`SELECT … FOR UPDATE`); orphaned provider orders
+- Transaction propagation (`MANDATORY`) as a module API contract; module boundaries with boundary records
+- Squash-merge pitfalls: stale branches, conflict resolution that silently drops work, stash markers committed by accident
+**Commit:** `feat(payment): payment gateway abstraction and create-order endpoint (W4·D1)` (squashed into one commit on `main`)
+
+### Week 4 · Day 2: Razorpay Orders API + Checkout.js (planned Wed, Dec 2; done Wed, Nov 18, 2026)
+**Status:** ✅ Done
+**Built:**
+- A: `RazorpayProperties` (`seatlock.payments.razorpay.*`, test-key guard, masked `toString`), `RazorpayGateway` on `RestClient` (Basic auth, 2 s / 5 s timeouts, error mapping, response verification), `PaymentGatewayConfig` selects it; `.env.example` + test profile pinned to mock; contract tests with `MockRestServiceServer`
+- B: `PaymentGateway.checkoutKeyId()`, `keyId` in `PaymentOrderView`; frontend `api/payments.ts`, `lib/razorpayCheckout.ts` (on-demand checkout.js, typed options, success / `payment.failed` / dismiss), `features/booking/PayNowButton.tsx`; booking page "Pay ₹…" live
+- C: `infra/.env.prod.example` payments block, `docs/deploy.md` (enable/rotate keys, 3 troubleshooting rows), ADR-010 update, architecture section 2g checkout diagram, CORRECTNESS section 1i rows, OpenAPI description + schema check
+- Manual test-mode payments: netbanking mock bank success/failure, reopen same order after closing the modal, payment visible in the Razorpay dashboard
+- Tests: **371** (7 new), 0 failures
+**Files created/changed:**
+- `payment\gateway\{RazorpayProperties, RazorpayGateway, PaymentGateway, PaymentGatewayConfig}.java`; `payment\application\{PaymentService, PaymentOrderView}.java`; `payment\api\PaymentController.java`
+- `application.yml`, `application-test.yml`; `.env.example`; `infra\.env.prod.example`
+- Tests: `payment\gateway\{RazorpayGatewayTest, MockGatewayTest}`, `payment\application\PaymentServiceTest`, `payment\api\PaymentOrderIntegrationTest`, `common\config\OpenApiDocsTest`
+- Frontend: `src\types\api.ts`, `src\api\payments.ts`, `src\lib\razorpayCheckout.ts`, `src\features\booking\PayNowButton.tsx`, `src\pages\BookingPage.tsx`
+- `docs\decisions\ADR-010-payment-gateway.md`, `docs\{architecture.md, CORRECTNESS.md, deploy.md}`, `progress.md`
+**Decisions:**
+- See Decisions Log #123–#127
+**Metrics recorded:**
+- 371 tests
+**Problems & fixes:**
+- `razorpay-java` unsuitable (hard-coded host, 60 s timeouts, no connect timeout) → RestClient adapter (user-approved, #123)
+- Checkout showed no "Pay with UPI ID" field → test with netbanking (mock bank Success/Failure page) or Razorpay test cards
+- Expected `ERROR` lines in test output come from the negative contract tests (500, 401), not failures
+- `w4-d2` was created from the old `w4-d1` tip instead of the squashed `main` → `git rebase --onto origin/main 1376744 w4-d2` before the PR (same trap as F3/F4; caught before opening the PR)
+**Carry-over:**
+- Prod gateway → `razorpay` after D3; Mockito agent warning (W6·D1); JetBrains student license; IntelliJ dependency scan; `mvnw clean`
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- SDK vs direct REST integration: control over timeouts, base URLs, dependencies, testability
+- HTTP client timeouts (connect vs read), failing fast, mapping provider errors without leaking secrets
+- Contract tests with `MockRestServiceServer`; verifying provider responses before trusting them
+- Public vs secret keys in payment integrations; why client-side success callbacks must be verified server-side
+- Loading third-party scripts on demand; modal lifecycles (success, failure + retry, dismiss, timeout)
+- Feature flags for providers per environment; refusing live credentials in a test system
+**Commit:** `feat(payment): Razorpay Orders API on RestClient and Checkout.js pay flow (W4·D2)` (squashed into one commit on `main`)

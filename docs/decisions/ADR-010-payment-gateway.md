@@ -55,3 +55,24 @@ Concurrency for "create order":
 - Every test and load test runs against `MockGateway`; Razorpay is exercised in its own tests (D2) and by hand.
 - The receipt sent to the provider is the booking's public id without dashes + `-attempt` (≤ 40 characters).
 - Adding a provider means one adapter class and one enum value; nothing in booking or payment flow changes.
+
+## Update 2026-11-18 (W4·D2): Razorpay adapter on `RestClient`, not `razorpay-java` (user-approved)
+
+The plan's stack named the `razorpay-java` SDK. Its source showed a hard-coded API host (no base URL, so W4·D5
+WireMock tests can't redirect it), fixed 60 s read/write timeouts on a shared static OkHttp client, no connect timeout,
+and OkHttp 3 + `org.json` as extra dependencies. Decision:
+
+1. `RazorpayGateway` calls the REST API with Spring's **`RestClient`** (spring-web, no new dependency):
+   `POST {base-url}/v1/orders`, HTTP Basic `key_id:key_secret`, body `{amount, currency, receipt}`; JDK HttpClient with
+   **2 s connect / 5 s read** timeouts (`seatlock.payments.razorpay.*`).
+2. Every failure (4xx/5xx, timeout, unreachable, unreadable body) → `PaymentGatewayException` → 503
+   `PAYMENTS_UNAVAILABLE`; only Razorpay's error **code** is logged. The response must carry an `order_` id and the
+   amount/currency we sent, or it is rejected.
+3. **Test keys only:** `gateway=razorpay` without `RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET`, or with a `rzp_live_` key,
+   fails startup. `RazorpayProperties.toString()` masks the secret. The test profile pins `gateway: mock`.
+4. The order response carries **`keyId`** (public) for Checkout.js, only for orders of the active gateway; the secret
+   never leaves the backend. The browser's success callback is a claim until the backend verifies the signature
+   (W4·D3, own HMAC-SHA256 with a constant-time compare, replacing the SDK's `Utils`).
+5. Contract tests bind `MockRestServiceServer` to the adapter's `RestClient.Builder` (exact URL, auth header, strict
+   JSON body, error/timeout handling); WireMock over real HTTP follows on W4·D5.
+6. Prod stays on `mock` until W4·D3, so a live demo never takes a test payment it can't confirm.

@@ -68,6 +68,7 @@ class PaymentServiceTest {
         assertThat(result.order().amountPaise()).isEqualTo(120_000);
         assertThat(result.order().attempt()).isEqualTo(1);
         assertThat(result.order().payBy()).isEqualTo(HELD.expiresAt());
+        assertThat(result.order().keyId()).isNull(); // gateway mock returns no checkout key
         ArgumentCaptor<CreateOrderCommand> cmd = ArgumentCaptor.forClass(CreateOrderCommand.class);
         verify(gateway).createOrder(cmd.capture());
         assertThat(cmd.getValue().amountPaise()).isEqualTo(120_000);
@@ -84,7 +85,8 @@ class PaymentServiceTest {
 
         assertThat(result.created()).isFalse();
         assertThat(result.order().orderId()).isEqualTo("order_mock_OPEN");
-        verifyNoInteractions(gateway, tx);
+        verify(gateway, never()).createOrder(any());
+        verifyNoInteractions(tx);
     }
 
     @Test
@@ -115,6 +117,20 @@ class PaymentServiceTest {
         when(gateway.createOrder(any())).thenReturn(order(120_000));
 
         assertThat(service.createOrder(1L, PUBLIC_ID.toString()).order().attempt()).isEqualTo(3);
+    }
+
+    @Test
+    void theCheckoutKeyIsReturnedForOrdersOfTheActiveGateway() {
+        when(gateway.name()).thenReturn(GatewayName.RAZORPAY);
+        when(gateway.checkoutKeyId()).thenReturn("rzp_test_abc");
+        Payment open = new Payment(7L, 1, GatewayName.RAZORPAY, "order_Rz1", 120_000, "INR");
+        Payment oldMock = new Payment(7L, 1, GatewayName.MOCK, "order_mock_1", 120_000, "INR");
+
+        when(payments.findFirstByBookingIdAndStatusIn(anyLong(), anyCollection())).thenReturn(Optional.of(open));
+        assertThat(service.createOrder(1L, PUBLIC_ID.toString()).order().keyId()).isEqualTo("rzp_test_abc");
+
+        when(payments.findFirstByBookingIdAndStatusIn(anyLong(), anyCollection())).thenReturn(Optional.of(oldMock));
+        assertThat(service.createOrder(1L, PUBLIC_ID.toString()).order().keyId()).isNull();
     }
 
     private static GatewayOrder order(long amount) {

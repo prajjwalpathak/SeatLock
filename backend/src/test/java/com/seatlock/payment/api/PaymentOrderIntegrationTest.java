@@ -1,6 +1,7 @@
 package com.seatlock.payment.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -92,6 +93,7 @@ class PaymentOrderIntegrationTest {
                 .andExpect(jsonPath("$.currency").value("INR"))
                 .andExpect(jsonPath("$.status").value("CREATED"))
                 .andExpect(jsonPath("$.payBy").value(expiresAt))
+                .andExpect(jsonPath("$.keyId").value(nullValue())) // mock gateway: no browser checkout
                 .andReturn().getResponse().getContentAsString();
         assertThat((String) JsonPath.read(body, "$.orderId")).matches("order_mock_[A-Za-z0-9]{14}");
 

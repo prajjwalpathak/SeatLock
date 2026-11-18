@@ -4,6 +4,7 @@ import { catalogKeys, getSeatMap } from '../api/catalog'
 import { ApiError, hasCode } from '../api/client'
 import { cancelBooking, getBooking, holdKeys } from '../api/holds'
 import { ErrorMessage } from '../components/ErrorMessage'
+import { PayNowButton } from '../features/booking/PayNowButton'
 import { formatPaise, formatShowTime } from '../lib/format'
 import { formatCountdown, msUntil, useServerClockOffset } from '../lib/serverClock'
 import { useNow } from '../lib/useNow'
@@ -132,12 +133,12 @@ function BookingView({ booking, clockOffset }: { booking: Booking; clockOffset: 
       )}
 
       {unpaid && left > 0 && (
-        <div className="flex flex-col gap-3 rounded-xl border border-indigo-200 bg-indigo-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 rounded-xl border border-indigo-200 bg-indigo-50 p-4 sm:flex-row sm:items-start sm:justify-between">
           <p className={`text-sm ${left < 60_000 ? 'font-semibold text-red-700' : 'text-indigo-900'}`}>
             <span aria-hidden="true">Time left to pay {formatCountdown(left)}</span>
             <span className="sr-only">Pay before {new Date(booking.expiresAt).toLocaleTimeString('en-IN')}</span>
           </p>
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
             <button
               type="button"
               onClick={() => cancel.mutate()}
@@ -146,14 +147,11 @@ function BookingView({ booking, clockOffset }: { booking: Booking; clockOffset: 
             >
               {cancel.isPending ? 'Cancelling…' : 'Cancel booking'}
             </button>
-            <button
-              type="button"
-              disabled
-              title="Payments arrive in the next release"
-              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Pay {formatPaise(booking.totalPaise)}
-            </button>
+            <PayNowButton
+              booking={booking}
+              msLeft={left}
+              description={show.data ? `${show.data.eventTitle} · ${booking.seats.length} seat(s)` : 'Your booking'}
+            />
           </div>
         </div>
       )}

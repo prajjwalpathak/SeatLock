@@ -184,6 +184,24 @@ export type Booking = {
   cancelledAt: string | null
 }
 
+export type PaymentGatewayName = 'MOCK' | 'RAZORPAY'
+export type PaymentStatus = 'CREATED' | 'CAPTURED' | 'FAILED' | 'REFUNDED'
+
+/** POST /bookings/{publicId}/payment-order. The amount was computed by the server. */
+export type PaymentOrder = {
+  bookingId: string
+  attempt: number
+  gateway: PaymentGatewayName
+  orderId: string
+  amountPaise: number
+  currency: string
+  status: PaymentStatus
+  /** The booking's deadline; Checkout closes itself then. */
+  payBy: string
+  /** Razorpay key ID for Checkout.js (public); null for the mock gateway. */
+  keyId: string | null
+}
+
 export type ServerTime = {
   serverTime: string
   epochMillis: number

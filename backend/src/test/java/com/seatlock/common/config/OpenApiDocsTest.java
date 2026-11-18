@@ -38,6 +38,7 @@ class OpenApiDocsTest {
                         .isEmpty())
                 .andExpect(jsonPath("$.paths['/api/v1/bookings/{publicId}/payment-order'].post.security[0].bearerAuth").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/bookings/{publicId}/payment-order'].post.requestBody").doesNotExist())
+                .andExpect(jsonPath("$.components.schemas.PaymentOrderView.properties.keyId").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/events'].get.security").doesNotExist()); // public
     }
 }

@@ -14,4 +14,12 @@ public interface PaymentGateway {
      * or rejects the request; nothing is stored on our side in that case.
      */
     GatewayOrder createOrder(CreateOrderCommand command);
+
+    /**
+     * Public key the browser needs to open this provider's checkout (Razorpay: the key ID), or null when there is
+     * no browser checkout (the mock). Never a secret.
+     */
+    default String checkoutKeyId() {
+        return null;
+    }
 }

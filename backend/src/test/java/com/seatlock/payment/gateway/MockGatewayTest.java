@@ -41,9 +41,8 @@ class MockGatewayTest {
     }
 
     @Test
-    void configSelectsMockAndRefusesRazorpayUntilD2() {
-        assertThat(PaymentGatewayConfig.select(GatewayName.MOCK)).isInstanceOf(MockGateway.class);
-        assertThatThrownBy(() -> PaymentGatewayConfig.select(GatewayName.RAZORPAY))
-                .isInstanceOf(IllegalStateException.class);
+    void configSelectsMockByName() {
+        assertThat(PaymentGatewayConfig.select(GatewayName.MOCK, RazorpayGatewayTest.props("", "")))
+                .isInstanceOf(MockGateway.class);
     }
 }

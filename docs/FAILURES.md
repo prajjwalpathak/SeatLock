@@ -97,3 +97,25 @@ defaulted to `false` and the interceptor let everything through.
   previous PR is merged (#96, now enforced in the workflow).
 - A feature that can be switched off should **say so at startup**. One log line ended an hour of guessing.
 - When a test says "header missing", first prove the code path ran at all before debugging the code inside it.
+
+## F4. A squash merge that quietly reverted a day's docs (W3·D6 → W4·D1, 2026-11-18)
+
+**Symptom:** after #6 (W3·D6) was squash-merged, `main`'s `progress.md` still said "Current day: Week 3 · Day 5" and
+lacked decisions #104–#115; `CORRECTNESS.md` lacked section 1h. Code and tests were intact, CI was green, so nothing failed.
+Found only because the next day's stash pop conflicted on `progress.md`.
+
+**Root cause:** the same pattern as F3. `w3-d6` was cut before #5 was merged; the PR's conflicts on shared docs were
+resolved in favour of `main`'s older copies. A second mistake followed on W4·D1: the new branch was created before the
+merge, then work was committed on `main` with the stash's `<<<<<<<` markers inside `progress.md`.
+
+**How it was found:** `git diff --stat 4e5d154 origin/main` (the branch's last commit vs the merged result) showed
+exactly two files with only deletions: `CORRECTNESS.md` (−40) and `progress.md` (−102).
+
+**Fix:** restored both files from `4e5d154`, re-applied the day's change (#116); moved the stray commit with
+`git branch -f w4-d1 HEAD` + `git branch -f main origin/main` (it had never reached `origin/main`).
+
+**Lessons:**
+- After every squash merge, check `git diff --stat <branch head> origin/main`: it must be empty (or only show `main`'s newer work).
+- Green CI doesn't protect docs; a merge can lose prose without breaking a single test.
+- Grep for conflict markers before committing: `git grep -n "^<<<<<<<\|^>>>>>>>"`.
+
