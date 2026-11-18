@@ -201,6 +201,11 @@ public class BookingService {
         return ConfirmResult.CONFIRMED;
     }
 
+    /** True if the booking (internal id) belongs to the user: ownership check for payment callbacks. */
+    public boolean isOwnedBy(long bookingId, long userId) {
+        return bookings.findById(bookingId).map(b -> b.getUserId() == userId).orElse(false);
+    }
+
     /** Public id of a booking known by its internal id (payment module views). */
     public UUID publicIdOf(long bookingId) {
         return bookings.findById(bookingId).map(Booking::getPublicId)
