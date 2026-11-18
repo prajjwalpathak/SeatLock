@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { catalogKeys, getSeatMap } from '../api/catalog'
 import { ApiError, hasCode } from '../api/client'
@@ -8,7 +9,7 @@ import { PayNowButton } from '../features/booking/PayNowButton'
 import { formatPaise, formatShowTime } from '../lib/format'
 import { formatCountdown, msUntil, useServerClockOffset } from '../lib/serverClock'
 import { useNow } from '../lib/useNow'
-import type { Booking, BookingStatus } from '../types/api'
+import type { Booking, BookingStatus, PaymentOutcome } from '../types/api'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -60,6 +61,7 @@ export function BookingPage() {
 
 function BookingView({ booking, clockOffset }: { booking: Booking; clockOffset: number }) {
   const queryClient = useQueryClient()
+  const [paymentOutcome, setPaymentOutcome] = useState<PaymentOutcome | null>(null)
   const unpaid = isUnpaid(booking.status)
   const now = useNow(1000, unpaid)
   const left = msUntil(booking.expiresAt, clockOffset, now)
@@ -151,9 +153,23 @@ function BookingView({ booking, clockOffset }: { booking: Booking; clockOffset: 
               booking={booking}
               msLeft={left}
               description={show.data ? `${show.data.eventTitle} · ${booking.seats.length} seat(s)` : 'Your booking'}
+              onVerified={setPaymentOutcome}
             />
           </div>
         </div>
+      )}
+
+      {paymentOutcome === 'CAPTURED_BOOKING_LOST' && (
+        <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          Your payment arrived after the time to pay had run out, so these seats were released. The full amount will
+          be refunded to your original payment method.
+        </p>
+      )}
+      {paymentOutcome === 'NEEDS_REVIEW' && (
+        <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          We received a payment that doesn't match this booking and are checking it. If it isn't confirmed shortly,
+          it will be refunded.
+        </p>
       )}
 
       {cancel.isError && (

@@ -114,7 +114,8 @@ public class RazorpayWebhookService {
             return "IGNORED_NO_ORDER";
         }
         // Checked before capture(): an exception inside its (joined) transaction would roll back the claim too.
-        if (payments.findByGatewayAndGatewayOrderId(GatewayName.RAZORPAY, orderId).isEmpty()) {
+        // existsBy... loads no entity, so capture()'s locked read is the first time this Payment enters the context.
+        if (!payments.existsByGatewayAndGatewayOrderId(GatewayName.RAZORPAY, orderId)) {
             return "IGNORED_UNKNOWN_ORDER"; // e.g. an order from another environment on the same Razorpay account
         }
         Long amount = payment.path("amount").isNumber() ? payment.path("amount").asLong() : null;

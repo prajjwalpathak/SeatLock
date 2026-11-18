@@ -139,6 +139,19 @@ winner):
 | Live keys can't take real money | startup refuses non-`rzp_test_` keys | `RazorpayGatewayTest.configNeedsTestModeKeys` |
 | No DB connection or lock is held during the provider call | gateway called before the transaction opens | `PaymentServiceTest` (gateway failure: no transaction, nothing stored) |
 
+## 1j. Payment confirmation (W4·D3, ADR-011)
+
+| Rule | Enforced by | Proven by |
+|---|---|---|
+| Nothing unsigned changes state | checkout HMAC(key_secret, order\|payment), webhook HMAC(webhook_secret, raw body), constant-time compare, blank secret never valid | `RazorpaySignaturesTest` (independent vectors, re-serialized body fails), `PaymentVerifyIntegrationTest`, `RazorpayWebhookIntegrationTest` (400, nothing stored) |
+| A payment confirms its booking exactly once | payment row lock → booking row lock in one transaction; CREATED → CAPTURED guard; `ALREADY_DONE` for the same payment id | `PaymentConfirmRaceIntegrationTest`: 10 callbacks + 10 webhooks at once → 1 CONFIRMED, 19 ALREADY_DONE (×5) |
+| Booking, seats and payment always agree | CONFIRMED only with all seats HELD → BOOKED (count checked, else rollback); sweeper and capture serialize on the booking row | same test with the sweeper looping: CONFIRMED + BOOKED, or EXPIRED + AVAILABLE + payment CAPTURED (×5) |
+| A redelivered webhook does nothing | `webhook_events (provider, event_id)` UNIQUE, claimed in the processing transaction | `RazorpayWebhookIntegrationTest` (same id twice, no id → body hash) |
+| A failed processing is retried, not lost | claim rolls back with the processing (500 → Razorpay retries) | design (claim + capture share one transaction) |
+| Partial or mismatched payments never confirm | reported amount must equal the order's | `PaymentCaptureIntegrationTest`, `RazorpayWebhookIntegrationTest` (NEEDS_REVIEW) |
+| Money taken after expiry is never lost | payment stays CAPTURED, outcome `CAPTURED_BOOKING_LOST` | `PaymentCaptureIntegrationTest` (refund: W4·D4) |
+| Someone else's order can't be confirmed via my session | verify checks the booking owner (404) | `PaymentVerifyIntegrationTest` |
+
 ## 2. Query plans (catalog reads)
 
 **Method:** `docs/explain/catalog-queries.sql` on the seeded local DB (30 events, 90 shows,

@@ -2,16 +2,17 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { ApiError, hasCode } from '../../api/client'
 import { holdKeys } from '../../api/holds'
-import { createPaymentOrder } from '../../api/payments'
+import { createPaymentOrder, verifyPayment } from '../../api/payments'
 import { formatPaise } from '../../lib/format'
 import { openCheckout } from '../../lib/razorpayCheckout'
-import type { Booking } from '../../types/api'
+import type { Booking, PaymentOutcome } from '../../types/api'
 import { useAuth } from '../auth/useAuth'
 
 type Phase =
   | { kind: 'idle' }
   | { kind: 'checkout' }
   | { kind: 'submitted'; paymentId: string }
+  | { kind: 'verifyDelayed'; paymentId: string }
   | { kind: 'failed'; message: string }
   | { kind: 'dismissed' }
   | { kind: 'mock' }
@@ -21,6 +22,8 @@ type Props = {
   /** Milliseconds left until the booking's deadline (server clock). */
   msLeft: number
   description: string
+  /** Called once the server has checked the payment (the booking may be CONFIRMED, or lost and refunded). */
+  onVerified: (outcome: PaymentOutcome) => void
 }
 
 /**
@@ -28,7 +31,7 @@ type Props = {
  * that order. Clicking again reuses the same open order (the endpoint is naturally idempotent). Success here is
  * only what the browser was told; the booking turns CONFIRMED once the backend verifies the payment (W4·D3).
  */
-export function PayNowButton({ booking, msLeft, description }: Props) {
+export function PayNowButton({ booking, msLeft, description, onVerified }: Props) {
   const queryClient = useQueryClient()
   const { user } = useAuth()
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
@@ -57,7 +60,16 @@ export function PayNowButton({ booking, msLeft, description }: Props) {
         {
           onSuccess: (response) => {
             setPhase({ kind: 'submitted', paymentId: response.razorpay_payment_id })
-            void queryClient.invalidateQueries({ queryKey: holdKeys.booking(booking.publicId) })
+            verifyPayment(response.razorpay_order_id, response.razorpay_payment_id, response.razorpay_signature)
+              .then((result) => {
+                queryClient.setQueryData(holdKeys.booking(booking.publicId), result.booking)
+                onVerified(result.outcome)
+              })
+              .catch(() => {
+                // Lost callback (network, tab closed): Razorpay's webhook still confirms; polling picks it up.
+                setPhase({ kind: 'verifyDelayed', paymentId: response.razorpay_payment_id })
+                void queryClient.invalidateQueries({ queryKey: holdKeys.booking(booking.publicId) })
+              })
           },
           onFailure: (error) =>
             setPhase({ kind: 'failed', message: error.description ?? 'The payment did not go through.' }),
@@ -75,7 +87,7 @@ export function PayNowButton({ booking, msLeft, description }: Props) {
   })
 
   const busy = pay.isPending || phase.kind === 'checkout'
-  const submitted = phase.kind === 'submitted'
+  const submitted = phase.kind === 'submitted' || phase.kind === 'verifyDelayed'
 
   return (
     <div className="flex flex-col items-stretch gap-2 sm:items-end">
@@ -110,6 +122,13 @@ function PaymentMessage({ phase, error }: { phase: Phase; error: Error | null })
       return (
         <p role="status" className="text-sm text-emerald-700">
           Payment received by Razorpay ({phase.paymentId}). Confirming your booking…
+        </p>
+      )
+    case 'verifyDelayed':
+      return (
+        <p role="status" className="text-sm text-slate-600">
+          Payment {phase.paymentId} received. We couldn't confirm it from this page yet; Razorpay will notify us and
+          this page updates by itself.
         </p>
       )
     case 'failed':

@@ -125,6 +125,13 @@ dc up -d --force-recreate app        # env is read only at container start
   `SEATLOCK_PAYMENTS_GATEWAY=razorpay` and recreate the app. The log must show `Payment gateway: RAZORPAY`. Missing
   or live (`rzp_live_`) keys stop the app at startup on purpose (deploy.sh then rolls back). Open orders created by the
   other gateway can't be paid after a switch; they expire with their booking. Keep `mock` until W4·D3 (verification).
+- **Webhook (needed with `razorpay`)**: Razorpay dashboard → Test mode → Accounts & Settings → Webhooks → Add:
+  URL `https://seatlock-prajjwal.duckdns.org/api/v1/webhooks/razorpay`, secret = `RAZORPAY_WEBHOOK_SECRET`, events
+  `payment.captured`, `order.paid`, `payment.failed`. A local tunnel webhook and the prod one can exist side by side;
+  each environment ignores orders it doesn't know (`IGNORED_UNKNOWN_ORDER`).
+- **Local webhook testing**: `cloudflared tunnel --url http://localhost:8080` prints a `https://….trycloudflare.com`
+  URL (new on every start): add `<url>/api/v1/webhooks/razorpay` as a second webhook with the same secret as local
+  `.env`. Delete it afterwards.
 - **Rotating the Razorpay key**: generate a new test key, update both values, recreate the app; old orders stay payable
   only with the key that created them, so do it when no booking is waiting for payment.
 
@@ -172,6 +179,7 @@ The static IP survives, so DNS and the certificate keep working.
 | Smoke test: wrong `live revision` | rollback happened (new image unhealthy) | Read the deploy step's log output; fix, push again |
 | App won't start: `needs RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET` / `Only Razorpay test-mode keys` | gateway `razorpay` without (test) keys | Section 4: set the `rzp_test_` pair or go back to `mock` |
 | Pay now → 503 `PAYMENTS_UNAVAILABLE` | Razorpay rejected the key (401) or timed out | `dc logs app \| grep Razorpay` shows the HTTP status + error code; check the key pair |
+| Payments stay "Payment in progress" | verify callback failed and the webhook isn't arriving (wrong URL/secret, events not selected) | Dashboard → Webhooks → the delivery log shows the HTTP status; 400 = secret mismatch |
 | Checkout modal doesn't open | `checkout.razorpay.com` blocked (ad blocker, offline) | The page says so; allow the domain |
 | CI green locally red in CI | test order/timing differences (e.g. deferred cache `evict`/`clear`) | Use `evictIfPresent`/`invalidate` (immediate) |
 

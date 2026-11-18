@@ -57,37 +57,44 @@ public class PaymentCaptureService {
     public CaptureResult capture(GatewayName gateway, String orderId, String paymentId, Long amountPaise) {
         Payment payment = payments.findForUpdateByGatewayOrder(gateway, orderId)
                 .orElseThrow(() -> new NotFoundException("Payment order", orderId));
-        UUID bookingId = bookings.publicIdOf(payment.getBookingId());
+        long bookingId = payment.getBookingId();
+        // Don't load the Booking before confirmPayment() locks it: an unlocked copy in the persistence context would
+        // clash with the newer version the locked read returns (Hibernate refuses to merge them, FAILURES F5).
 
         if (amountPaise != null && amountPaise != payment.getAmountPaise()) {
             log.error("Order {} paid {} paise but {} were due: not confirming", orderId, amountPaise,
                     payment.getAmountPaise());
-            return new CaptureResult(Outcome.NEEDS_REVIEW, bookingId, payment.getBookingId());
+            return result(Outcome.NEEDS_REVIEW, bookingId);
         }
 
         switch (payment.getStatus()) {
             case CAPTURED, REFUNDED -> {
                 if (paymentId.equals(payment.getGatewayPaymentId())) {
-                    return new CaptureResult(Outcome.ALREADY_DONE, bookingId, payment.getBookingId());
+                    return result(Outcome.ALREADY_DONE, bookingId);
                 }
                 log.warn("Order {} already paid by {}; second payment {} needs a refund", orderId,
                         payment.getGatewayPaymentId(), paymentId);
-                return new CaptureResult(Outcome.NEEDS_REVIEW, bookingId, payment.getBookingId());
+                return result(Outcome.NEEDS_REVIEW, bookingId);
             }
             case FAILED -> {
                 log.warn("Payment {} captured for order {} whose attempt had failed: review/refund", paymentId, orderId);
-                return new CaptureResult(Outcome.NEEDS_REVIEW, bookingId, payment.getBookingId());
+                return result(Outcome.NEEDS_REVIEW, bookingId);
             }
             case CREATED -> payment.markCaptured(paymentId, clock.instant());
         }
 
-        ConfirmResult confirm = bookings.confirmPayment(payment.getBookingId());
+        ConfirmResult confirm = bookings.confirmPayment(bookingId); // locks the booking row
         Outcome outcome = switch (confirm) {
             case CONFIRMED -> Outcome.CONFIRMED;
             case ALREADY_CONFIRMED -> Outcome.ALREADY_DONE;
             case NOT_CONFIRMABLE -> Outcome.CAPTURED_BOOKING_LOST;
         };
         log.info("Payment {} for order {} captured: {}", paymentId, orderId, outcome);
-        return new CaptureResult(outcome, bookingId, payment.getBookingId());
+        return result(outcome, bookingId);
+    }
+
+    /** Booking public id looked up last: by now the booking is either locked in this context or not touched again. */
+    private CaptureResult result(Outcome outcome, long bookingId) {
+        return new CaptureResult(outcome, bookings.publicIdOf(bookingId), bookingId);
     }
 }

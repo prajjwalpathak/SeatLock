@@ -202,6 +202,14 @@ export type PaymentOrder = {
   keyId: string | null
 }
 
+export type PaymentOutcome = 'CONFIRMED' | 'ALREADY_DONE' | 'CAPTURED_BOOKING_LOST' | 'NEEDS_REVIEW'
+
+/** POST /payments/razorpay/verify: what happened to the booking after the server checked the payment. */
+export type PaymentVerification = {
+  outcome: PaymentOutcome
+  booking: Booking
+}
+
 export type ServerTime = {
   serverTime: string
   epochMillis: number
