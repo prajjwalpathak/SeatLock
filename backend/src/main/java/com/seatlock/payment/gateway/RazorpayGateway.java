@@ -83,6 +83,49 @@ public class RazorpayGateway implements PaymentGateway {
         return verified(order, command);
     }
 
+    /**
+     * {@code GET /v1/payments/{id}/refunds} first: a refund with our receipt means an earlier call went through
+     * (answer lost, timeout) and must not be repeated. Otherwise {@code POST /v1/payments/{id}/refund}.
+     */
+    @Override
+    public GatewayRefund refund(RefundCommand command) {
+        String path = "/v1/payments/{id}";
+        try {
+            RefundList existing = http.get().uri(path + "/refunds?count=100", command.gatewayPaymentId())
+                    .retrieve().body(RefundList.class);
+            if (existing != null && existing.items() != null) {
+                for (RefundResponse r : existing.items()) {
+                    if (command.receipt().equals(r.receipt())) {
+                        log.info("Razorpay refund {} for receipt {} already exists; not sending again", r.id(),
+                                command.receipt());
+                        return r.toGatewayRefund();
+                    }
+                }
+            }
+            RefundResponse created = http.post().uri(path + "/refund", command.gatewayPaymentId())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(new RefundRequest(command.amountPaise(), "normal", command.receipt()))
+                    .retrieve()
+                    .body(RefundResponse.class);
+            if (created == null || created.id() == null || !created.id().startsWith("rfnd_")) {
+                throw new PaymentGatewayException("Razorpay returned no refund id");
+            }
+            if (created.amount() != command.amountPaise()) {
+                throw new PaymentGatewayException("Razorpay refund " + created.id() + " has amount " + created.amount()
+                        + ", expected " + command.amountPaise());
+            }
+            return created.toGatewayRefund();
+        } catch (RestClientResponseException e) {
+            String error = errorCode(e);
+            log.error("Razorpay refund for {} failed: HTTP {} {}", command.gatewayPaymentId(), e.getStatusCode().value(), error);
+            throw new PaymentGatewayException("Razorpay returned HTTP " + e.getStatusCode().value() + " " + error, e);
+        } catch (ResourceAccessException e) {
+            throw new PaymentGatewayException("Razorpay unreachable: " + e.getMessage(), e);
+        } catch (RestClientException e) {
+            throw new PaymentGatewayException("Razorpay call failed: " + e.getMessage(), e);
+        }
+    }
+
     /** Never trust a provider response blindly: the order must be the one we asked for. */
     private static GatewayOrder verified(OrderResponse order, CreateOrderCommand command) {
         if (order == null || order.id() == null || !order.id().startsWith("order_")) {
@@ -110,6 +153,18 @@ public class RazorpayGateway implements PaymentGateway {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record OrderResponse(String id, long amount, String currency, String receipt, String status) {}
+
+    record RefundRequest(long amount, String speed, String receipt) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record RefundResponse(String id, long amount, String status, String receipt) {
+        GatewayRefund toGatewayRefund() {
+            return new GatewayRefund(id, amount, status, receipt);
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record RefundList(java.util.List<RefundResponse> items) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record ErrorResponse(Error error) {

@@ -124,6 +124,56 @@ class RazorpayGatewayTest {
     }
 
     @Test
+    void refundCreatesARefundWhenNoneHasOurReceipt() {
+        server.expect(requestTo("https://api.razorpay.test/v1/payments/pay_ABC/refunds?count=100"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess("""
+                        {"entity":"collection","count":1,"items":[{"id":"rfnd_OLD","amount":10,"receipt":"other","status":"processed"}]}
+                        """, MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://api.razorpay.test/v1/payments/pay_ABC/refund"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().json("""
+                        {"amount": 5000, "speed": "normal", "receipt": "rf123"}
+                        """, JsonCompareMode.STRICT))
+                .andRespond(withSuccess("""
+                        {"id":"rfnd_NEW","entity":"refund","amount":5000,"payment_id":"pay_ABC","receipt":"rf123","status":"processed"}
+                        """, MediaType.APPLICATION_JSON));
+
+        GatewayRefund refund = gateway.refund(new RefundCommand("pay_ABC", 5000, "rf123"));
+
+        assertThat(refund.refundId()).isEqualTo("rfnd_NEW");
+        assertThat(refund.amountPaise()).isEqualTo(5000);
+        server.verify();
+    }
+
+    @Test
+    void refundIsNotSentTwiceWhenOurReceiptAlreadyExists() {
+        server.expect(requestTo("https://api.razorpay.test/v1/payments/pay_ABC/refunds?count=100"))
+                .andRespond(withSuccess("""
+                        {"entity":"collection","count":1,"items":[{"id":"rfnd_DONE","amount":5000,"receipt":"rf123","status":"processed"}]}
+                        """, MediaType.APPLICATION_JSON));
+
+        GatewayRefund refund = gateway.refund(new RefundCommand("pay_ABC", 5000, "rf123"));
+
+        assertThat(refund.refundId()).isEqualTo("rfnd_DONE");
+        server.verify(); // no POST was expected, so any POST would have failed the test
+    }
+
+    @Test
+    void aRefusedRefundIsAGatewayException() {
+        server.expect(requestTo("https://api.razorpay.test/v1/payments/pay_ABC/refunds?count=100"))
+                .andRespond(withSuccess("{\"items\":[]}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://api.razorpay.test/v1/payments/pay_ABC/refund"))
+                .andRespond(withStatus(HttpStatus.BAD_REQUEST).contentType(MediaType.APPLICATION_JSON).body("""
+                        {"error": {"code": "BAD_REQUEST_ERROR", "description": "The refund amount exceeds the payment"}}
+                        """));
+
+        assertThatThrownBy(() -> gateway.refund(new RefundCommand("pay_ABC", 5000, "rf123")))
+                .isInstanceOf(PaymentGatewayException.class)
+                .hasMessageContaining("BAD_REQUEST_ERROR");
+    }
+
+    @Test
     void configNeedsTestModeKeys() {
         assertThatThrownBy(() -> PaymentGatewayConfig.select(GatewayName.RAZORPAY, props("", "")))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("RAZORPAY_KEY_ID");

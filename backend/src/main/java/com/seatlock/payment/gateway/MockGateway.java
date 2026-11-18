@@ -1,6 +1,8 @@
 package com.seatlock.payment.gateway;
 
 import java.security.SecureRandom;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * In-process fake gateway: creates orders with Razorpay-shaped IDs ({@code order_mock_} + 14 characters)
@@ -13,6 +15,8 @@ public class MockGateway implements PaymentGateway {
     private static final int ID_LENGTH = 14;
 
     private final SecureRandom random = new SecureRandom();
+    /** receipt → refund, so a repeated refund call returns the same refund (like Razorpay with our receipt lookup). */
+    private final Map<String, GatewayRefund> refunds = new ConcurrentHashMap<>();
 
     @Override
     public GatewayName name() {
@@ -25,11 +29,21 @@ public class MockGateway implements PaymentGateway {
                 command.receipt());
     }
 
+    @Override
+    public GatewayRefund refund(RefundCommand command) {
+        return refunds.computeIfAbsent(command.receipt(), r ->
+                new GatewayRefund("rfnd_mock_" + randomId(), command.amountPaise(), "processed", r));
+    }
+
     private String newOrderId() {
         char[] id = new char[ID_LENGTH];
         for (int i = 0; i < ID_LENGTH; i++) {
             id[i] = ALPHABET[random.nextInt(ALPHABET.length)];
         }
         return ORDER_PREFIX + new String(id);
+    }
+
+    private String randomId() {
+        return newOrderId().substring(ORDER_PREFIX.length());
     }
 }

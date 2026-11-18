@@ -93,6 +93,21 @@ public class PaymentCaptureService {
         return result(outcome, bookingId);
     }
 
+    /**
+     * {@code payment.failed}: record the reason on the order; it stays CREATED so the user can retry (the same order
+     * in Checkout, or "Pay" again, which returns this open order). Never turns a paid order back into a failed one.
+     * @return false if the order isn't ours
+     */
+    @Transactional
+    public boolean recordFailedAttempt(GatewayName gateway, String orderId, String paymentId, String reason) {
+        return payments.findForUpdateByGatewayOrder(gateway, orderId)
+                .map(payment -> {
+                    payment.recordFailedAttempt(paymentId + ": " + reason, clock.instant());
+                    return true;
+                })
+                .orElse(false);
+    }
+
     /** Booking public id looked up last: by now the booking is either locked in this context or not touched again. */
     private CaptureResult result(Outcome outcome, long bookingId) {
         return new CaptureResult(outcome, bookings.publicIdOf(bookingId), bookingId);

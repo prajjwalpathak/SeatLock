@@ -26,7 +26,8 @@ import tools.jackson.databind.json.JsonMapper;
  *       throws, the claim rolls back with it, so Razorpay's retry is processed again.</li>
  * </ol>
  * {@code payment.captured} / {@code order.paid} confirm through the same {@link PaymentCaptureService} as the checkout
- * callback. {@code payment.failed} is recorded (handled on W4·D4); other events are acknowledged and ignored.
+ * callback. {@code payment.failed} records the reason on the still-open order; other events are acknowledged and
+ * ignored.
  */
 @Service
 public class RazorpayWebhookService {
@@ -101,7 +102,7 @@ public class RazorpayWebhookService {
     private String process(String eventType, JsonNode root) {
         return switch (eventType) {
             case "payment.captured", "order.paid" -> capture(root);
-            case "payment.failed" -> "RECORDED_FAILED_PAYMENT"; // W4·D4 marks the attempt FAILED
+            case "payment.failed" -> failedAttempt(root);
             default -> "IGNORED_EVENT_TYPE";
         };
     }
@@ -121,6 +122,18 @@ public class RazorpayWebhookService {
         Long amount = payment.path("amount").isNumber() ? payment.path("amount").asLong() : null;
         CaptureResult result = capture.capture(GatewayName.RAZORPAY, orderId, paymentId, amount);
         return result.outcome().name();
+    }
+
+    private String failedAttempt(JsonNode root) {
+        JsonNode payment = root.path("payload").path("payment").path("entity");
+        String orderId = text(payment, "order_id").orElse(null);
+        String paymentId = text(payment, "id").orElse("?");
+        if (orderId == null) {
+            return "IGNORED_NO_ORDER";
+        }
+        String reason = text(payment, "error_description").or(() -> text(payment, "error_code")).orElse("failed");
+        return capture.recordFailedAttempt(GatewayName.RAZORPAY, orderId, paymentId, reason)
+                ? "RECORDED_FAILED_ATTEMPT" : "IGNORED_UNKNOWN_ORDER";
     }
 
     private static Optional<String> text(JsonNode node, String field) {

@@ -29,8 +29,7 @@ public class SecurityConfig {
     static final String[] PUBLIC_POST = {
             "/api/v1/auth/register",
             "/api/v1/auth/login",
-            "/api/v1/auth/oauth/exchange",  // one-time code from Google sign-in → our JWT
-            "/api/v1/webhooks/razorpay"     // Razorpay → us; authenticated by its HMAC signature, not a JWT
+            "/api/v1/auth/oauth/exchange"   // one-time code from Google sign-in → our JWT
     };
 
     /** Anonymous read-only endpoints. {@code /**} also matches the bare path. */
@@ -46,7 +45,8 @@ public class SecurityConfig {
             "/v3/api-docs/**",
             "/swagger-ui.html",
             "/swagger-ui/**",
-            "/error"                 // container error page must stay reachable
+            "/error",                // container error page must stay reachable
+            "/api/v1/webhooks/**"    // provider → us; authenticated by HMAC, not a JWT (any method: GET → 405, not 401)
     };
 
     /** Order 2: the Google sign-in chain (OAuth2LoginConfig, Order 1) handles its own paths first. */
