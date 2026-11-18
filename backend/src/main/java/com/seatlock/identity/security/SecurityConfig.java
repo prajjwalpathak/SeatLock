@@ -29,7 +29,8 @@ public class SecurityConfig {
     static final String[] PUBLIC_POST = {
             "/api/v1/auth/register",
             "/api/v1/auth/login",
-            "/api/v1/auth/oauth/exchange"   // one-time code from Google sign-in → our JWT
+            "/api/v1/auth/oauth/exchange",  // one-time code from Google sign-in → our JWT
+            "/api/v1/webhooks/razorpay"     // Razorpay → us; authenticated by its HMAC signature, not a JWT
     };
 
     /** Anonymous read-only endpoints. {@code /**} also matches the bare path. */

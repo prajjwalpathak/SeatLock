@@ -361,6 +361,32 @@ sequenceDiagram
 - `payment.failed` inside the modal shows the reason and Razorpay lets the user retry the same order; closing the
   modal keeps the seats until the timer runs out, and "Pay" again reopens the same open order (200).
 
+## 2h. Payment confirmation (W4·D3, ADR-011)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant BP as Booking page
+    participant RZ as Razorpay
+    participant API as Backend
+    participant DB as Postgres
+    RZ-->>BP: Checkout success {order_id, payment_id, signature}
+    par checkout callback
+        BP->>API: POST /payments/razorpay/verify
+        API->>API: HMAC(key_secret, order_id|payment_id) ok? caller owns the booking?
+    and webhook (at least once, any order)
+        RZ->>API: POST /webhooks/razorpay (raw body, X-Razorpay-Signature, X-Razorpay-Event-Id)
+        API->>API: HMAC(webhook_secret, raw body) ok?
+        API->>DB: INSERT webhook_events ON CONFLICT DO NOTHING (same transaction as below)
+    end
+    API->>DB: BEGIN; SELECT payment FOR UPDATE; CREATED → CAPTURED
+    API->>DB: SELECT booking FOR UPDATE; PAYMENT_PENDING → CONFIRMED; show_seats HELD → BOOKED; COMMIT
+    API-->>BP: {outcome: CONFIRMED | ALREADY_DONE | CAPTURED_BOOKING_LOST | NEEDS_REVIEW, booking}
+```
+
+- Whoever locks the payment row first confirms; the other path finds it done (`ALREADY_DONE`).
+- The sweeper locks only the booking: if it wins, the capture records `CAPTURED_BOOKING_LOST` (refund on W4·D4).
+
 ## 3. Conventions
 - Internal keys are `bigint` identity. Bookings expose a random `public_id` (UUID), so IDs in URLs can't be enumerated.
 - Enums are `varchar` + `CHECK`, not Postgres `ENUM` types: easier to evolve with Flyway, and mapped with `@Enumerated(EnumType.STRING)`.

@@ -119,3 +119,26 @@ exactly two files with only deletions: `CORRECTNESS.md` (−40) and `progress.md
 - Green CI doesn't protect docs; a merge can lose prose without breaking a single test.
 - Grep for conflict markers before committing: `git grep -n "^<<<<<<<\|^>>>>>>>"`.
 
+## F5. Locked reads that clashed with an unlocked copy (W4·D3, 2026-11-19)
+
+**Symptom:** `PaymentConfirmRaceIntegrationTest` (10 checkout callbacks + 10 webhooks for one payment, at once): 2–7 of
+20 requests answered **500** in every run. All single-request tests were green. Correctness held (one CONFIRMED,
+seats BOOKED), but losing requests failed instead of answering `ALREADY_DONE`, and a failed webhook means a retry storm.
+
+**Root cause:** `HibernateException: Query result contains conflicting version of entity already held in persistence
+context`. Inside one transaction a row was first read **without** a lock, then again with `SELECT … FOR UPDATE`:
+1. the webhook's "is this our order?" check loaded the `Payment` (version N); `capture()`'s locked read then waited for
+   the winner and returned version N+1;
+2. `capture()` loaded the `Booking` (`publicIdOf`) before `confirmPayment()` locked it.
+Hibernate 7 won't silently refresh a managed entity with a newer version, so the locked query throws. With one request
+nothing changes between the two reads, which is why only the race exposed it.
+
+**Fix:** never load an entity unlocked before locking it in the same transaction: the webhook uses
+`existsByGatewayAndGatewayOrderId` (loads no entity), and `capture()` resolves the booking's public id only after
+`confirmPayment()` (or on paths that never lock it).
+
+**Lessons:**
+- In a transaction that locks a row, the **first** read of that entity must be the locked one.
+- Correctness assertions alone weren't enough: the race test also asserts every request gets a 2xx, which caught it.
+- "Works for one request" says nothing about lock-and-reread code; concurrency tests belong next to every row lock.
+

@@ -161,6 +161,57 @@ public class BookingService {
                 payable.amountPaise(), payable.currency(), payable.expiresAt());
     }
 
+    /** What happened when a captured payment tried to confirm its booking. */
+    public enum ConfirmResult {
+        /** PAYMENT_PENDING → CONFIRMED now; seats BOOKED. */
+        CONFIRMED,
+        /** Already CONFIRMED (duplicate callback/webhook): nothing changed. */
+        ALREADY_CONFIRMED,
+        /** EXPIRED / CANCELLED / ... : the seats are no longer ours, so the money must go back (refund, W4·D4). */
+        NOT_CONFIRMABLE
+    }
+
+    /**
+     * Payment module API: the booking's payment was captured. Locks the booking row (the expiry sweeper and cancel
+     * lock it too, so exactly one of them wins), then PAYMENT_PENDING → CONFIRMED and show_seats HELD → BOOKED.
+     * A payment that lands after {@code expiresAt} but before the sweeper still confirms: the seats were never
+     * released. Must run inside the caller's transaction (the payment row commits with it).
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public ConfirmResult confirmPayment(long bookingId) {
+        Booking booking = bookings.findForUpdateById(bookingId)
+                .orElseThrow(() -> new NotFoundException("Booking", bookingId));
+        if (booking.getStatus() == BookingStatus.CONFIRMED) {
+            return ConfirmResult.ALREADY_CONFIRMED;
+        }
+        if (booking.getStatus() != BookingStatus.PAYMENT_PENDING) {
+            log.warn("Payment captured for booking {} in status {}: refund needed", booking.getPublicId(),
+                    booking.getStatus());
+            return ConfirmResult.NOT_CONFIRMABLE;
+        }
+        List<Long> seatIds = booking.getSeats().stream().filter(BookingSeat::isActive).map(BookingSeat::getSeatId).toList();
+        booking.confirm(clock.instant());
+        int booked = seatStatus.markBooked(booking.getShowId(), seatIds);
+        if (booked != seatIds.size()) {
+            // A PAYMENT_PENDING booking owns HELD seats (same transaction rules everywhere); anything else is a bug.
+            throw new IllegalStateException("Booking " + booking.getPublicId() + ": only " + booked + "/"
+                    + seatIds.size() + " seats were HELD");
+        }
+        log.info("Booking {} confirmed ({} seats)", booking.getPublicId(), seatIds.size());
+        return ConfirmResult.CONFIRMED;
+    }
+
+    /** True if the booking (internal id) belongs to the user: ownership check for payment callbacks. */
+    public boolean isOwnedBy(long bookingId, long userId) {
+        return bookings.findById(bookingId).map(b -> b.getUserId() == userId).orElse(false);
+    }
+
+    /** Public id of a booking known by its internal id (payment module views). */
+    public UUID publicIdOf(long bookingId) {
+        return bookings.findById(bookingId).map(Booking::getPublicId)
+                .orElseThrow(() -> new NotFoundException("Booking", bookingId));
+    }
+
     private PayableBooking payable(Booking booking) {
         if (booking.getStatus() == BookingStatus.EXPIRED) {
             throw new BookingExpiredException();

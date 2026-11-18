@@ -5,6 +5,9 @@ import com.seatlock.identity.security.CurrentUserId;
 import com.seatlock.payment.application.PaymentOrderView;
 import com.seatlock.payment.application.PaymentService;
 import com.seatlock.payment.application.PaymentService.OrderResult;
+import com.seatlock.payment.application.PaymentVerificationService;
+import com.seatlock.payment.application.PaymentVerificationService.Verification;
+import jakarta.validation.Valid;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -14,19 +17,22 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 /** Payment orders for the signed-in user's bookings. No request body: the amount is always computed on the server. */
-@Tag(name = "Payments", description = "Create the payment order for a booking")
+@Tag(name = "Payments", description = "Create the payment order for a booking and verify the checkout result")
 @SecurityRequirement(name = OpenApiConfig.BEARER_AUTH)
 @PreAuthorize("hasRole('USER')")
 @RestController
 public class PaymentController {
 
     private final PaymentService payments;
+    private final PaymentVerificationService verification;
 
-    public PaymentController(PaymentService payments) {
+    public PaymentController(PaymentService payments, PaymentVerificationService verification) {
         this.payments = payments;
+        this.verification = verification;
     }
 
     /**
@@ -44,5 +50,17 @@ public class PaymentController {
         return ResponseEntity.status(result.created() ? HttpStatus.CREATED : HttpStatus.OK)
                 .cacheControl(CacheControl.noStore())
                 .body(result.order());
+    }
+
+    /**
+     * Checkout callback, forwarded by the browser. Idempotent: the webhook may have confirmed already
+     * ({@code ALREADY_DONE}). {@code CAPTURED_BOOKING_LOST}: paid after the booking expired, refund follows.
+     */
+    @Operation(summary = "Verify a Razorpay Checkout payment and confirm my booking (200 with outcome; "
+            + "400 INVALID_PAYMENT_SIGNATURE; 404 unknown order or not mine)")
+    @PostMapping("/api/v1/payments/razorpay/verify")
+    public ResponseEntity<Verification> verify(@CurrentUserId long userId, @Valid @RequestBody VerifyPaymentRequest request) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(verification.verifyCheckout(userId, request.orderId(), request.paymentId(), request.signature()));
     }
 }

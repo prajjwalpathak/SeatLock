@@ -7,13 +7,14 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
 /**
- * {@code seatlock.payments.razorpay.*}. Keys come from {@code RAZORPAY_KEY_ID} / {@code RAZORPAY_KEY_SECRET}
+ * {@code seatlock.payments.razorpay.*}. Keys come from {@code RAZORPAY_KEY_ID} / {@code RAZORPAY_KEY_SECRET} /
+ * {@code RAZORPAY_WEBHOOK_SECRET}
  * (repo-root .env locally, .env.prod on the VM) and are only required when the gateway is {@code razorpay}.
  * The key secret is never logged and never leaves the backend; the key ID is public (Checkout.js needs it).
  */
 @Validated
 @ConfigurationProperties(prefix = "seatlock.payments.razorpay")
-public record RazorpayProperties(String keyId, String keySecret, @NotNull URI baseUrl,
+public record RazorpayProperties(String keyId, String keySecret, String webhookSecret, @NotNull URI baseUrl,
                                  @NotNull Duration connectTimeout, @NotNull Duration readTimeout) {
 
     static final String TEST_KEY_PREFIX = "rzp_test_";
@@ -24,6 +25,9 @@ public record RazorpayProperties(String keyId, String keySecret, @NotNull URI ba
             throw new IllegalStateException(
                     "seatlock.payments.gateway=razorpay needs RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET");
         }
+        if (webhookSecret == null || webhookSecret.isBlank()) {
+            throw new IllegalStateException("seatlock.payments.gateway=razorpay needs RAZORPAY_WEBHOOK_SECRET");
+        }
         if (!keyId.startsWith(TEST_KEY_PREFIX)) {
             throw new IllegalStateException("Only Razorpay test-mode keys (" + TEST_KEY_PREFIX + "...) are accepted");
         }
@@ -31,7 +35,7 @@ public record RazorpayProperties(String keyId, String keySecret, @NotNull URI ba
 
     @Override
     public String toString() { // never print the secret
-        return "RazorpayProperties[keyId=" + keyId + ", keySecret=***, baseUrl=" + baseUrl
+        return "RazorpayProperties[keyId=" + keyId + ", keySecret=***, webhookSecret=***, baseUrl=" + baseUrl
                 + ", connectTimeout=" + connectTimeout + ", readTimeout=" + readTimeout + "]";
     }
 }
