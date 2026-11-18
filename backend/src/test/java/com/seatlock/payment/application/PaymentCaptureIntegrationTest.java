@@ -66,6 +66,7 @@ class PaymentCaptureIntegrationTest {
     void cleanUp() {
         String ids = userIds.stream().map(String::valueOf).reduce((a, b) -> a + "," + b).orElse("0");
         String mine = "SELECT id FROM bookings WHERE user_id IN (%s)".formatted(ids);
+        jdbc.update("DELETE FROM refunds WHERE payment_id IN (SELECT id FROM payments WHERE booking_id IN (" + mine + "))");
         jdbc.update("DELETE FROM payments WHERE booking_id IN (" + mine + ")");
         jdbc.update("DELETE FROM booking_seats WHERE booking_id IN (" + mine + ")");
         jdbc.update("DELETE FROM bookings WHERE user_id IN (%s)".formatted(ids));

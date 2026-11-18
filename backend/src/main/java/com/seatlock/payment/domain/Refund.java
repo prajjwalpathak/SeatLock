@@ -80,6 +80,14 @@ public class Refund extends AuditableEntity {
         this.nextAttemptAt = now;
     }
 
+    /**
+     * The worker took this refund: push {@code next_attempt_at} out by a lease so another worker (second instance)
+     * doesn't pick it up while the provider call is in flight. Success or failure then sets the real next state.
+     */
+    public void claim(Instant now, Duration lease) {
+        this.nextAttemptAt = now.plus(lease);
+    }
+
     /** The provider accepted the refund (now or on an earlier attempt we lost the answer to). */
     public void markSubmitted(String gatewayRefundId, Instant now) {
         this.gatewayRefundId = Objects.requireNonNull(gatewayRefundId, "gatewayRefundId");
