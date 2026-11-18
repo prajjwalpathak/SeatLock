@@ -34,7 +34,8 @@ seatlock:
     gateway: mock    # ignore SEATLOCK_PAYMENTS_GATEWAY in .env: tests never call a real provider
     razorpay:
       key-id: ""
-      key-secret: ""
+      key-secret: test-key-secret          # tests sign checkout callbacks / webhooks with these (gateway stays mock)
+      webhook-secret: test-webhook-secret
   scheduling:
     enabled: false   # no background jobs during tests; they're called directly
   frontend:

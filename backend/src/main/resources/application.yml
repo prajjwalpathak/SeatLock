@@ -82,7 +82,8 @@ seatlock:
     gateway: ${SEATLOCK_PAYMENTS_GATEWAY:mock}   # mock | razorpay; tests and load tests always use mock
     razorpay:
       key-id: ${RAZORPAY_KEY_ID:}                 # rzp_test_... only (checked at startup)
-      key-secret: ${RAZORPAY_KEY_SECRET:}         # never logged, never sent to the browser
+      key-secret: ${RAZORPAY_KEY_SECRET:}         # never logged, never sent to the browser; signs checkout callbacks
+      webhook-secret: ${RAZORPAY_WEBHOOK_SECRET:} # set when creating the webhook in the dashboard; signs webhooks
       base-url: https://api.razorpay.com
       connect-timeout: 2s
       read-timeout: 5s

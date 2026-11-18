@@ -35,7 +35,7 @@ class RazorpayGatewayTest {
     static final String SECRET = "s3cret";
 
     static RazorpayProperties props(String keyId, String secret) {
-        return new RazorpayProperties(keyId, secret, URI.create("https://api.razorpay.test"),
+        return new RazorpayProperties(keyId, secret, "whsec", URI.create("https://api.razorpay.test"),
                 Duration.ofSeconds(2), Duration.ofSeconds(5));
     }
 
@@ -127,6 +127,9 @@ class RazorpayGatewayTest {
     void configNeedsTestModeKeys() {
         assertThatThrownBy(() -> PaymentGatewayConfig.select(GatewayName.RAZORPAY, props("", "")))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("RAZORPAY_KEY_ID");
+        assertThatThrownBy(() -> PaymentGatewayConfig.select(GatewayName.RAZORPAY, new RazorpayProperties(KEY_ID, SECRET,
+                "", URI.create("https://api.razorpay.test"), Duration.ofSeconds(2), Duration.ofSeconds(5))))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("RAZORPAY_WEBHOOK_SECRET");
         assertThatThrownBy(() -> PaymentGatewayConfig.select(GatewayName.RAZORPAY, props("rzp_live_x", "s")))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("test-mode");
 

@@ -24,6 +24,11 @@ public class ShowSeatStatusService {
         return move(showId, seatIds, "AVAILABLE", "HELD");
     }
 
+    /** HELD → BOOKED (the booking was paid). Seats stay BOOKED for good; a refund frees them again (W4·D4). */
+    public int markBooked(long showId, Collection<Long> seatIds) {
+        return move(showId, seatIds, "HELD", "BOOKED");
+    }
+
     /** HELD → AVAILABLE (booking expired or cancelled). */
     public int markAvailable(long showId, Collection<Long> seatIds) {
         return move(showId, seatIds, "HELD", "AVAILABLE");
