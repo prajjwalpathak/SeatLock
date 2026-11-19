@@ -91,6 +91,15 @@ public class ShowCatalogService {
         return showQueries.startsAt(showId).orElseThrow(() -> new NotFoundException("Show", showId));
     }
 
+    /** Show labels by id for any shows (booking lists); unknown ids are simply absent. */
+    public Map<Long, ShowLabel> findShowLabels(Collection<Long> showIds) {
+        if (showIds.isEmpty()) {
+            return Map.of();
+        }
+        return showQueries.showLabels(showIds).stream()
+                .collect(java.util.stream.Collectors.toMap(ShowLabel::showId, l -> l));
+    }
+
     /** Seat labels (section, row, number) for any show, bookable or not; used to display stored bookings. */
     public List<HoldableShow.Seat> findSeatLabels(long showId, Collection<Long> seatIds) {
         return seatIds.isEmpty() ? List.of() : showQueries.seatsById(showId, seatIds);

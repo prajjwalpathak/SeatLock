@@ -110,19 +110,25 @@ jobs:
           ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes \
               -o ConnectTimeout=15 "ubuntu@${HOST}" "deploy ${TAG}"
 
-      - name: Smoke test through Nginx (healthy + running the expected commit)
+      - name: Smoke test through Nginx (both instances healthy + running the expected commit)
         run: |
           base=https://seatlock-prajjwal.duckdns.org
-          want="${TAG#sha-}"                       # 12-char commit prefix ("latest" -> skip the check)
-          for i in $(seq 1 10); do
+          want="${TAG#sha-}"                       # 12-char commit prefix ("latest" -> any revision)
+          seen=""
+          for i in $(seq 1 30); do                 # round robin: ~half the requests reach each instance
             if curl -fsS "$base/actuator/health/readiness" | grep -q '"UP"'; then
-              rev=$(curl -fsS "$base/api/v1/system/version" | sed -E 's/.*"revision":"([^"]*)".*/\1/')
-              echo "live revision: $rev"
-              if [ "$TAG" = latest ] || [ "${rev:0:12}" = "$want" ]; then exit 0; fi
+              body=$(curl -fsS "$base/api/v1/system/version")
+              rev=$(echo "$body" | sed -E 's/.*"revision":"([^"]*)".*/\1/')
+              inst=$(echo "$body" | sed -E 's/.*"instance":"([^"]*)".*/\1/')
+              echo "live: $inst at $rev"
+              if [ "$TAG" = latest ] || [ "${rev:0:12}" = "$want" ]; then
+                case " $seen " in *" $inst "*) ;; *) seen="$seen $inst" ;; esac
+              fi
+              if [[ " $seen " == *" app-1 "* && " $seen " == *" app-2 "* ]]; then echo "both instances on $TAG"; exit 0; fi
             fi
-            sleep 3
+            sleep 2
           done
-          echo "::error::live server is not healthy or not running $TAG"
+          echo "::error::not both instances healthy and running $TAG (seen:$seen)"
           exit 1
 
       - name: Remove key

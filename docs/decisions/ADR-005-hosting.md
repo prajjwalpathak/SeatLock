@@ -47,3 +47,12 @@ later Prometheus/Grafana. Benchmarks and load tests are run locally (see `benchm
   (runner IPs are random), mitigated by key-only auth, fail2ban and the single-purpose CI key. Alternatives
   (VM pull loop, Azure run-command via OIDC, Tailscale) were rejected for no deploy feedback / student-tenant
   limits / extra accounts.
+
+## Update W5·D5: two app instances on the VM
+- `app-1` + `app-2` (same GHCR image, 900 MB limit each, ~370 MiB idle measured) behind Nginx upstream `seatlock_app`
+  (round robin, `resolve`, passive health, `/ws` upgrade). Budget: 2 × 900 + 768 (Postgres) + 256 (Redis) + Nginx/certbot
+  ≈ 2.9 GB of 3.8 GB; 2 GB swap stays as a safety net.
+- `deploy.sh` is a rolling deploy (app-1, wait healthy, app-2, wait healthy; any failure rolls both back), so deploys no
+  longer take the API down. CI's smoke test requires both instances to report the new revision.
+- Known gap: a request already sent over a keep-alive connection to the instance being stopped can still fail (502);
+  Nginx retries only failed connects and never POST/DELETE once sent.

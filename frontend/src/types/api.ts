@@ -248,3 +248,29 @@ export type SeatEventMessage = {
   holdExpiresAt: string | null
   occurredAt: string
 }
+
+/** Offset page (backend PageResponse): admin lists and My bookings. */
+export type PageResponse<T> = {
+  items: T[]
+  page: number
+  size: number
+  totalItems: number
+  totalPages: number
+}
+
+/** One row of GET /api/v1/me/bookings. */
+export type MyBookingSummary = {
+  publicId: string
+  status: BookingStatus
+  showId: number
+  eventId: number | null
+  eventTitle: string | null
+  showStartsAt: string | null
+  venueName: string | null
+  city: string | null
+  seatCount: number
+  totalPaise: number
+  currency: string
+  expiresAt: string
+  createdAt: string
+}

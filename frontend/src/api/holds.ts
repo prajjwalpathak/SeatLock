@@ -1,4 +1,4 @@
-import type { Booking, Hold } from '../types/api'
+import type { Booking, Hold, MyBookingSummary, PageResponse } from '../types/api'
 import { USER_SCOPED_KEY } from './auth'
 import { apiDelete, apiGet, apiPostWithStatus } from './client'
 
@@ -6,7 +6,15 @@ import { apiDelete, apiGet, apiPostWithStatus } from './client'
 export const holdKeys = {
   hold: (holdId: string) => [...USER_SCOPED_KEY, 'hold', holdId] as const,
   booking: (publicId: string) => [...USER_SCOPED_KEY, 'booking', publicId] as const,
+  myBookings: (page: number) => [...USER_SCOPED_KEY, 'bookings', page] as const,
 }
+
+/** GET /me/bookings: my bookings, newest first. */
+export function getMyBookings(page: number, signal?: AbortSignal): Promise<PageResponse<MyBookingSummary>> {
+  return apiGet<PageResponse<MyBookingSummary>>('/api/v1/me/bookings', { page, size: PAGE_SIZE }, signal)
+}
+
+export const PAGE_SIZE = 10
 
 /** A fresh Idempotency-Key for one user attempt. Retries of the SAME attempt must reuse it. */
 export function newIdempotencyKey(): string {

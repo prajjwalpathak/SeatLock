@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Deploys one backend image tag on the VM, waits for it to be healthy, rolls back if it isn't.
+# Rolling deploy of one backend image tag on the VM: app-1, then app-2 (W5·D5), each must turn healthy
+# before the next is touched; any failure rolls both back. Nginx keeps serving from the other instance.
 #
 # Called by GitHub Actions over SSH with a restricted key; ~/.ssh/authorized_keys pins that key to
 # this script (command="…/deploy.sh",restrict), so SSH_ORIGINAL_COMMAND is the ONLY input, e.g.
@@ -32,10 +33,12 @@ set_image() {   # remember the running image in .env.prod, so manual 'docker com
   else echo "APP_IMAGE=$1" >> "$ENV_FILE"; fi
 }
 
-wait_healthy() {   # up to ~2.5 min: covers the 60 s healthcheck start period
+APPS=(app-1 app-2)
+
+wait_healthy() {   # $1 = service; up to ~2.5 min: covers the 60 s healthcheck start period
   local id status
   for _ in $(seq 1 50); do
-    id="$(compose ps -q app)"
+    id="$(compose ps -q "$1")"
     status="$(docker inspect -f '{{.State.Health.Status}}' "$id" 2>/dev/null || echo missing)"
     [[ "$status" == healthy ]] && return 0
     [[ "$status" == unhealthy ]] && return 1
@@ -44,25 +47,33 @@ wait_healthy() {   # up to ~2.5 min: covers the 60 s healthcheck start period
   return 1
 }
 
-# ---- 3. Pull, switch, verify ----
+roll() {   # replaces each instance in turn; returns the first one that didn't turn healthy
+  local svc
+  for svc in "${APPS[@]}"; do
+    echo "replacing $svc"
+    compose up -d --no-deps "$svc"     # only this instance; the other keeps serving (Nginx skips the one restarting)
+    if ! wait_healthy "$svc"; then failed="$svc"; return 1; fi
+    echo "$svc healthy"
+  done
+}
+
+# ---- 3. Pull, switch one instance at a time, verify ----
 echo "pulling $new"
 docker pull -q "$new"
 set_image "$new"
-compose up -d --no-deps app            # only the app is replaced; Nginx re-resolves it via Docker DNS
-
-if wait_healthy; then
-  echo "deployed $new (previous: ${prev:-none})"
+failed=""
+if roll; then
+  echo "deployed $new to ${APPS[*]} (previous: ${prev:-none})"
   docker image prune -f >/dev/null     # drop dangling layers; tagged images stay for rollback
   exit 0
 fi
 
-# ---- 4. Automatic rollback ----
-echo "NEW IMAGE NOT HEALTHY: $new" >&2
-compose logs --tail 40 app >&2 || true
+# ---- 4. Automatic rollback (both instances back to the previous image) ----
+echo "NEW IMAGE NOT HEALTHY on $failed: $new" >&2
+compose logs --tail 40 "$failed" >&2 || true
 if [[ -n "$prev" && "$prev" != "$new" ]]; then
   echo "rolling back to $prev" >&2
   set_image "$prev"
-  compose up -d --no-deps app
-  if wait_healthy; then echo "rolled back to $prev" >&2; else echo "ROLLBACK ALSO UNHEALTHY" >&2; fi
+  if roll; then echo "rolled back to $prev" >&2; else echo "ROLLBACK ALSO UNHEALTHY on $failed" >&2; fi
 fi
 exit 1
