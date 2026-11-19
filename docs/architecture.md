@@ -433,6 +433,7 @@ sequenceDiagram
 - Browser (W5·D3): one shared `@stomp/stompjs` connection per tab; `useLiveSeatMap` writes events into the cached
   seat map (`applySeatEvent`), reloads on every (re)subscription; HELD-by-hold seats lapse locally at `holdExpiresAt`;
   header badge: Live / Connecting… / Reconnecting… / Live updates paused.
+- Two instances behind Nginx locally (W5·D4): `infra/docker-compose.scale.yml`, runbook and results in `docs/local-scale.md`.
 
 ## 3. Conventions
 - Internal keys are `bigint` identity. Bookings expose a random `public_id` (UUID), so IDs in URLs can't be enumerated.

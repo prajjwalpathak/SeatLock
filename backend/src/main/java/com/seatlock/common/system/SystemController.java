@@ -17,10 +17,14 @@ public class SystemController {
 
     private final Clock clock;
     private final String revision;
+    private final String instance;
 
-    public SystemController(Clock clock, @Value("${seatlock.build.revision:local}") String revision) {
+    public SystemController(Clock clock,
+                            @Value("${seatlock.build.revision:local}") String revision,
+                            @Value("${seatlock.instance-id:local}") String instance) {
         this.clock = clock;
         this.revision = revision;
+        this.instance = instance;
     }
 
     /** Current server time (UTC). Used by the frontend to correct hold-countdown clock skew. */
@@ -32,11 +36,11 @@ public class SystemController {
                 .body(new ServerTimeResponse(now, now.toEpochMilli()));
     }
 
-    /** The git commit this server was built from. CI's smoke test checks it after every deploy. */
+    /** The git commit this server was built from (CI's smoke test checks it after every deploy) and the instance id. */
     @GetMapping("/version")
     public ResponseEntity<VersionResponse> version() {
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
-                .body(new VersionResponse(revision));
+                .body(new VersionResponse(revision, instance));
     }
 }
