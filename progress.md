@@ -3,15 +3,15 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 5 · Day 6 (not started, planned Mon Dec 14): failure drills (kill an instance mid-booking, Redis/Postgres restarts) → `FAILURES.md`, Week 5 review, as 2 combined tasks. Branch `w5-d6` (create with `git switch -c w5-d6 origin/main`; its first commit carries the W5·D5 progress/docs)
-- **Last completed:** Week 5 · Day 5: prod on **2 app instances** (app-1/app-2, 900 MB each) behind Nginx upstream with `/ws`, rolling `deploy.sh`, dual-instance smoke test, VM cutover done; `GET /api/v1/me/bookings` + "My bookings" page; live seat updates verified on prod (planned Sat Dec 12, done Thu Nov 19 → Fri Nov 20)
+- **Current day:** Week 6 · Day 1 (not started, planned Tue Dec 15): unit-test push (state machine, policy engine, strategies), JaCoCo ≥ 80 % gate in CI, as 2 combined tasks. Branch `w6-d1` (create with `git switch -c w6-d1 origin/main` after #18 is squash-merged; its first commit records the #18 merge deploy)
+- **Last completed:** Week 5 · Day 6: failure drills (F8: instance loss, crash mid-booking, Redis + Postgres restarts, browser reconnect) with two fixes found by them (fail fast with 503 on DB outage; own scheduler for jobs), first rolling-deploy run on prod, Week 5 review (planned Mon Dec 14, done Fri Nov 20)
 - **Live URLs:** Frontend https://seatlock-nu.vercel.app · Backend https://seatlock-prajjwal.duckdns.org · Swagger https://seatlock-prajjwal.duckdns.org/swagger-ui.html · Version https://seatlock-prajjwal.duckdns.org/api/v1/system/version · Grafana —
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public) · CI + Deploy badges in README · `main` protected (ruleset `protect-main`)
 - **Hosting:** Azure VM `seatlock-vm` (India South Central, B2als_v2 x64) + Vercel; images from GHCR (ADR-005, #62, #71–#74, #167); **2 app instances** since W5·D5; decommission after ~2–3 months
 - **Git workflow (from W4·D5):** **2 combined tasks per day** (plan tasks grouped as feasible); each = changes → one verify/test block → one one-line commit + push on the daily branch; day end → PR on GitHub → squash-merge when CI is green; next branch with `git switch -c wN-dM origin/main`; never push to a branch after its PR is merged (#9, #75, #116, #141, #142)
-- **Carry-overs:** first **rolling deploy** run on the 2-instance VM (Actions → Deploy → Run workflow; expect `replacing app-1 … both instances on sha-…`) · W5·D4 cross-instance script + kill drill numbers → `docs/local-scale.md` · W5·D3 manual checks (silent hold expiry, Redis restart, background tab) · all fold into W5·D6 drills · duplicate `Strict-Transport-Security` header (Spring + Nginx) → W8·D1 · same-site frontend/API (Brave Shields, F7) → W8 stretch · confirm `@Scheduled` thread names · Mockito agent warning (W6·D1) · JetBrains license · IntelliJ dependency scan · refund status webhooks (stretch) · WireMock 4.x re-check (W8·D1)
-- **Schedule:** **~23 days ahead** (W5·D5 done Fri Nov 20 instead of Sat Dec 12); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
-- **Top risk:** failure behaviour across 2 instances under real faults (W5·D6); VM burst credits (load tests stay local)
+- **Carry-overs:** watch the #18 merge deploy (first rolling deploy that really replaces containers) with `load-tests/deploy-watch.ps1` → record in W6·D1 · check prod logs show jobs on `scheduling-N` · duplicate `Strict-Transport-Security` (Spring + Nginx) → W8·D1 · same-site frontend/API for privacy blockers (F7) → W8 stretch · Mockito agent warning (W6·D1) · JetBrains license · IntelliJ dependency scan · refund status webhooks (stretch) · WireMock 4.x re-check (W8·D1)
+- **Schedule:** **~24 days ahead** (W5·D6 done Fri Nov 20 instead of Mon Dec 14); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
+- **Top risk:** W6 load tests on the laptop (k6 numbers vs real prod; VM burst credits stay untouched); JaCoCo gate may need tests for thin branches
 
 ## Decisions Log (ADR summary)
 | # | Date | Decision | Why |
@@ -187,6 +187,10 @@
 | 169 | 2026-11-19 | Infra cutover by `tar --exclude=.env.prod` + `scp`, then `dc up -d --remove-orphans` **and `dc up -d --force-recreate --no-deps nginx`** (deploy.md section 3b) | Compose doesn't recreate Nginx for a changed bind-mounted template (F7); excluding `.env.prod` protects prod secrets |
 | 170 | 2026-11-19 | `GET /api/v1/me/bookings`: offset `PageResponse` (size 1–50, default 20; UI uses 10), `created_at DESC, id DESC`, JdbcClient read model (seat count subquery + count) + catalog `findShowLabels` (one query, any show status); page in the URL on the frontend; query key under `['me', …]` | No entity loading or in-memory pagination of collections; stable order across pages; module rule kept; cleared on sign-out |
 | 171 | 2026-11-20 | Browsers that block the cross-site WebSocket (Brave Shields, F7) stay on fallback (refetch on focus/Refresh/own actions); fix later by putting frontend and API under one site | No server fault (clean browser: Live in 198 ms); not worth a domain change mid-plan |
+| 172 | 2026-11-20 | **Fail fast on a missing database:** Hikari `connection-timeout` 30 s → **3 s**; `DataAccessResourceFailureException` / `CannotCreateTransactionException` → **503 `SERVICE_UNAVAILABLE` + `Retry-After: 5`** (one WARN line, nothing leaked); the 200-user race context keeps 30 s | Drill F8: requests hung until timeouts and readiness took ~30 s during a Postgres outage; now 503 in ≤ 3 s, recovery 5.1 → 1.3 s. Races queue on purpose (contention, not outage) |
+| 173 | 2026-11-20 | `@Scheduled` jobs on their **own** `ThreadPoolTaskScheduler` (2 threads, `scheduling-N`, 10 s graceful wait) via `SchedulingConfigurer`, not a bean | Drill logs showed `RefundWorker` on `MessageBroker-2`: the broker's TaskScheduler bean makes Boot skip its own, so slow jobs could delay STOMP heart-beats; a second scheduler bean would make by-type lookups ambiguous |
+| 174 | 2026-11-20 | Repeatable checks as scripts: `load-tests/failure-drills.ps1` (instance / booking / redis / postgres, 200 ms probe through the LB, pre-flight health wait) and `load-tests/deploy-watch.ps1` (live site during deploys) | Same drills re-run before W6 load tests and after infra changes; numbers instead of impressions |
+| 175 | 2026-11-20 | A manual redeploy of the **same** tag only proves the health-gated loop (Compose leaves running containers alone); the real "zero downtime" proof is the deploy of a new commit (the #18 merge), watched by `deploy-watch.ps1` | Avoids claiming a replacement that didn't happen |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -241,6 +245,13 @@
 | Prod, 2 instances idle | app-1 347.7 MiB, app-2 342.2 MiB (limit 900 MiB); Postgres 74.4 MiB, Redis 11.7 MiB, Nginx 8.1 MiB; VM used 1.5 GiB, available 2.3 GiB of 3.8 GiB | `docker stats`, `free -h` on the VM | 2026-11-19 |
 | Prod live seat event | built-in browser: WS open 198 ms (`v12.stomp`), hold via API → seat "on hold" on the page within 2 s, release → available | live site, show 14 | 2026-11-20 |
 | Tests | 492 (490 + 2 new) | `mvnw verify` | 2026-11-19 |
+| Drill: instance stopped (local, 2 instances) | **238/238** requests 200 through the LB while app-2 was down 20 s; app-2 healthy 16 s after start | `failure-drills.ps1 -Drill instance` | 2026-11-20 |
+| Drill: crash mid-booking | booking read + cancelled through app-2 after `docker kill app-1`; seat AVAILABLE; nothing lost | `-Drill booking` | 2026-11-20 |
+| Drill: Redis restart | 191/191 seat-map requests 200 (4 degraded, `holdsLive: false`); relay working 3.2 s after Redis returned | `-Drill redis` | 2026-11-20 |
+| Drill: Postgres outage | before: hung requests, readiness ~30 s, recovery 5.1 s → after: **503 in ≤ 3 s**, recovery **1.3 s** | `-Drill postgres` | 2026-11-20 |
+| Browser reconnect after its instance stops | Live again on the other instance in **< 1 s** | Chrome via the local LB | 2026-11-20 |
+| Prod rolling-deploy run (same tag) | 917/917 requests 200, both instances on the revision, smoke test passed (containers not recreated: same tag) | `deploy-watch.ps1` + Actions log | 2026-11-20 |
+| Tests | 493 (492 + 1 new) | `mvnw verify` | 2026-11-20 |
 
 ## Accounts & Config (no secrets here, only where they live)
 | Item | Status | Where stored |
@@ -1309,3 +1320,39 @@
 - Offset vs keyset pagination for per-user lists; read models vs entities; stable sort keys
 - Debugging client-only failures: access logs as ground truth, clean-browser repro, Chrome's WebSocket connection limits, privacy blockers and cross-site sockets
 **Commit:** `feat: two prod instances with rolling deploy, My bookings page (W5·D5)` (squashed as #17 on `main`); progress/docs in the first commit of `w5-d6`
+
+### Week 5 · Day 6: Failure drills + Week 5 review (planned Mon, Dec 14; done Fri, Nov 20, 2026)
+**Status:** ✅ Done (the merge deploy of #18 is watched and recorded on W6·D1)
+**Built:**
+- A: `load-tests/failure-drills.ps1` (instance, booking, redis, postgres; probe through the LB; pre-flight health wait); drills run and recorded in FAILURES F8; fixes found by them: Hikari 3 s + 503 `SERVICE_UNAVAILABLE` for data-store outages (`GlobalExceptionHandler`, test via `ErrorTestController`), race context keeps 30 s (`RealServerTest`), jobs on their own scheduler (`SchedulingConfig`)
+- B: `load-tests/deploy-watch.ps1`; manual rolling-deploy run on prod (loop + smoke test proven, 0 failures); README "What works today (Weeks 1–5)"
+- Tests: **493** (1 new)
+**Files created/changed:**
+- `backend\src\main\resources\application.yml`; `common\exception\GlobalExceptionHandler.java`; `common\config\SchedulingConfig.java`
+- Tests: `common\exception\GlobalExceptionHandlerTest`, `testsupport\{ErrorTestController, RealServerTest}`
+- `load-tests\{failure-drills.ps1, deploy-watch.ps1}`; `docs\FAILURES.md`; `README.md`; `progress.md`
+**Decisions:**
+- See Decisions Log #172–#175
+**Metrics recorded:**
+- Five drills + the prod deploy run (see Metrics table)
+**Problems & fixes:**
+- `Show-Probe` parameter typed `[datetime]` couldn't take `$null` → untyped
+- Drills right after `up -d --build` hit 502 (apps still starting) → pre-flight waits for both healthy
+- Postgres outage made requests hang (Hikari 30 s) and one returned 500 → 3 s + 503 (#172)
+- Jobs ran on `MessageBroker-N` (closes the W5·D1 carry-over) → own scheduler (#173)
+**Carry-over:**
+- Watch + record the #18 merge deploy; confirm `scheduling-N` in prod logs
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- Failure drills / chaos testing: hypothesis, blast radius, measuring user impact (probe), recovery time
+- Fail fast vs wait: connection-pool timeouts, thread exhaustion, 503 + Retry-After vs 500
+- Graceful vs abrupt shutdown (SIGTERM vs kill) and stateless instances
+- Degraded modes (seat map without holds) vs hard dependencies (bookings need Postgres)
+- Thread-pool isolation (bulkheads): jobs vs WebSocket heart-beats
+**Commit:** `fix: failure drills, fail-fast DB outage, own job scheduler; Week 5 review (W5·D6)` (squashed into one commit on `main`)
+
+**Week 5 review:**
+- All 6 plan days delivered, ~24 days ahead: STOMP seat events with JWT on CONNECT and subscription rules (D1), Redis Pub/Sub relay with atomic per-show versions and resync via the seat map (D2), live seat map in the browser with reconnect, gap/restart detection and client-side hold expiry (D3), two instances behind a local Nginx LB with a cross-instance check (D4), two instances in prod with rolling deploys + "My bookings" (D5), failure drills with two real fixes (D6)
+- Proven: same events in the same order on both instances (2 × 20 concurrent changes); live update on prod in ~2 s; instance loss invisible to GETs; crash mid-booking loses nothing; Redis restart degrades, never errors; Postgres outage now fails fast
+- ADRs: 014 realtime seat events (with W5·D2/D3 updates); ADR-005 hosting update (2 instances, rolling deploy). FAILURES F6 (STOMP ERROR frame race), F7 (cutover 502 + Brave Shields), F8 (drills)
+- Lessons: observe before changing (access log + clean browser found F7 in minutes after guesses didn't); Compose only recreates on config changes it can see; drills found two production issues tests didn't (30 s pool wait, shared scheduler); a "deploy" that recreated nothing proves nothing
+- Risks for Week 6: JaCoCo ≥ 80 % gate (branch coverage was ~73 % on W2); k6 runs on the laptop only (numbers are relative, not prod capacity); benchmark noise (repeat runs, medians, #61)
