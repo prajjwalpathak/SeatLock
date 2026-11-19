@@ -195,6 +195,7 @@
 | 177 | 2026-11-20 | Coverage push targets **missed branches in logic classes** with plain unit tests (no Spring/containers): `BaseEntity` equality, `RateLimitInterceptor` decision order, STOMP frame rules, My bookings assembly, lifecycle/policy edge cases; wiring (`SchedulingConfig`) excluded with a reason | Lines were already 93.6 %; branches (77.1 %) were the gap; tests that check decisions, not numbers |
 | 178 | 2026-11-20 | **Mockito as a real `-javaagent`** (`maven-dependency-plugin:properties` → `${org.mockito:mockito-core:jar}` in surefire `argLine` after `@{argLine}` for JaCoCo; `-Xshare:off`; empty `argLine` default) | Mockito's documented fix for the JDK "dynamically loaded agent" warning (carry-over since W3·D5); keeps JaCoCo's agent |
 | 179 | 2026-11-20 | **JaCoCo gate** (`jacoco:check` in `verify`, after `report`): BUNDLE **lines ≥ 85 %, branches ≥ 80 %**; CI summary prints the gate; floors only go up | Lines 94.0 % (9 pt headroom), branches 81.2 % (the plan's 80 % target, little headroom on purpose: untested branches in new code fail CI); per-class floors rejected (would force tests for trivial records) |
+| 180 | 2026-11-20 | CI Maven cache via `actions/cache` with `restore-keys` (instead of setup-java's pom-hash-only cache) + resolver retries (`retryHandler.count=5`, `interval=10000`) | First run after a pom change got **429 from Maven Central** (cold cache, everything re-downloaded on a shared runner IP); fallback cache downloads only what changed |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -1381,6 +1382,7 @@
 **Metrics recorded:**
 - Coverage 94.0 % lines / 81.2 % branches; 513 tests (see Metrics table)
 **Problems & fixes:**
+- CI on #20: Maven Central answered 429 on a cold cache (pom changed) → re-run + cache with `restore-keys` and resolver retries (#180)
 - `git switch -c w6-d1` failed silently, so the next commit landed on the merged `w5-d6`; `git diff origin/main w5-d6` then showed #19 had shipped without the day's docs (branch update, F9) → restored onto `w6-d1`
 - `frontend/.env.example` had been set to the LB port during the drills (meant for `.env.local`) → reverted
 **Carry-over:**
