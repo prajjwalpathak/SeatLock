@@ -200,7 +200,9 @@ winner):
 | Clients can't inject seat events | SEND refused before the broker | `StompSecurityIntegrationTest` |
 | Same events, same order on every instance | version + PUBLISH in one Lua script; one forwarding thread; broker preserves publish order | `SeatEventRelayIntegrationTest` (2 instances × 20 concurrent changes → identical, consecutive streams) |
 | A resync never loses an update | seat map's `version` read before its statuses; apply only newer messages | `ShowCatalogServiceTest` (read order), `SeatEventsIntegrationTest` (map version = last event) |
-| Lost Pub/Sub messages are detected | at-most-once delivery shows up as a version gap → reload the map | by design; client side on W5·D3 |
+| Lost Pub/Sub messages are detected | at-most-once delivery shows up as a version gap → reload the map | `applySeatEvent` (gap → resync); manual two-browser check W5·D3 |
+| Nothing missed between subscribing and loading | every (re)subscription reloads the map; older events ignored by version | `useLiveSeatMap` |
+| A Redis restart (versions start at 1 again) doesn't freeze the map | smaller version than seen, or an event ≤ map.version that happened after the load → reload | `applySeatEvent` |
 
 **Known window:** versions are assigned after commit. If two transactions on the same show commit back to back,
 their after-commit hooks can run in the opposite order, so the later state could carry the smaller version.

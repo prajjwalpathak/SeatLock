@@ -73,6 +73,8 @@ export type SeatView = {
   aisle: boolean
   pricePaise: number
   status: ShowSeatStatus
+  /** Client-only: set from a live HELD-by-hold event; the seat is AVAILABLE again from this instant (server clock). */
+  holdExpiresAt?: string | null
 }
 
 export type ShowSeatMap = {
@@ -233,4 +235,16 @@ export type PaidCancellation = {
 export type ServerTime = {
   serverTime: string
   epochMillis: number
+}
+
+/** STOMP message on /topic/shows/{showId}/seats (backend SeatEventMessage). */
+export type SeatEventMessage = {
+  showId: number
+  /** Per show, +1 per message. A gap or a smaller number than seen before means: reload the seat map. */
+  version: number
+  status: ShowSeatStatus
+  seatIds: number[]
+  /** Only for HELD by a hold: AVAILABLE again from this instant unless a later message says otherwise. */
+  holdExpiresAt: string | null
+  occurredAt: string
 }
