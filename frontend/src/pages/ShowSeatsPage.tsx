@@ -7,13 +7,16 @@ import { bookHold, createHold, getHold, holdKeys, newIdempotencyKey, releaseHold
 import { ErrorMessage } from '../components/ErrorMessage'
 import { useAuth } from '../features/auth/useAuth'
 import { HoldPanel } from '../features/seatmap/HoldPanel'
+import { LiveBadge } from '../features/seatmap/LiveBadge'
 import { forgetHold, recallHold, rememberHold } from '../features/seatmap/holdStorage'
 import { SeatLegend } from '../features/seatmap/SeatLegend'
 import { SeatMap } from '../features/seatmap/SeatMap'
 import { SeatMapSkeleton } from '../features/seatmap/SeatMapSkeleton'
+import { useLiveSeatMap } from '../features/seatmap/useLiveSeatMap'
 import { MAX_SELECTION, seatCode } from '../features/seatmap/seats'
 import { SelectionSummary } from '../features/seatmap/SelectionSummary'
-import { formatClockTime, formatShowTime } from '../lib/format'
+import { formatShowTime } from '../lib/format'
+import type { LiveStatus } from '../lib/stompClient'
 import { useServerClockOffset } from '../lib/serverClock'
 import { useNow } from '../lib/useNow'
 import type { Hold, SeatView, ShowSeatMap } from '../types/api'
@@ -27,11 +30,11 @@ export function ShowSeatsPage() {
     queryKey: catalogKeys.seatMap(showId),
     queryFn: ({ signal }) => getSeatMap(showId, signal),
     enabled: validId,
-    // Live statuses: never serve a cached map; refetch when the tab regains focus.
-    // Push updates over WebSockets replace this on W5.
+    // Live statuses arrive over STOMP (useLiveSeatMap); a refetch on focus is the extra resync after sleep/background.
     staleTime: 0,
     refetchOnWindowFocus: true,
   })
+  const liveStatus = useLiveSeatMap(showId, validId)
 
   // Unknown, cancelled and unpublished shows are all 404 on the backend.
   const notFound = !validId || (query.error instanceof ApiError && query.error.code === 'NOT_FOUND')
@@ -54,7 +57,7 @@ export function ShowSeatsPage() {
   return (
     <ShowSeatsView
       seatMap={query.data}
-      updatedAt={query.dataUpdatedAt}
+      liveStatus={liveStatus}
       refreshing={query.isFetching}
       onRefresh={() => query.refetch()}
     />
@@ -63,7 +66,7 @@ export function ShowSeatsPage() {
 
 type ViewProps = {
   seatMap: ShowSeatMap
-  updatedAt: number
+  liveStatus: LiveStatus
   refreshing: boolean
   onRefresh: () => void
 }
@@ -74,7 +77,7 @@ function retryHold(failures: number, error: unknown): boolean {
   return (error instanceof ApiError && error.status === 0) || hasCode(error, 'HOLDS_UNAVAILABLE', 'IDEMPOTENCY_IN_PROGRESS')
 }
 
-function ShowSeatsView({ seatMap, updatedAt, refreshing, onRefresh }: ViewProps) {
+function ShowSeatsView({ seatMap, liveStatus, refreshing, onRefresh }: ViewProps) {
   const showId = seatMap.showId
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -220,7 +223,8 @@ function ShowSeatsView({ seatMap, updatedAt, refreshing, onRefresh }: ViewProps)
           </p>
         </div>
         <div className="flex items-center gap-3 text-xs text-slate-500">
-          <span>Updated {formatClockTime(updatedAt)}</span>
+          {/* version null = Redis was down at load: no live updates until a reload succeeds */}
+          <LiveBadge status={liveStatus} paused={seatMap.version === null} />
           <button
             type="button"
             onClick={onRefresh}
