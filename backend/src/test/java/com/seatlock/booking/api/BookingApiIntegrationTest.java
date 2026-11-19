@@ -138,6 +138,48 @@ class BookingApiIntegrationTest {
                 .isEqualTo("HELD");
     }
 
+    @Test
+    void myBookingsListsOnlyMyBookingsNewestFirstWithShowDetails() throws Exception {
+        String first = book(alice, seats.get(0));
+        String second = book(alice, seats.get(1));   // the first hold became a booking, so a new hold is allowed
+
+        mvc.perform(get("/api/v1/me/bookings").header(HttpHeaders.AUTHORIZATION, bearer(alice)))
+                .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+                .andExpect(jsonPath("$.totalItems").value(2))
+                .andExpect(jsonPath("$.items", hasSize(2)))
+                .andExpect(jsonPath("$.items[0].publicId").value(second))
+                .andExpect(jsonPath("$.items[1].publicId").value(first))
+                .andExpect(jsonPath("$.items[0].status").value("HELD"))
+                .andExpect(jsonPath("$.items[0].showId").value(showId))
+                .andExpect(jsonPath("$.items[0].eventTitle").isNotEmpty())
+                .andExpect(jsonPath("$.items[0].showStartsAt").exists())
+                .andExpect(jsonPath("$.items[0].venueName").isNotEmpty())
+                .andExpect(jsonPath("$.items[0].seatCount").value(1));
+
+        mvc.perform(get("/api/v1/me/bookings").param("size", "1").param("page", "1")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(alice)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(1)))
+                .andExpect(jsonPath("$.items[0].publicId").value(first))
+                .andExpect(jsonPath("$.totalPages").value(2));
+
+        mvc.perform(get("/api/v1/me/bookings").header(HttpHeaders.AUTHORIZATION, bearer(bob)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items", hasSize(0)))
+                .andExpect(jsonPath("$.totalItems").value(0));
+    }
+
+    @Test
+    void myBookingsRejectsBadPagingAndAnonymousCallers() throws Exception {
+        mvc.perform(get("/api/v1/me/bookings").param("size", "0").header(HttpHeaders.AUTHORIZATION, bearer(alice)))
+                .andExpect(status().isBadRequest());
+        mvc.perform(get("/api/v1/me/bookings").param("size", "51").header(HttpHeaders.AUTHORIZATION, bearer(alice)))
+                .andExpect(status().isBadRequest());
+        mvc.perform(get("/api/v1/me/bookings"))
+                .andExpect(status().isUnauthorized());
+    }
+
     // ------------------------------------------------------------------ helpers
 
     /** hold → booking; returns the booking's publicId. */

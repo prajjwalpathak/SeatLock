@@ -7,6 +7,7 @@ import { BookingPage } from './pages/BookingPage'
 import { EventDetailPage } from './pages/EventDetailPage'
 import { EventListPage } from './pages/EventListPage'
 import { LoginPage } from './pages/LoginPage'
+import { MyBookingsPage } from './pages/MyBookingsPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { OrganizerEventsPage } from './pages/OrganizerEventsPage'
 import { RegisterPage } from './pages/RegisterPage'
@@ -20,6 +21,14 @@ export const router = createBrowserRouter([
       { path: 'events', element: <EventListPage /> },
       { path: 'events/:eventId', element: <EventDetailPage /> },
       { path: 'shows/:showId', element: <ShowSeatsPage /> },
+      {
+        path: 'bookings',
+        element: (
+          <RequireAuth>
+            <MyBookingsPage />
+          </RequireAuth>
+        ),
+      },
       {
         path: 'bookings/:publicId',
         element: (

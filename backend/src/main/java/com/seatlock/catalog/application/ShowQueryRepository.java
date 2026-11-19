@@ -78,6 +78,26 @@ public class ShowQueryRepository {
             """;
 
     /** Start time of any show (cancelled or not). */
+    /** Labels for any shows (cancelled or past included), one query for a whole list. */
+    public List<ShowLabel> showLabels(java.util.Collection<Long> showIds) {
+        return jdbc.sql("""
+                        SELECT s.id, s.starts_at, e.id AS event_id, e.title, v.name AS venue_name, v.city
+                        FROM shows s
+                        JOIN events e ON e.id = s.event_id
+                        JOIN venues v ON v.id = s.venue_id
+                        WHERE s.id IN (:showIds)
+                        """)
+                .param("showIds", showIds)
+                .query((rs, rowNum) -> new ShowLabel(
+                        rs.getLong("id"),
+                        rs.getObject("starts_at", OffsetDateTime.class).toInstant(),
+                        rs.getLong("event_id"),
+                        rs.getString("title"),
+                        rs.getString("venue_name"),
+                        rs.getString("city")))
+                .list();
+    }
+
     public Optional<Instant> startsAt(long showId) {
         return jdbc.sql("SELECT starts_at FROM shows WHERE id = :showId")
                 .param("showId", showId)

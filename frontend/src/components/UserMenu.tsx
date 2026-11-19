@@ -27,6 +27,9 @@ export function UserMenu() {
           My events
         </NavLink>
       )}
+      <NavLink to="/bookings" end className={navLinkClass}>
+        My bookings
+      </NavLink>
       <NavLink to="/account" className={navLinkClass}>
         {user.displayName}
         <span className="ml-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium uppercase text-slate-600">
