@@ -52,16 +52,19 @@ services:
     logging: *default-logging
     restart: unless-stopped
 
-  app:
+  # Two instances of one image (W5·D5): Nginx balances between them, seat events cross via Redis Pub/Sub,
+  # deploy.sh replaces them one at a time. 900 MB each: 2 × 900 + 768 + 256 + nginx/certbot ≈ 2.9 GB of 3.8 GB.
+  app-1: &app
     # CI-built image from GHCR (public). deploy.sh writes the exact tag to APP_IMAGE in .env.prod.
     image: ${APP_IMAGE:-ghcr.io/prajjwalpathak/seatlock-backend:latest}
     env_file: .env.prod                # JWT keys, admin, Google, CORS, frontend URL (relative to this file)
-    environment:
+    environment: &app-env
       SPRING_PROFILES_ACTIVE: prod
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
       REDIS_HOST: redis
       REDIS_PORT: "6379"
+      SEATLOCK_INSTANCE_ID: app-1
     depends_on:
       postgres:
         condition: service_healthy
@@ -70,9 +73,15 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1200m                # JVM heap = 70% of this (MaxRAMPercentage in the Dockerfile)
+          memory: 900m                 # JVM heap = 70% of this (MaxRAMPercentage in the Dockerfile); ~370 MiB idle
     logging: *default-logging
     restart: unless-stopped
+
+  app-2:
+    <<: *app
+    environment:
+      <<: *app-env
+      SEATLOCK_INSTANCE_ID: app-2
 
   nginx:
     image: nginx:1.28-alpine
@@ -88,7 +97,9 @@ services:
     # Reload every 6 h so a renewed certificate is picked up without downtime.
     command: ["/bin/sh", "-c", "while :; do sleep 6h & wait $${!}; nginx -s reload; done & exec /docker-entrypoint.sh nginx -g 'daemon off;'"]
     depends_on:
-      app:
+      app-1:
+        condition: service_healthy
+      app-2:
         condition: service_healthy
     logging: *default-logging
     restart: unless-stopped

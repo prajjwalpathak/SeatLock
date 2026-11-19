@@ -8,7 +8,7 @@ Why this setup: [ADR-005](decisions/ADR-005-hosting.md).
 | API | `https://seatlock-prajjwal.duckdns.org` (Swagger: `/swagger-ui.html`) |
 | Frontend | `https://seatlock-nu.vercel.app` |
 | VM | Azure `seatlock-vm` (India South Central, B2als_v2), user `ubuntu`, key `~\.ssh\azure_seatlock` |
-| Stack | `infra/docker-compose.prod.yml`: nginx · app · postgres · redis · certbot |
+| Stack | `infra/docker-compose.prod.yml`: nginx · app-1 · app-2 · postgres · redis · certbot |
 | Backend image | `ghcr.io/prajjwalpathak/seatlock-backend:sha-<12>` (public), built by GitHub Actions; running tag = `APP_IMAGE` in `.env.prod` |
 | Version check | `GET /api/v1/system/version` → `{"revision":"<git sha>"}` |
 | Secrets | `~/seatlock/infra/.env.prod` on the VM only (mode 600, never in Git) |
@@ -18,7 +18,7 @@ git push main ─► CI (tests, coverage, lint, build) ─► Deploy: build imag
                                                         └─► SSH (restricted key) ─► VM: deploy.sh ─► healthy? else rollback
 Browser ──HTTPS──► Vercel (React static)
    │
-   └──HTTPS──► VM :443 Nginx ──► app:8080 ──► postgres:5432 / redis:6379   (private Compose network)
+   └──HTTPS──► VM :443 Nginx ──► app-1 / app-2 :8080 ──► postgres:5432 / redis:6379   (private Compose network)
                  :80 → 301 to HTTPS; /.well-known/acme-challenge → certbot webroot
 ```
 
@@ -57,7 +57,7 @@ alias dc='docker compose --env-file infra/.env.prod -f infra/docker-compose.prod
    dc run --rm -p 80:80 --entrypoint certbot certbot certonly --standalone \
      -d seatlock-prajjwal.duckdns.org --email <email> --agree-tos --no-eff-email
    ```
-8. **Start**: `dc up -d` → `dc ps` (app *healthy*, then nginx starts). The app image is pulled from GHCR.
+8. **Start**: `dc up -d` → `dc ps` (app-1 and app-2 *healthy*, then nginx starts). The app image is pulled from GHCR.
 9. **Vercel**: import the GitHub repo, Root Directory `frontend`, env `VITE_API_BASE_URL=https://seatlock-prajjwal.duckdns.org`.
    `frontend/vercel.json` rewrites every path to `index.html` (SPA deep links, `/auth/callback`).
 
@@ -81,7 +81,7 @@ F5 on `/events/<id>`, Google sign-in.
 Testcontainers + JaCoCo, frontend lint + build) → on success **Deploy** (`deploy.yml`):
 1. `image`: builds `backend/` once for `linux/amd64`, tags `sha-<12>` + `latest`, pushes to GHCR (`GITHUB_TOKEN`, `packages: write`), bakes the commit in (`GIT_SHA` → `SEATLOCK_REVISION`)
 2. `deploy`: SSH to the VM with the **CI key**, which `authorized_keys` pins to `deploy.sh`:
-   `deploy.sh` validates the tag → `docker pull` → sets `APP_IMAGE` → `up -d --no-deps app` → waits for *healthy*
+   `deploy.sh` validates the tag → `docker pull` → sets `APP_IMAGE` → `up -d --no-deps app-1` → waits for *healthy* → same for `app-2` (rolling, W5·D5) → waits for *healthy*
    → on failure prints logs and **rolls back** to the previous image
 3. smoke test through Nginx: readiness `UP` **and** `/api/v1/system/version` = the deployed commit
 
@@ -112,11 +112,34 @@ curl.exe -s https://seatlock-prajjwal.duckdns.org/api/v1/system/version
 **Rotate the CI key:** generate a new pair on the VM, replace the `seatlock-ci` line in `authorized_keys`,
 update `DEPLOY_SSH_KEY`, delete the private key from the VM.
 
+## 3b. Two instances: one-time cutover (W5·D5)
+
+The single `app` service became `app-1` + `app-2` (same image, `SEATLOCK_INSTANCE_ID`), and Nginx balances between them
+(upstream `seatlock_app`, see `docs/local-scale.md` for the rules). Infra files reach the VM by `tar` + `scp` (section 1),
+so after the W5·D5 PR is merged and its deploy is green:
+
+```powershell
+cd D:\Prajjwal\Code\SeatLock
+tar -czf $env:TEMP\seatlock-infra.tgz infra
+scp -i $HOME\.ssh\azure_seatlock $env:TEMP\seatlock-infra.tgz ubuntu@seatlock-prajjwal.duckdns.org:~/
+```
+```bash
+# Run on the Azure VM (via ssh)
+cd ~/seatlock && cp infra/.env.prod ~/env.prod.bak                       # .env.prod is not in the archive; keep a copy anyway
+tar -xzf ~/seatlock-infra.tgz -C ~/seatlock && chmod +x infra/scripts/*.sh
+dc up -d --remove-orphans          # stops the old "app", starts app-1 + app-2, recreates nginx (~1–2 min of 502s once)
+dc ps                              # app-1, app-2 healthy; nginx up
+for i in 1 2 3 4; do curl -s https://seatlock-prajjwal.duckdns.org/api/v1/system/version; echo; done   # alternates
+free -h && docker stats --no-stream
+```
+Then run **Actions → Deploy → Run workflow** with the current `sha-…` tag once: the log must show `replacing app-1`,
+`app-1 healthy`, `replacing app-2`, `app-2 healthy`, and the smoke test `both instances on sha-…`.
+
 ## 4. Change configuration / secrets
 
 ```bash
 nano infra/.env.prod
-dc up -d --force-recreate app        # env is read only at container start
+dc up -d --force-recreate app-1 app-2   # env is read only at container start (or one at a time: no downtime)
 ```
 - **Frontend URL changed** → update both `FRONTEND_BASE_URL` and `CORS_ALLOWED_ORIGINS` (exact origin, no trailing `/`).
 - **Admin password**: changing it in `.env.prod` does *not* update an existing admin (bootstrap only creates a missing one).
@@ -141,8 +164,8 @@ dc up -d --force-recreate app        # env is read only at container start
 | Task | Command |
 |---|---|
 | Status | `dc ps` |
-| Logs | `dc logs -f app` (JSON/ECS); `dc logs nginx --tail 50` |
-| Restart one service | `dc restart app` |
+| Logs | `dc logs -f app-1 app-2` (JSON/ECS); `dc logs nginx --tail 50` |
+| Restart one service | `dc restart app-1` (Nginx sends traffic to app-2 meanwhile) |
 | DB shell | `dc exec postgres psql -U seatlock -d seatlock` |
 | Backup DB | `dc exec -T postgres pg_dump -U seatlock seatlock \| gzip > ~/backup-$(date +%F).sql.gz` |
 | Restore DB | `gunzip -c backup.sql.gz \| dc exec -T postgres psql -U seatlock -d seatlock` |
@@ -169,7 +192,7 @@ The static IP survives, so DNS and the certificate keep working.
 | Frontend: "Cannot reach the SeatLock server" + CORS error in console | Origin not in `CORS_ALLOWED_ORIGINS` | Section 4, exact origin |
 | Request URL is `http://localhost:8080` | `VITE_API_BASE_URL` missing at Vercel build time | Set it in Vercel → Redeploy |
 | Vercel 404 on refresh | `vercel.json` not deployed | Push it; Vercel redeploys |
-| 502 from Nginx | app down or starting | `dc ps`, `dc logs app` |
+| 502 from Nginx | both app instances down or starting | `dc ps`, `dc logs app-1 app-2` |
 | SSH times out | your home IP changed | Azure → Networking → SSH rule → *My IP address* |
 | certbot `Timeout during connect` | port 80 blocked / DNS wrong | NSG rule for 80 = Any; DuckDNS IP = VM IP |
 | Google: `redirect_uri_mismatch` | prod URI not in Google Console | Section 1.6 |
@@ -179,7 +202,7 @@ The static IP survives, so DNS and the certificate keep working.
 | Deploy job: `manifest unknown` | tag doesn't exist in GHCR | Pick a tag from the package page; site keeps the old version |
 | Smoke test: wrong `live revision` | rollback happened (new image unhealthy) | Read the deploy step's log output; fix, push again |
 | App won't start: `needs RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET` / `Only Razorpay test-mode keys` | gateway `razorpay` without (test) keys | Section 4: set the `rzp_test_` pair or go back to `mock` |
-| Pay now → 503 `PAYMENTS_UNAVAILABLE` | Razorpay rejected the key (401) or timed out | `dc logs app \| grep Razorpay` shows the HTTP status + error code; check the key pair |
+| Pay now → 503 `PAYMENTS_UNAVAILABLE` | Razorpay rejected the key (401) or timed out | `dc logs app-1 app-2 \| grep Razorpay` shows the HTTP status + error code; check the key pair |
 | Log: `Rejected Razorpay webhook: bad or missing signature` + compose warning `The "Xy" variable is not set` | a `$` in `RAZORPAY_WEBHOOK_SECRET` (or any `.env.prod` value) is interpolated by Compose and cut out | Use a hex secret (`openssl rand -hex 32`), update dashboard + `.env.prod`, recreate the app |
 | Payments stay "Payment in progress" | verify callback failed and the webhook isn't arriving (wrong URL/secret, events not selected) | Dashboard → Webhooks → the delivery log shows the HTTP status; 400 = secret mismatch |
 | Checkout modal doesn't open | `checkout.razorpay.com` blocked (ad blocker, offline) | The page says so; allow the domain |
