@@ -3,15 +3,15 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 4 · Day 5 (not started, planned Sat Dec 5): WireMock tests for Razorpay over real HTTP, webhook dedupe tests, local webhook testing via cloudflared, as 2 combined tasks. Branch `w4-d5` (create with `git switch -c w4-d5 origin/main` after #10 is squash-merged)
-- **Last completed:** Week 4 · Day 4: `payment.failed` keeps orders open, refund outbox + worker (receipt-idempotent), automatic refunds for late/duplicate payments, `RefundPolicyEngine`, paid cancellation with seats back on sale (planned Fri Dec 4, done Thu Nov 19)
+- **Current day:** Week 4 · Day 6 (not started, planned Mon Dec 7): `SeatLockingStrategy` (Optimistic vs RedisHold) behind config + Week 4 review, as 2 combined tasks. Branch `w4-d6` (create with `git switch -c w4-d6 origin/main` after #11 is squash-merged)
+- **Last completed:** Week 4 · Day 5: WireMock contract tests + full-app Razorpay flow over real HTTP, Razorpay client pinned to HTTP/1.1, real-world webhook scenarios, confirm-vs-sweeper race now hits both branches, tunnel check script (planned Sat Dec 5, done Thu Nov 19)
 - **Live URLs:** Frontend https://seatlock-nu.vercel.app · Backend https://seatlock-prajjwal.duckdns.org · Swagger https://seatlock-prajjwal.duckdns.org/swagger-ui.html · Version https://seatlock-prajjwal.duckdns.org/api/v1/system/version · Grafana —
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public) · CI + Deploy badges in README · `main` protected (ruleset `protect-main`)
 - **Hosting:** Azure VM `seatlock-vm` (India South Central, B2als_v2 x64) + Vercel; images from GHCR (ADR-005, #62, #71–#74); decommission after ~2–3 months
 - **Git workflow (from W4·D5):** **2 combined tasks per day** (plan tasks grouped as feasible); each = changes → one verify/test block → one one-line commit + push on the daily branch; day end → PR on GitHub → squash-merge when CI is green; next branch with `git switch -c wN-dM origin/main`; never push to a branch after its PR is merged (#9, #75, #116, #141, #142)
-- **Carry-overs:** silence Mockito's dynamic-agent warning (W6·D1) · JetBrains student license · IntelliJ vulnerable-dependency scan · make the confirm-vs-sweeper race hit both branches · `webhook_events` cleanup job (W8) · consume `refund.processed`/`refund.failed` webhooks (stretch)
-- **Schedule:** **~15 days ahead** (W4·D4 done Thu Nov 19 instead of Fri Dec 4); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
-- **Top risk:** WireMock on Boot 4 / Jetty versions (D5); `SeatLockingStrategy` benchmark design (D6); VM burst credits (load tests stay local)
+- **Carry-overs:** silence Mockito's dynamic-agent warning (W6·D1) · JetBrains student license · IntelliJ vulnerable-dependency scan · `webhook_events` cleanup job (W8) · consume `refund.processed`/`refund.failed` webhooks (stretch) · WireMock 4.x stable re-check (W8·D1)
+- **Schedule:** **~16 days ahead** (W4·D5 done Thu Nov 19 instead of Sat Dec 5); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
+- **Top risk:** `SeatLockingStrategy` must keep the DB guard and the existing races green under both strategies (D6); WebSockets across 2 instances (W5); VM burst credits (load tests stay local)
 
 ## Decisions Log (ADR summary)
 | # | Date | Decision | Why |
@@ -158,6 +158,10 @@
 | 140 | 2026-11-19 | Paid cancellation: `GET /bookings/{id}/refund-quote`, `POST /bookings/{id}/refund` (idempotent); read outside, then one tx: payment lock → existing refund? return → quote (409 `CANCELLATION_CLOSED`) → `BookingService.refundBooking` (booking lock, CONFIRMED → REFUNDED, seats BOOKED → AVAILABLE) → queue refund; non-paid → 409 `NOT_A_PAID_BOOKING` | Seats back on sale at once, money follows; concurrent cancels give one refund |
 | 141 | 2026-11-19 | **Workflow from W4·D5 (refines #116):** **2 combined tasks per day**, plan tasks grouped as feasible; same verify → one-line commit → push per task, PR + squash at day end; branches created with `git switch -c wN-dM origin/main` | User decision; fewer, bigger steps at the same pace; that branch command can't pick up a stale local branch (happened on W4·D2 and D4) |
 | 142 | 2026-11-19 | The day-end docs commit is pushed **before** the PR is merged; anything pushed to a merged branch is lost (W4·D3 progress had to be restored from `eccb27f`) | Squash merges only take what the branch had at merge time |
+| 143 | 2026-11-19 | **WireMock `wiremock-standalone` 3.13.2** (test scope) for Razorpay contract tests over real HTTP + a full-app test with `gateway=razorpay` against WireMock; shaded-Jackson CVEs accepted as test-only (ADR-001) | Real sockets, timeouts and faults that MockRestServiceServer can't simulate; standalone jar can't clash with Boot's Jetty/Jackson; 3.x stable over 4.x beta |
+| 144 | 2026-11-19 | **Razorpay client pinned to HTTP/1.1** (ADR-010 item 7) | JDK default HTTP/2 tried an h2c upgrade on plain http (WireMock reset the streams) and shares one multiplexed connection a provider-side close breaks (likely the live `I/O error … null`) |
+| 145 | 2026-11-19 | Webhook scenario suite: out-of-order events, late `payment.failed`, 10 concurrent identical deliveries, redelivery after our 500; sweeper race alternates 0 / 60 ms start so both outcomes run | Proves the at-least-once handling against what Razorpay actually does; closes the W4·D3 race carry-over |
+| 146 | 2026-11-19 | `infra/scripts/razorpay-webhook-tunnel.ps1`: cloudflared quick tunnel + one signed synthetic event (200 = tunnel + secret OK, 400 = secret mismatch) | Local webhook setup in one command; catches the secret mismatch seen in prod on W4·D3 before any payment |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -195,6 +199,10 @@
 | Paid cancellation race | 6 concurrent cancels of one confirmed booking → **1 refund row**, booking REFUNDED, every caller the same answer | `PaidCancellationIntegrationTest` | 2026-11-19 |
 | Real refund (test mode) | first Refund API call failed (stale connection, `I/O error … null`), retried after 30 s by the outbox → `rfnd_…` submitted, 25000 paise | local run, Razorpay test dashboard | 2026-11-19 |
 | Tests | 427 (403 + 24 new) | `mvnw verify` / CI | 2026-11-19 |
+| Razorpay read timeout (real socket) | 3 s slow stub vs 800 ms timeout → fails in < 2.5 s | `RazorpayWireMockTest` | 2026-11-19 |
+| Webhook dedupe under concurrency | 10 identical deliveries at once → **1 row, confirmed once, 10 × 200** | `RazorpayWebhookScenariosIntegrationTest` | 2026-11-19 |
+| Confirm vs sweeper | 6 runs: sweeper won 3 (immediate start), payments won 3 (60 ms later); always consistent | `PaymentConfirmRaceIntegrationTest` | 2026-11-19 |
+| Tests | 440 (427 + 13 new incl. repetitions) | `mvnw verify` / CI | 2026-11-19 |
 
 ## Accounts & Config (no secrets here, only where they live)
 | Item | Status | Where stored |
@@ -1065,3 +1073,30 @@
 - Releasing inventory on cancellation while keeping history; lock order across modules
 - Ops lessons: env-file interpolation, signature mismatches, reading provider delivery logs
 **Commit:** `feat(payment): refund outbox, refund policy and paid cancellation (W4·D4)` (squashed into one commit on `main`)
+
+### Week 4 · Day 5: Razorpay over real HTTP + webhook scenarios (planned Sat, Dec 5; done Thu, Nov 19, 2026)
+**Status:** ✅ Done (first day with 2 combined tasks)
+**Built:**
+- A: `wiremock-standalone` 3.13.2 (test); `RazorpayWireMockTest` (order with auth + body, real read timeout, connection reset / empty / malformed responses, 401 without the secret, refund lookup → create, dropped lookup retried and existing refund adopted with 0 POSTs); `RazorpayFlowIntegrationTest` (whole app with `gateway=razorpay` → WireMock: order + `keyId`, signed webhook confirm, cancel → Refund API, Razorpay 503 → our 503 with nothing stored); Razorpay client pinned to HTTP/1.1
+- B: `RazorpayWebhookScenariosIntegrationTest` (out of order, late failure after capture, 10 concurrent identical deliveries, 500 then retry); confirm-vs-sweeper race 6 runs alternating sweeper start; `infra/scripts/razorpay-webhook-tunnel.ps1`; deploy.md, CORRECTNESS section 1l, ADR-010 item 7, ADR-001 row
+- Tests: **440** (13 new incl. repetitions), 0 failures
+**Files created/changed:**
+- `backend\pom.xml` (WireMock); `payment\gateway\RazorpayGateway.java` (HTTP/1.1)
+- Tests: `payment\gateway\RazorpayWireMockTest`, `payment\api\{RazorpayFlowIntegrationTest, RazorpayWebhookScenariosIntegrationTest, PaymentConfirmRaceIntegrationTest}`, `payment\support\PaymentFixtures` (`track`)
+- `infra\scripts\razorpay-webhook-tunnel.ps1`; `docs\{deploy.md, CORRECTNESS.md}`, `docs\decisions\{ADR-010-payment-gateway.md, ADR-001-dependency-vulnerability-triage.md}`, `progress.md`
+**Decisions:**
+- See Decisions Log #143–#146
+**Metrics recorded:**
+- Real-socket timeout < 2.5 s for an 800 ms limit; 10 concurrent identical webhooks → 1 row; race branches 3/3; 440 tests
+**Problems & fixes:**
+- Static-import clash: WireMock `post(...)` and MockMvc `post(...)` → MockMvc calls fully qualified
+- WireMock tests: `RST_STREAM: Stream cancelled`, `connection was aborted`, full flow 503 → JDK HttpClient's default HTTP/2 (h2c upgrade on plain http) → pinned to HTTP/1.1 (#144)
+**Carry-over:**
+- `webhook_events` cleanup (W8); refund status webhooks (stretch); WireMock 4.x re-check (W8·D1); Mockito agent warning (W6·D1); JetBrains license; IntelliJ dependency scan
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- Contract testing third-party APIs: mock server vs mocked client, fault injection (resets, empty, malformed, slow), response templating
+- HTTP/1.1 vs HTTP/2 for API clients: h2c upgrade, multiplexed connections, stale connection failures
+- Testing at-least-once delivery: ordering, duplicates under concurrency, retry after failure with transactional claims
+- Designing races to cover every branch; asserting invariants rather than a single winner
+- Developer tooling for webhooks: tunnels, synthetic signed events, secret mismatch detection
+**Commit:** `test(payment): Razorpay over real HTTP, webhook scenarios and tunnel check (W4·D5)` (squashed into one commit on `main`)

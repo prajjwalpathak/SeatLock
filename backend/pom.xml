@@ -22,6 +22,8 @@
 		<springdoc.version>3.2.0</springdoc.version>
 		<jacoco.version>0.8.15</jacoco.version>
 		<bucket4j.version>8.22.0</bucket4j.version>
+		<!-- Test only. The standalone jar shades its own Jetty/Jackson, so it can't clash with Boot's versions. -->
+		<wiremock.version>3.13.2</wiremock.version>
 	</properties>
 	<dependencies>
 		<!-- Rate limiting: token buckets stored in Redis (shared by all app instances). lettuce-core is
@@ -132,6 +134,13 @@
 		<dependency>
 			<groupId>org.testcontainers</groupId>
 			<artifactId>testcontainers-junit-jupiter</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<!-- Razorpay contract tests over real HTTP (W4·D5) -->
+		<dependency>
+			<groupId>org.wiremock</groupId>
+			<artifactId>wiremock-standalone</artifactId>
+			<version>${wiremock.version}</version>
 			<scope>test</scope>
 		</dependency>
 		<dependency>

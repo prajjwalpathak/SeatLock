@@ -121,12 +121,29 @@ class PaymentConfirmRaceIntegrationTest {
                 Integer.class)).as("every distinct delivery recorded once").isEqualTo(WEBHOOKS);
     }
 
-    @RepeatedTest(5)
-    void aPaymentRacingTheSweeperEitherConfirmsOrIsLostNeverHalfway() throws Exception {
+    /** Which way each sweeper race went; logged at the end so both branches are visibly exercised. */
+    private static final List<String> SWEEPER_RACE_RESULTS = java.util.Collections.synchronizedList(new java.util.ArrayList<>());
+
+    @org.junit.jupiter.api.AfterAll
+    static void reportBranches() {
+        log.info("confirm vs sweeper outcomes across repetitions: {}", SWEEPER_RACE_RESULTS);
+    }
+
+    @RepeatedTest(6)
+    void aPaymentRacingTheSweeperEitherConfirmsOrIsLostNeverHalfway(org.junit.jupiter.api.RepetitionInfo rep)
+            throws Exception {
         jdbc.update("UPDATE bookings SET expires_at = now() - interval '1 second' WHERE public_id = ?::uuid", bookingId);
         AtomicBoolean racing = new AtomicBoolean(true);
         AtomicInteger expired = new AtomicInteger();
+        // Odd repetitions: the sweeper starts at once (it tends to win). Even ones: it starts a little late, so the
+        // payments usually win. Both branches get exercised; the assertions below hold whichever way it goes.
+        long sweeperDelayMs = rep.getCurrentRepetition() % 2 == 0 ? 60 : 0;
         CompletableFuture<Void> sweeper = CompletableFuture.runAsync(() -> {
+            try {
+                Thread.sleep(sweeperDelayMs);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
             while (racing.get()) {
                 expired.addAndGet(expiry.expireBatch(Instant.now(), 100));
             }
@@ -141,6 +158,7 @@ class PaymentConfirmRaceIntegrationTest {
         assertThat(result.statusCounts()).isEqualTo(Map.of(200, (long) CALLBACKS + WEBHOOKS));
         String status = jdbc.queryForObject("SELECT status FROM bookings WHERE public_id = ?::uuid", String.class, bookingId);
         List<String> outcomes = allOutcomes(result);
+        SWEEPER_RACE_RESULTS.add(status + "@" + sweeperDelayMs + "ms");
         // (expired counts every booking the sweeper expired, including leftovers of other tests, so only >= 1.)
         if (status.equals("CONFIRMED")) {
             assertThat(outcomes.stream().filter("CONFIRMED"::equals).count()).isEqualTo(1);
