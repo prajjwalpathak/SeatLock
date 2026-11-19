@@ -1,6 +1,5 @@
 package com.seatlock.booking.hold;
 
-import com.seatlock.catalog.application.SeatHoldLookup;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
@@ -15,7 +14,7 @@ import org.springframework.stereotype.Component;
  * Errors (Redis down, timeout) propagate as {@code DataAccessException}; the caller decides how to degrade.
  */
 @Component
-public class SeatHoldReader implements SeatHoldLookup {
+public class SeatHoldReader {
 
     private final StringRedisTemplate redis;
 
@@ -23,7 +22,6 @@ public class SeatHoldReader implements SeatHoldLookup {
         this.redis = redis;
     }
 
-    @Override
     public Set<Long> heldSeatIds(long showId, Collection<Long> seatIds) {
         if (seatIds.isEmpty()) {
             return Set.of();

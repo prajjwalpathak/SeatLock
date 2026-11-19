@@ -4,13 +4,17 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.RedisScript;
+import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /**
@@ -19,7 +23,8 @@ import org.springframework.stereotype.Component;
  * Spring runs scripts with EVALSHA and falls back to EVAL when Redis doesn't have them cached yet.
  */
 @Component
-public class RedisHoldStore {
+@ConditionalOnProperty(name = "seatlock.holds.strategy", havingValue = "redis-hold", matchIfMissing = true)
+public class RedisHoldStore implements SeatLockingStrategy {
 
     @SuppressWarnings("rawtypes")
     private static final RedisScript<List> HOLD_SEATS =
@@ -28,12 +33,25 @@ public class RedisHoldStore {
             RedisScript.of(new ClassPathResource("redis/release_seats.lua"), Long.class);
 
     private final StringRedisTemplate redis;
+    private final SeatHoldReader reader;
 
     public RedisHoldStore(StringRedisTemplate redis) {
         this.redis = redis;
+        this.reader = new SeatHoldReader(redis);
+        LoggerFactory.getLogger(RedisHoldStore.class).info("Seat locking strategy: redis-hold");
     }
 
-    /** All or nothing: either every seat is held under {@code holdId}, or nothing changes. */
+    @Override
+    public String name() {
+        return "redis-hold";
+    }
+
+    @Override
+    public Set<Long> heldSeatIds(long showId, Collection<Long> seatIds) {
+        return reader.heldSeatIds(showId, seatIds);
+    }
+
+    @Override
     public HoldAttempt tryHold(String holdId, long userId, long showId, List<Long> seatIds,
                                Duration ttl, Instant expiresAt) {
         if (seatIds.isEmpty()) {
@@ -60,7 +78,7 @@ public class RedisHoldStore {
         };
     }
 
-    /** The live hold, or empty if it never existed or has expired. */
+    @Override
     public Optional<HoldRecord> find(String holdId) {
         Map<Object, Object> fields = redis.opsForHash().entries(HoldKeys.recordKey(holdId));
         if (fields.isEmpty()) {
@@ -78,6 +96,7 @@ public class RedisHoldStore {
     }
 
     /** Deletes the hold's keys that still belong to it; returns how many seats were released. */
+    @Override
     public int release(HoldRecord hold) {
         List<String> keys = keysFor(hold.showId(), hold.seatIds(), hold.userId(), hold.holdId());
         Long released = redis.execute(RELEASE_SEATS, keys, hold.holdId());

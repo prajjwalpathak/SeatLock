@@ -68,6 +68,7 @@ seatlock:
   holds:
     ttl: 8m                      # how long seats stay held (decision #83); all hold keys share this TTL
     max-seats: 6                 # seats per hold; the UI uses the same cap
+    strategy: ${SEATLOCK_HOLDS_STRATEGY:redis-hold}   # SeatLockingStrategy: redis-hold (Lua + TTL) | optimistic (Postgres upserts)
   rate-limit:
     enabled: true
     policies:

@@ -43,11 +43,11 @@ public class HoldService {
             Pattern.compile("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
 
     private final ShowCatalogService catalog;
-    private final RedisHoldStore store;
+    private final SeatLockingStrategy store;
     private final HoldProperties props;
     private final Clock clock;
 
-    public HoldService(ShowCatalogService catalog, RedisHoldStore store, HoldProperties props, Clock clock) {
+    public HoldService(ShowCatalogService catalog, SeatLockingStrategy store, HoldProperties props, Clock clock) {
         this.catalog = catalog;
         this.store = store;
         this.props = props;
