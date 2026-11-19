@@ -3,15 +3,15 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 6 · Day 1 (not started, planned Tue Dec 15): unit-test push (state machine, policy engine, strategies), JaCoCo ≥ 80 % gate in CI, as 2 combined tasks. Branch `w6-d1` (create with `git switch -c w6-d1 origin/main` after #18 is squash-merged; its first commit records the #18 merge deploy)
-- **Last completed:** Week 5 · Day 6: failure drills (F8: instance loss, crash mid-booking, Redis + Postgres restarts, browser reconnect) with two fixes found by them (fail fast with 503 on DB outage; own scheduler for jobs), first rolling-deploy run on prod, Week 5 review (planned Mon Dec 14, done Fri Nov 20)
+- **Current day:** Week 6 · Day 2 (not started, planned Wed Dec 16): custom Micrometer metrics (oversells, hold conflicts, cache hits), Prometheus + Grafana locally and in prod, dashboard JSON committed, as 2 combined tasks. Branch `w6-d2` (create with `git switch -c w6-d2 origin/main` after #20 is squash-merged)
+- **Last completed:** Week 6 · Day 1: unit tests for the biggest branch gaps (branches 77.1 → 81.2 %), Mockito as a `-javaagent` (warning gone), JaCoCo gate in CI (≥ 85 % lines, ≥ 80 % branches); W5·D6 docs restored after the #19 branch update (F9) (planned Tue Dec 15, done Fri Nov 20)
 - **Live URLs:** Frontend https://seatlock-nu.vercel.app · Backend https://seatlock-prajjwal.duckdns.org · Swagger https://seatlock-prajjwal.duckdns.org/swagger-ui.html · Version https://seatlock-prajjwal.duckdns.org/api/v1/system/version · Grafana —
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public) · CI + Deploy badges in README · `main` protected (ruleset `protect-main`)
 - **Hosting:** Azure VM `seatlock-vm` (India South Central, B2als_v2 x64) + Vercel; images from GHCR (ADR-005, #62, #71–#74, #167); **2 app instances** since W5·D5; decommission after ~2–3 months
-- **Git workflow (from W4·D5):** **2 combined tasks per day** (plan tasks grouped as feasible); each = changes → one verify/test block → one one-line commit + push on the daily branch; day end → PR on GitHub → squash-merge when CI is green; next branch with `git switch -c wN-dM origin/main`; never push to a branch after its PR is merged (#9, #75, #116, #141, #142)
-- **Carry-overs:** duplicate `Strict-Transport-Security` (Spring + Nginx) → W8·D1 · same-site frontend/API for privacy blockers (F7) → W8 stretch · Mockito agent warning (W6·D1) · JetBrains license · IntelliJ dependency scan · refund status webhooks (stretch) · WireMock 4.x re-check (W8·D1)
-- **Schedule:** **~24 days ahead** (W5·D6 done Fri Nov 20 instead of Mon Dec 14); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
-- **Top risk:** W6 load tests on the laptop (k6 numbers vs real prod; VM burst credits stay untouched); JaCoCo gate may need tests for thin branches
+- **Git workflow (from W4·D5):** **2 combined tasks per day** (plan tasks grouped as feasible); each = changes → one verify/test block → one one-line commit + push on the daily branch; day end → PR on GitHub → squash-merge when CI is green; next branch with `git switch -c wN-dM origin/main`; never push to a branch after its PR is merged; **never use GitHub's "Update branch" / web conflict editor** (#9, #75, #116, #141, #142, #176)
+- **Carry-overs:** duplicate `Strict-Transport-Security` (Spring + Nginx) → W8·D1 · same-site frontend/API for privacy blockers (F7) → W8 stretch · JetBrains license · IntelliJ dependency scan · refund status webhooks (stretch) · WireMock 4.x re-check (W8·D1)
+- **Schedule:** **~25 days ahead** (W6·D1 done Fri Nov 20 instead of Tue Dec 15); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
+- **Top risk:** Prometheus + Grafana RAM on the 4 GB VM next to 2 app instances (W6·D2); k6 numbers are laptop-relative (W6·D3)
 
 ## Decisions Log (ADR summary)
 | # | Date | Decision | Why |
@@ -191,6 +191,10 @@
 | 173 | 2026-11-20 | `@Scheduled` jobs on their **own** `ThreadPoolTaskScheduler` (2 threads, `scheduling-N`, 10 s graceful wait) via `SchedulingConfigurer`, not a bean | Drill logs showed `RefundWorker` on `MessageBroker-2`: the broker's TaskScheduler bean makes Boot skip its own, so slow jobs could delay STOMP heart-beats; a second scheduler bean would make by-type lookups ambiguous |
 | 174 | 2026-11-20 | Repeatable checks as scripts: `load-tests/failure-drills.ps1` (instance / booking / redis / postgres, 200 ms probe through the LB, pre-flight health wait) and `load-tests/deploy-watch.ps1` (live site during deploys) | Same drills re-run before W6 load tests and after infra changes; numbers instead of impressions |
 | 175 | 2026-11-20 | A manual redeploy of the **same** tag only proves the health-gated loop (Compose leaves running containers alone); the real "zero downtime" proof is the deploy of a new commit (the #18 merge), watched by `deploy-watch.ps1` | Avoids claiming a replacement that didn't happen |
+| 176 | 2026-11-20 | **Never use GitHub's "Update branch" or the web conflict editor on a daily PR**; conflicts → local `git rebase --onto origin/main <last merged commit>` + `--force-with-lease`; day-end docs always on the branch before its merge, never as a separate PR from it (FAILURES F9, extends #110/#142) | "Update branch" merged `main` into `w5-d6` resolving in favour of `main` and dropped the W5·D6 docs from the #19 squash |
+| 177 | 2026-11-20 | Coverage push targets **missed branches in logic classes** with plain unit tests (no Spring/containers): `BaseEntity` equality, `RateLimitInterceptor` decision order, STOMP frame rules, My bookings assembly, lifecycle/policy edge cases; wiring (`SchedulingConfig`) excluded with a reason | Lines were already 93.6 %; branches (77.1 %) were the gap; tests that check decisions, not numbers |
+| 178 | 2026-11-20 | **Mockito as a real `-javaagent`** (`maven-dependency-plugin:properties` → `${org.mockito:mockito-core:jar}` in surefire `argLine` after `@{argLine}` for JaCoCo; `-Xshare:off`; empty `argLine` default) | Mockito's documented fix for the JDK "dynamically loaded agent" warning (carry-over since W3·D5); keeps JaCoCo's agent |
+| 179 | 2026-11-20 | **JaCoCo gate** (`jacoco:check` in `verify`, after `report`): BUNDLE **lines ≥ 85 %, branches ≥ 80 %**; CI summary prints the gate; floors only go up | Lines 94.0 % (9 pt headroom), branches 81.2 % (the plan's 80 % target, little headroom on purpose: untested branches in new code fail CI); per-class floors rejected (would force tests for trivial records) |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -252,6 +256,8 @@
 | Browser reconnect after its instance stops | Live again on the other instance in **< 1 s** | Chrome via the local LB | 2026-11-20 |
 | Prod rolling-deploy run (same tag) | 917/917 requests 200, both instances on the revision, smoke test passed (containers not recreated: same tag) | `deploy-watch.ps1` + Actions log | 2026-11-20 |
 | Tests | 493 (492 + 1 new) | `mvnw verify` | 2026-11-20 |
+| Test coverage (JaCoCo) | **94.0 % lines** (2580/2744), **81.2 % branches** (607/748, was 77.1 %), 94.2 % instructions | `mvnw verify` (`jacoco.csv`) | 2026-11-20 |
+| Tests | 513 (493 + 20 new) | `mvnw verify` / CI | 2026-11-20 |
 | **Prod rolling deploy, new revision (#18 merge)** | **2198/2198 requests 200, 0 failures**; app-1 switched at 03:01:53, app-2 at 03:02:11 (18 s later, after app-1 was healthy); slowest request 742 ms | `deploy-watch.ps1 -Minutes 12` during the CI deploy | 2026-11-20 |
 | Prod job threads after #18 | thread dump of app-1: `scheduling-1`, `scheduling-2` present; `MessageBroker-N` lines only from `WebSocketMessageBrokerStats` | `docker kill -s QUIT` + logs | 2026-11-20 |
 
@@ -1358,3 +1364,31 @@
 - ADRs: 014 realtime seat events (with W5·D2/D3 updates); ADR-005 hosting update (2 instances, rolling deploy). FAILURES F6 (STOMP ERROR frame race), F7 (cutover 502 + Brave Shields), F8 (drills)
 - Lessons: observe before changing (access log + clean browser found F7 in minutes after guesses didn't); Compose only recreates on config changes it can see; drills found two production issues tests didn't (30 s pool wait, shared scheduler); a "deploy" that recreated nothing proves nothing
 - Risks for Week 6: JaCoCo ≥ 80 % gate (branch coverage was ~73 % on W2); k6 runs on the laptop only (numbers are relative, not prod capacity); benchmark noise (repeat runs, medians, #61)
+
+### Week 6 · Day 1: Unit-test push + JaCoCo gate (planned Tue, Dec 15; done Fri, Nov 20, 2026)
+**Status:** ✅ Done
+**Built:**
+- Restored the W5·D6 progress entry, Week 5 review and FAILURES F8 dropped by #19's branch update; `frontend/.env.example` back to 8080; recorded the first zero-downtime rolling deploy (2198/2198) and prod job threads; FAILURES F9
+- A: `BaseEntityTest`, `RateLimitInterceptorTest`, `StompAuthChannelInterceptorTest`, `MyBookingsServiceTest`; `BookingLifecycleTest` (HELD/PAYMENT_PENDING live) and `RefundPolicyEngineTest` (null tiers) extended; Mockito `-javaagent` via `maven-dependency-plugin` + surefire `argLine`
+- B: JaCoCo `coverage-gate` (lines ≥ 85 %, branches ≥ 80 %), `SchedulingConfig` excluded; CI summary shows the gate; README tests/coverage line
+- Tests: **513** (20 new), 0 failures; no Mockito/CDS warnings
+**Files created/changed:**
+- `backend\pom.xml`; `.github\workflows\ci.yml`; `README.md`
+- Tests: `common\persistence\BaseEntityTest`, `common\ratelimit\RateLimitInterceptorTest`, `realtime\StompAuthChannelInterceptorTest`, `booking\application\MyBookingsServiceTest`, `booking\domain\BookingLifecycleTest`, `payment\application\RefundPolicyEngineTest`
+- `docs\FAILURES.md` (F9), `progress.md`, `frontend\.env.example`
+**Decisions:**
+- See Decisions Log #176–#179
+**Metrics recorded:**
+- Coverage 94.0 % lines / 81.2 % branches; 513 tests (see Metrics table)
+**Problems & fixes:**
+- `git switch -c w6-d1` failed silently, so the next commit landed on the merged `w5-d6`; `git diff origin/main w5-d6` then showed #19 had shipped without the day's docs (branch update, F9) → restored onto `w6-d1`
+- `frontend/.env.example` had been set to the LB port during the drills (meant for `.env.local`) → reverted
+**Carry-over:**
+- None new
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- Line vs branch vs instruction coverage; what a coverage gate is for; choosing floors (headroom vs ratchet); bundle vs per-class rules
+- Unit vs integration tests: testing decisions in isolation (mocks at module boundaries), what not to unit test (wiring)
+- JPA entity equality and hash codes (unsaved entities, proxies)
+- Java agents: JaCoCo instrumentation, Mockito's inline mock maker, JDK 21+ dynamic-agent restrictions
+- Git: why merging `main` into a branch before a squash can silently drop work
+**Commit:** `test: branch-gap unit tests, Mockito agent, JaCoCo gate; W5·D6 docs restored (W6·D1)` (squashed into one commit on `main`)
