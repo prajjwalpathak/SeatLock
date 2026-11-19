@@ -86,6 +86,8 @@ class BookingLifecycleTest {
 
     @Test
     void liveBookingsKeepTheirSeatsAndEndedOnesReleaseThem() {
+        assertThat(bookingIn(BookingStatus.HELD).isLive()).isTrue();
+        assertThat(bookingIn(BookingStatus.PAYMENT_PENDING).isLive()).isTrue();
         Booking confirmed = bookingIn(BookingStatus.CONFIRMED);
         assertThat(confirmed.isLive()).isTrue();
         assertThat(confirmed.getSeats()).allMatch(BookingSeat::isActive);

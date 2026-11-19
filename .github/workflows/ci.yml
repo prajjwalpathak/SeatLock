@@ -33,13 +33,25 @@ jobs:
         with:
           distribution: temurin
           java-version: '25'
-          cache: maven              # caches ~/.m2 keyed on pom.xml
+
+      # Our own cache instead of setup-java's "cache: maven": that one is keyed only on the pom hash, so every pom
+      # change started from an empty ~/.m2 and re-downloaded everything from Maven Central, which then answered 429
+      # (rate limit on shared runner IPs, W6·D1). restore-keys falls back to the newest older cache: only new or
+      # changed artifacts are downloaded.
+      - name: Cache Maven repository
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: maven-${{ runner.os }}-${{ hashFiles('backend/pom.xml') }}
+          restore-keys: |
+            maven-${{ runner.os }}-
 
       # Testcontainers needs Docker: GitHub's ubuntu runners have it preinstalled.
       - name: Maven verify
         run: |
           chmod +x mvnw
-          ./mvnw -B -ntp verify
+          # retries with backoff if Central rate-limits (429) or blips (5xx) while downloading
+          ./mvnw -B -ntp -Daether.connector.http.retryHandler.count=5 -Daether.connector.http.retryHandler.interval=10000 verify
 
       - name: Coverage summary
         if: always()
@@ -49,6 +61,7 @@ jobs:
             awk -F, 'NR>1{im+=$4;ic+=$5;bm+=$6;bc+=$7;lm+=$8;lc+=$9}
               END{printf "### JaCoCo coverage\n| Instructions | Lines | Branches |\n|---|---|---|\n| %.1f%% | %.1f%% | %.1f%% |\n",
                   100*ic/(im+ic), 100*lc/(lm+lc), 100*bc/(bm+bc)}' "$csv" >> "$GITHUB_STEP_SUMMARY"
+            echo "Gate (pom.xml, jacoco:check): lines >= 85 %, branches >= 80 %; the build fails below." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Upload coverage report

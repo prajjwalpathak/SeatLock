@@ -26,6 +26,8 @@ and **nobody ever gets the same seat twice**. Includes an AI Seat Finder and Ref
 - **Two instances in production** behind Nginx (round robin, WebSocket upgrade), zero-downtime rolling deploys with
   automatic rollback; failure drills (instance loss, crash mid-booking, Redis/Postgres restarts) measured in FAILURES F8
 - **My bookings** page for signed-in users
+- **Tests**: 513 (unit, Testcontainers integration, 200-user races over real HTTP, WireMock contract tests);
+  coverage **94 % lines / 81 % branches**, enforced in CI by a JaCoCo gate (≥ 85 % lines, ≥ 80 % branches)
 - Decisions: [docs/decisions](docs/decisions/README.md) · correctness proofs: [docs/CORRECTNESS.md](docs/CORRECTNESS.md) ·
   failure drills: [docs/FAILURES.md](docs/FAILURES.md)
 
