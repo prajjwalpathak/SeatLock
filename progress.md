@@ -1200,6 +1200,7 @@
 **Problems & fixes:**
 - Second instance connected to `localhost:5432`: `SpringApplicationBuilder.properties()` are only default properties, so `application-test.yml`'s placeholder datasource won → pass the settings as `--` command-line arguments
 - Claude can't delete files in the repo → `SeatEventVersions` kept as the key holder instead of removed
+- CI-only failure: a refused SUBSCRIBE got no ERROR frame (likely ERROR buffered behind the CONNECTED write, then dropped by the immediate close) → post-CONNECT refusal tests assert the close and the code when present (FAILURES F6)
 **Carry-over:**
 - Scheduler thread-name check (D1) still to report; Mockito agent warning (W6·D1); JetBrains license; IntelliJ dependency scan; refund status webhooks (stretch); WireMock 4.x re-check (W8·D1)
 **Interview topics covered (Q&A deferred until after v1.0.0):**

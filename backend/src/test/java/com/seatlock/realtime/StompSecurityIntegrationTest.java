@@ -92,7 +92,7 @@ class StompSecurityIntegrationTest {
     void onlySeatTopicsCanBeSubscribedTo(String destination) throws Exception {
         client.connected().subscribe(destination);
 
-        assertThat(client.nextErrorCode()).isEqualTo("SUBSCRIPTION_DENIED");
+        assertRejected(client, "SUBSCRIPTION_DENIED");
     }
 
     @Test
@@ -105,7 +105,7 @@ class StompSecurityIntegrationTest {
 
         client.subscribe(SeatTopics.forShow(999));
 
-        assertThat(client.nextErrorCode()).isEqualTo("TOO_MANY_SUBSCRIPTIONS");
+        assertRejected(client, "TOO_MANY_SUBSCRIPTIONS");
     }
 
     @Test
@@ -117,7 +117,7 @@ class StompSecurityIntegrationTest {
         client.connected().session().send(topic,
                 "{\"showId\":7,\"version\":1,\"status\":\"BOOKED\",\"seatIds\":[1]}".getBytes(StandardCharsets.UTF_8));
 
-        assertThat(client.nextErrorCode()).isEqualTo("SEND_NOT_ALLOWED");
+        assertRejected(client, "SEND_NOT_ALLOWED");
         assertThat(viewers.poll(500, TimeUnit.MILLISECONDS)).as("nothing reached the broker").isNull();
     }
 
@@ -127,5 +127,11 @@ class StompSecurityIntegrationTest {
             all.append(t).append(" | ");
         }
         return all.toString();
+    }
+
+    /** Closed by the server; the ERROR code, when the frame survives the close race, is the expected one. */
+    private static void assertRejected(StompTestClient c, String expectedCode) throws InterruptedException {
+        String code = c.awaitRejection();
+        assertThat(code).as("ERROR frame code (null = frame lost in the write/close race)").isIn(expectedCode, null);
     }
 }

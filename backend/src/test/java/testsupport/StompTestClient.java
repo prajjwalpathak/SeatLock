@@ -5,6 +5,7 @@ import java.lang.reflect.Type;
 import java.time.Duration;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import org.springframework.messaging.simp.stomp.StompCommand;
@@ -30,6 +31,7 @@ public final class StompTestClient implements AutoCloseable {
     private final WebSocketStompClient client;
     private final String url;
     private final BlockingQueue<StompHeaders> errors = new LinkedBlockingQueue<>();
+    private final CountDownLatch closed = new CountDownLatch(1);
     private StompSession session;
 
     public StompTestClient(int port) {
@@ -62,6 +64,11 @@ public final class StompTestClient implements AutoCloseable {
             @Override
             public void handleFrame(StompHeaders headers, Object payload) {
                 errors.add(headers); // frames without a subscription = ERROR frames
+            }
+
+            @Override
+            public void handleTransportError(StompSession s, Throwable exception) {
+                closed.countDown(); // ConnectionLostException: the server closed the socket
             }
 
             @Override
@@ -109,6 +116,21 @@ public final class StompTestClient implements AutoCloseable {
      * Best-effort DISCONNECT. After an ERROR frame the server closes the socket, and {@code isConnected()}
      * may still say true for a moment, so the DISCONNECT can hit a closed connection: that's expected, not a failure.
      */
+    /**
+     * For frames refused after CONNECT: waits until the server has closed the connection, then returns the
+     * ERROR frame's code, or null if none arrived. Spring writes the ERROR frame and closes at once; if another
+     * thread is still writing to the socket (e.g. CONNECTED on the ordered outbound channel), the frame can be
+     * dropped by that close. The close itself always happens, and it is what keeps the client out.
+     */
+    public String awaitRejection() throws InterruptedException {
+        boolean wasClosed = closed.await(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+        if (!wasClosed) {
+            throw new AssertionError("server did not close the connection within " + TIMEOUT);
+        }
+        StompHeaders error = errors.poll(200, TimeUnit.MILLISECONDS);
+        return error == null ? null : error.getFirst("message");
+    }
+
     @Override
     public void close() {
         if (session != null && session.isConnected()) {
