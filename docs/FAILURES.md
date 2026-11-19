@@ -11,6 +11,7 @@ Each drill can be repeated with the commands shown.
 | F4 | Squash merge reverted a day's docs | stash conflict | diff the branch head against the merged result after every merge |
 | F5 | Locked re-read clashed with an unlocked copy (500s) | 20-request race test | first read of a row in a locking transaction must be the locked one |
 | F6 | STOMP ERROR frame lost before the close | CI-only flaky test | after CONNECT, rely on the close, not on the ERROR frame |
+| F7 | Prod 502s after the 2-instance cutover; then "WebSocket failed" in one browser | `curl` loop on the VM; Nginx access log; clean built-in browser | changed bind-mounted config needs `--force-recreate`; reproduce in a clean browser before changing the server |
 | (W4·D3) | Webhook secret with `$` cut by Compose interpolation | prod delivery logs | no `$` in env files; hex secrets; check compose warnings |
 | (W4·D5) | HTTP/2 h2c upgrade / stream resets to the provider | WireMock over real HTTP | pin provider clients to HTTP/1.1 |
 
@@ -164,3 +165,20 @@ nothing changes between the two reads, which is why only the race exposed it.
   forwarded SEND, connection closed). `INVALID_TOKEN` on CONNECT is not affected (nothing was written before it).
 - **Fix:** tests for post-CONNECT refusals assert that the server closes the connection, and that the code is the expected one
   whenever the ERROR frame arrives (`StompTestClient.awaitRejection`). Revisit if real clients need reliable reasons.
+
+## F7. Cutover 502s and a browser-only WebSocket failure (W5·D5, 2026-11-19)
+- **502 after `dc up -d --remove-orphans`:** the old `app` container was removed and `app-1`/`app-2` came up healthy, but
+  every request returned 502. The Nginx container ID was unchanged: Compose doesn't recreate a service when only a
+  bind-mounted file (the template) or `depends_on` changes, so Nginx still proxied to `app:8080`.
+  Fix: `dc up -d --force-recreate --no-deps nginx` (now in deploy.md section 3b). Later deploys don't touch Nginx
+  (`resolve` re-resolves app-1/app-2).
+- **"WebSocket connection to wss://…/ws failed" with no reason**, provisional headers only, in the user's browser and phone,
+  while `curl` (also with browser-identical STOMP subprotocol and compression headers) got `101`. Nginx's access log showed
+  only the curl handshakes: the browser requests never reached the VM. A clean browser on the same machine and network
+  (the Claude app's built-in browser) connected in 198 ms, showed **Live**, and reflected a hold made through the API within 2 s.
+  Cause: **Brave Shields** blocking the cross-site WebSocket from `seatlock-nu.vercel.app` to `seatlock-prajjwal.duckdns.org`.
+- **Impact:** visitors whose browser blocks it get no live updates (badge stays "Connecting…"); the map still updates on
+  focus, Refresh and after their own actions. Lasting fix (stretch, W8): serve frontend and API under one site
+  (e.g. `app.` + `api.` subdomains of one domain) so the socket isn't cross-site.
+- **Lesson:** a symptom seen only in browsers is checked in a clean browser and against the server's access log before
+  any server change.

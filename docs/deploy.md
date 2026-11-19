@@ -120,14 +120,16 @@ so after the W5·D5 PR is merged and its deploy is green:
 
 ```powershell
 cd D:\Prajjwal\Code\SeatLock
-tar -czf $env:TEMP\seatlock-infra.tgz infra
+tar --exclude=.env.prod -czf $env:TEMP\seatlock-infra.tgz infra
 scp -i $HOME\.ssh\azure_seatlock $env:TEMP\seatlock-infra.tgz ubuntu@seatlock-prajjwal.duckdns.org:~/
 ```
 ```bash
 # Run on the Azure VM (via ssh)
-cd ~/seatlock && cp infra/.env.prod ~/env.prod.bak                       # .env.prod is not in the archive; keep a copy anyway
+cd ~/seatlock && alias dc='docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml'
+cp -r infra ~/infra.bak-w5d5 && cp infra/.env.prod ~/env.prod.bak                       # .env.prod is not in the archive; keep a copy anyway
 tar -xzf ~/seatlock-infra.tgz -C ~/seatlock && chmod +x infra/scripts/*.sh
-dc up -d --remove-orphans          # stops the old "app", starts app-1 + app-2, recreates nginx (~1–2 min of 502s once)
+dc up -d --remove-orphans          # stops the old "app", starts app-1 + app-2 (~1–2 min of 502s once)
+dc up -d --force-recreate --no-deps nginx   # REQUIRED: Compose doesn't recreate nginx for a changed template file (F7)
 dc ps                              # app-1, app-2 healthy; nginx up
 for i in 1 2 3 4; do curl -s https://seatlock-prajjwal.duckdns.org/api/v1/system/version; echo; done   # alternates
 free -h && docker stats --no-stream
