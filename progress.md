@@ -3,15 +3,15 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 5 · Day 4 (not started, planned Fri Dec 11): 2 app instances locally behind Nginx (Docker Compose), verify cross-instance updates, as 2 combined tasks. Branch `w5-d4` (create with `git switch -c w5-d4 origin/main` after #15 is squash-merged)
-- **Last completed:** Week 5 · Day 3: live seat map in the browser (`@stomp/stompjs` shared connection, versioned cache updates, resync on (re)subscribe, gap and Redis-restart detection, client-side hold expiry, Live badge) (planned Thu Dec 10, done Thu Nov 19)
+- **Current day:** Week 5 · Day 5 (not started, planned Sat Dec 12): prod with 2 app instances + Nginx WebSocket upgrade, "My bookings" page, as 2 combined tasks. Branch `w5-d5` (create with `git switch -c w5-d5 origin/main` after #16 is squash-merged)
+- **Last completed:** Week 5 · Day 4: `app-1` + `app-2` behind a local Nginx LB (`infra/docker-compose.scale.yml`, `infra/nginx/local/seatlock-lb.conf`), `X-SeatLock-Instance` + `/system/version.instance`, `load-tests/cross-instance-check.ps1`, `docs/local-scale.md` (planned Fri Dec 11, done Thu Nov 19)
 - **Live URLs:** Frontend https://seatlock-nu.vercel.app · Backend https://seatlock-prajjwal.duckdns.org · Swagger https://seatlock-prajjwal.duckdns.org/swagger-ui.html · Version https://seatlock-prajjwal.duckdns.org/api/v1/system/version · Grafana —
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public) · CI + Deploy badges in README · `main` protected (ruleset `protect-main`)
 - **Hosting:** Azure VM `seatlock-vm` (India South Central, B2als_v2 x64) + Vercel; images from GHCR (ADR-005, #62, #71–#74); decommission after ~2–3 months
 - **Git workflow (from W4·D5):** **2 combined tasks per day** (plan tasks grouped as feasible); each = changes → one verify/test block → one one-line commit + push on the daily branch; day end → PR on GitHub → squash-merge when CI is green; next branch with `git switch -c wN-dM origin/main`; never push to a branch after its PR is merged (#9, #75, #116, #141, #142)
-- **Carry-overs:** W5·D3 manual two-browser checks (live hold, silent expiry with `SEATLOCK_HOLDS_TTL=PT1M`, Redis restart, reconnect, background tab) → run on W5·D4 against the 2-instance stack · confirm `@Scheduled` jobs log on `scheduling-N` threads, not `MessageBroker-N` · silence Mockito's dynamic-agent warning (W6·D1) · JetBrains student license · IntelliJ vulnerable-dependency scan · consume `refund.processed`/`refund.failed` webhooks (stretch) · WireMock 4.x stable re-check (W8·D1) · prod log check after #12–#15 deploy
-- **Schedule:** **~21 days ahead** (W5·D3 done Thu Nov 19 instead of Thu Dec 10); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
-- **Top risk:** Nginx WebSocket upgrade + 2 app containers within the VM's 4 GB (W5·D4/D5); VM burst credits (load tests stay local)
+- **Carry-overs:** W5·D4 results to record in `docs/local-scale.md` (cross-instance script both directions, browser kill/restart drill) · W5·D3 manual checks (silent hold expiry with `SEATLOCK_HOLDS_TTL=PT1M`, Redis restart, background tab) · both fold into W5·D6 failure drills if not done earlier · confirm `@Scheduled` jobs log on `scheduling-N` threads · Mockito agent warning (W6·D1) · JetBrains license · IntelliJ dependency scan · refund status webhooks (stretch) · WireMock 4.x re-check (W8·D1) · prod log check after #12–#16 deploy
+- **Schedule:** **~22 days ahead** (W5·D4 done Thu Nov 19 instead of Fri Dec 11); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
+- **Top risk:** prod RAM for 2 app containers + Postgres + Redis + Nginx on 4 GB (local idle ~385 MiB per app; limits 2×1200 + 768 + 256 MB), Nginx WebSocket upgrade in prod (W5·D5); VM burst credits (load tests stay local)
 
 ## Decisions Log (ADR summary)
 | # | Date | Decision | Why |
@@ -178,6 +178,10 @@
 | 160 | 2026-11-19 | **Subscribe, then load:** every (re)subscription reloads the seat map; events written into the TanStack Query cache by version (`applySeatEvent`: ≤ version ignore, next apply, gap / `version: null` reload); refetch on focus kept | One rule covers first load, reconnects and the subscribe/load window; no polling |
 | 161 | 2026-11-19 | Redis-restart detection on the client: version smaller than one already received, or an event ≤ map.version that happened > 5 s after the map was loaded (server clock) → reload; HELD-by-hold seats lapse locally at `holdExpiresAt` | Counters restart at 1 without persistence; hold TTL expiry publishes nothing |
 | 162 | 2026-11-19 | **Keep select-then-Hold** (user asked for click-to-hold/release; kept because it matters): one atomic multi-seat hold, one hold per user per show, rate limits, no seat hoarding while browsing, Seat Finder flow. Possible later: "add to your hold" re-holding the whole set atomically (needs a backend endpoint; after v1.0.0) | Click-to-hold would break all-or-nothing groups (ADR-006) or need release + re-hold races, and hit 429s |
+| 163 | 2026-11-19 | Local scale-out as an overlay `infra/docker-compose.scale.yml` (`app-1`, `app-2` from one local image, **prod profile** + local overrides, 1200 MB limits like prod; `lb` = nginx 1.28 on 127.0.0.1:8088; instances also on 8081/8082 for checks only) | Dev stack untouched; image HEALTHCHECK needs prod's liveness probe; memory measured under prod limits before D5 |
+| 164 | 2026-11-19 | Nginx LB: `upstream` with `zone` + `resolve` (Docker DNS, 10 s), round robin, no sticky sessions, passive health `max_fails=1 fail_timeout=5s`, `proxy_next_upstream error timeout` (never POST/DELETE), keepalive 16 with `Connection` empty for plain requests / `upgrade` for WS, `/ws` 75 s timeouts, `X-Upstream` header | Stateless API; WS pinned by nature; restarted containers re-resolved; heart-beats every 10 s keep WS under the timeout |
+| 165 | 2026-11-19 | `seatlock.instance-id` (`SEATLOCK_INSTANCE_ID`, default `local`) → `X-SeatLock-Instance` on every response + `/system/version.instance`; a configured name, never host name/IP | Cross-instance checks can tell instances apart; no infrastructure details leaked |
+| 166 | 2026-11-19 | `load-tests/cross-instance-check.ps1`: raw STOMP over .NET `ClientWebSocket` on one instance, hold/release over HTTP on the other, expects HELD/AVAILABLE with consecutive versions; exit code for scripting | Proves the relay with separate JVMs and no extra tools |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -227,6 +231,8 @@
 | Tests | 484 (453 + 31 new) | `mvnw verify` | 2026-11-19 |
 | Cross-instance relay | 2 instances × 20 concurrent committed changes → both viewers got the same 40 messages, consecutive versions, same order | `SeatEventRelayIntegrationTest` | 2026-11-19 |
 | Tests | 490 (484 + 6 new) | `mvnw verify` | 2026-11-19 |
+| Local 2-instance stack, idle memory | app-1 382.8 MiB, app-2 387.1 MiB (limit 1200 MB); nginx 7.7 MiB, Postgres 99.7 MiB, Redis 13.5 MiB | `docker stats --no-stream` | 2026-11-19 |
+| Local LB round robin + WS upgrade | 6 requests → app-2/app-1 alternating; `/ws` → 101 through Nginx | `system/version`, `curl.exe` | 2026-11-19 |
 
 ## Accounts & Config (no secrets here, only where they live)
 | Item | Status | Where stored |
@@ -1238,3 +1244,28 @@
 - Time on the client: server-clock offsets for expiries; React purity rules and impure calls in render
 - UX vs correctness trade-off: select-then-hold vs click-to-hold
 **Commit:** `feat(frontend): live seat map over STOMP with resync and client-side hold expiry (W5·D3)` (squashed into one commit on `main`)
+
+### Week 5 · Day 4: Two instances behind Nginx locally (planned Fri, Dec 11; done Thu, Nov 19, 2026)
+**Status:** ⚠️ Partial (stack up and verified; cross-instance script and kill drill results not yet recorded)
+**Built:**
+- A: `infra/docker-compose.scale.yml` (app-1/app-2, prod profile, local overrides, memory limits, LB); `infra/nginx/local/seatlock-lb.conf`; `InstanceHeaderFilter` + `seatlock.instance-id`; `VersionResponse(revision, instance)`; `SystemControllerTest` extended
+- B: direct ports 8081/8082 for checks; `load-tests/cross-instance-check.ps1`; `docs/local-scale.md` (run, LB rules, 6 checks, results); architecture section 2j link
+- Verified: both apps healthy, round robin alternates, WebSocket upgrade 101 through Nginx (`X-Upstream`), idle memory per container
+**Files created/changed:**
+- `infra\{docker-compose.scale.yml, nginx\local\seatlock-lb.conf}`; `load-tests\cross-instance-check.ps1`
+- `backend\src\main\resources\application.yml`; `common\web\InstanceHeaderFilter.java`; `common\system\{SystemController, VersionResponse}.java`; test `common\system\SystemControllerTest`
+- `docs\{local-scale.md, architecture.md}`, `progress.md`
+**Decisions:**
+- See Decisions Log #163–#166
+**Metrics recorded:**
+- Idle memory per container; round robin + WS upgrade (see Metrics table)
+**Problems & fixes:**
+- Tasks A and B landed in one commit (`30bb78b`): B's files were written before A's commit block ran; harmless after the squash
+**Carry-over:**
+- Cross-instance script (both directions) + browser kill/restart drill → numbers into `docs/local-scale.md`; W5·D3 manual checks; scheduler thread-name check (all fold into W5·D6 at the latest)
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- Load balancing WebSockets: upgrade headers, pinned long-lived connections, why sticky sessions aren't needed with a shared relay
+- Nginx upstreams: round robin, passive health checks, `proxy_next_upstream` and idempotency, keepalive vs `Connection: close`, runtime DNS re-resolution
+- Container memory limits vs JVM heap (`MaxRAMPercentage`), capacity planning on a small VM
+- Environment-specific config via Compose overlays and env precedence
+**Commit:** `feat(infra): two instances behind a local Nginx load balancer with a cross-instance check (W5·D4)` (squashed into one commit on `main`)
