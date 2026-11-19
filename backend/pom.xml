@@ -185,8 +185,9 @@
 					<argLine>@{argLine} -javaagent:${org.mockito:mockito-core:jar} -Xshare:off</argLine>
 				</configuration>
 			</plugin>
-			<!-- Test coverage: agent during tests, HTML/XML/CSV report in target/site/jacoco on 'verify'.
-     The >= 80% gate is added on W6·D1 (jacoco:check). -->
+			<!-- Test coverage: agent during tests, HTML/XML/CSV report in target/site/jacoco on 'verify', then a gate:
+     'verify' (and CI) FAILS below 85 % lines or 80 % branches for the whole backend (W6·D1; was 94.0 % / 81.2 %).
+     Raise the floors when coverage grows; never lower them to make a build pass. -->
 			<plugin>
 				<groupId>org.jacoco</groupId>
 				<artifactId>jacoco-maven-plugin</artifactId>
@@ -195,6 +196,8 @@
 					<excludes>
 						<!-- bootstrap only; nothing to test -->
 						<exclude>com/seatlock/SeatLockApplication.class</exclude>
+						<!-- pure wiring of the job scheduler; jobs are disabled in the test profile and called directly -->
+						<exclude>com/seatlock/common/config/SchedulingConfig.class</exclude>
 					</excludes>
 				</configuration>
 				<executions>
@@ -210,6 +213,34 @@
 						<goals>
 							<goal>report</goal>
 						</goals>
+					</execution>
+					<!-- runs after 'report', so the HTML report exists even when the gate fails -->
+					<execution>
+						<id>coverage-gate</id>
+						<phase>verify</phase>
+						<goals>
+							<goal>check</goal>
+						</goals>
+						<configuration>
+							<haltOnFailure>true</haltOnFailure>
+							<rules>
+								<rule>
+									<element>BUNDLE</element>
+									<limits>
+										<limit>
+											<counter>LINE</counter>
+											<value>COVEREDRATIO</value>
+											<minimum>0.85</minimum>
+										</limit>
+										<limit>
+											<counter>BRANCH</counter>
+											<value>COVEREDRATIO</value>
+											<minimum>0.80</minimum>
+										</limit>
+									</limits>
+								</rule>
+							</rules>
+						</configuration>
 					</execution>
 				</executions>
 			</plugin>

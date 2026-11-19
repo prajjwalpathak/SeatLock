@@ -49,6 +49,7 @@ jobs:
             awk -F, 'NR>1{im+=$4;ic+=$5;bm+=$6;bc+=$7;lm+=$8;lc+=$9}
               END{printf "### JaCoCo coverage\n| Instructions | Lines | Branches |\n|---|---|---|\n| %.1f%% | %.1f%% | %.1f%% |\n",
                   100*ic/(im+ic), 100*lc/(lm+lc), 100*bc/(bm+bc)}' "$csv" >> "$GITHUB_STEP_SUMMARY"
+            echo "Gate (pom.xml, jacoco:check): lines >= 85 %, branches >= 80 %; the build fails below." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Upload coverage report
