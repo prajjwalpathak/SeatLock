@@ -13,8 +13,8 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 
 /**
  * STOMP over a plain WebSocket at {@code /ws} (no SockJS: every supported browser has WebSocket).
- * <p>In-memory "simple" broker for {@code /topic/**} on this instance; W5·D2 adds the Redis Pub/Sub relay
- * so events reach viewers connected to the other instance. Clients only subscribe: there are no
+ * <p>In-memory "simple" broker for {@code /topic/**} on each instance, fed by the Redis Pub/Sub relay
+ * ({@link SeatEventRelay}), so events reach viewers on every instance. Clients only subscribe: there are no
  * application destinations, and SEND frames are rejected ({@link StompAuthChannelInterceptor}).</p>
  * <p>The handshake accepts only the CORS allow-list's origins (403 otherwise), so other sites can't open
  * connections from a visitor's browser. Requests without an Origin header (non-browser clients) pass;
@@ -60,5 +60,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         registry.enableSimpleBroker("/topic")
                 .setHeartbeatValue(HEARTBEAT_MS)
                 .setTaskScheduler(heartbeatScheduler);
+        // The outbound channel is a thread pool: without this, two messages to one session can overtake each other
+        registry.setPreservePublishOrder(true);
     }
 }

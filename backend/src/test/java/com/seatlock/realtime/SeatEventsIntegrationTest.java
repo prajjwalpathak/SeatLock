@@ -18,16 +18,11 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.ApplicationContext;
 import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.messaging.Message;
-import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
-import org.springframework.messaging.simp.SimpMessageType;
-import org.springframework.messaging.simp.broker.AbstractBrokerMessageHandler;
-import org.springframework.messaging.simp.broker.SimpleBrokerMessageHandler;
-import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.transaction.support.TransactionTemplate;
+import testsupport.BrokerSubscriptions;
 import testsupport.RealServerTest;
 import testsupport.StompTestClient;
 import testsupport.TestUsers;
@@ -35,7 +30,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Observer end to end: a change (hold over real HTTP, or a committed DB update) → domain event →
- * AFTER_COMMIT broadcaster → in-memory broker → a real STOMP client on {@code /ws}.
+ * AFTER_COMMIT broadcaster → Redis relay → in-memory broker → a real STOMP client on {@code /ws}.
  */
 @RealServerTest
 class SeatEventsIntegrationTest {
@@ -48,7 +43,7 @@ class SeatEventsIntegrationTest {
     @Autowired TokenService tokenService;
     @Autowired ShowSeatStatusService seatStatus;
     @Autowired TransactionTemplate tx;
-    @Autowired @Qualifier("simpleBrokerMessageHandler") AbstractBrokerMessageHandler broker;
+    @Autowired ApplicationContext app;
 
     private int port;
     private StompTestClient stomp;
@@ -138,23 +133,8 @@ class SeatEventsIntegrationTest {
 
     // ------------------------------------------------------------------ helpers
 
-    /** SUBSCRIBE has no acknowledgement on the simple broker: wait until the broker has registered it. */
     private BlockingQueue<SeatEventMessage> subscribed(String destination) throws InterruptedException {
-        int before = subscriberCount(destination);
-        BlockingQueue<SeatEventMessage> queue = stomp.subscribe(destination);
-        long deadline = System.nanoTime() + StompTestClient.TIMEOUT.toNanos();
-        while (subscriberCount(destination) <= before) {
-            assertThat(System.nanoTime()).as("subscription registered in time").isLessThan(deadline);
-            Thread.sleep(20);
-        }
-        return queue;
-    }
-
-    private int subscriberCount(String destination) {
-        SimpMessageHeaderAccessor accessor = SimpMessageHeaderAccessor.create(SimpMessageType.MESSAGE);
-        accessor.setDestination(destination);
-        Message<byte[]> probe = MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
-        return ((SimpleBrokerMessageHandler) broker).getSubscriptionRegistry().findSubscriptions(probe).size();
+        return BrokerSubscriptions.subscribe(app, stomp, destination);
     }
 
     private static SeatEventMessage next(BlockingQueue<SeatEventMessage> events) throws InterruptedException {
