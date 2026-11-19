@@ -1,6 +1,6 @@
 # ADR-014: Live seat events over STOMP, secured on CONNECT
 
-- **Status:** Accepted (W5·D1). Redis Pub/Sub relay and resync follow on W5·D2.
+- **Status:** Accepted (W5·D1); relay and resync added W5·D2 (section "W5·D2 update").
 - **Context:** Seat-map viewers need seat changes pushed within a second, from every path that changes a seat
   (holds, release, booking, payment confirm, expiry, cancel, refund), across 2 instances later. Our API is
   stateless with RS256 JWTs; browsers can't put an `Authorization` header on the WebSocket handshake.
@@ -40,3 +40,21 @@
 - The JWT is checked only at CONNECT. Fine while all topics are public; user destinations would need a
   check on SUBSCRIBE and a disconnect at token expiry.
 - Spring logs rejected frames at ERROR (`StompSubProtocolHandler`); expected in tests.
+
+## W5·D2 update: relay across instances, resync
+7. **One Redis Pub/Sub channel** `realtime:seat-events` for all shows. `publish_seat_event.lua` does `INCR` +
+   `PUBLISH "<version>|<json>"` atomically, so Redis delivers events in version order to every instance.
+   Each instance forwards everything it receives (its own events too: one path, one order) to its simple broker,
+   on **one** dedicated thread (the container's default thread-per-message executor could reorder), and the broker
+   preserves publish order per session (`setPreservePublishOrder(true)`). The executor is not a bean (an `Executor`
+   bean would make Boot drop its application task executor).
+8. **Resync = the seat map.** `GET /api/v1/shows/{id}/seats` returns `version`, read **before** the statuses
+   (catalog port `SeatEventVersionLookup`, implemented in realtime). Client: load the map, apply only messages with
+   a greater version; on a gap, a smaller version, or a reconnect, load the map again. Redis down → `version: null`,
+   `holdsLive: false`.
+   - Why it loses nothing: a version is assigned after its change committed; so every event ≤ the map's version
+     is already in the statuses read afterwards. Events above it are re-applied, which is harmless because each one
+     states the seats' new status.
+9. Rejected: Redis Streams (replayable, but consumer groups/trimming for a portfolio app; resync already covers loss),
+   per-show channels with `PSUBSCRIBE` (more pattern matching per message for no gain at 2 instances), a dedicated
+   resync endpoint (the seat map already is one; one request on load and on resync).

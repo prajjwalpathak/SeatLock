@@ -26,6 +26,7 @@ import testsupport.BrokerSubscriptions;
 import testsupport.RealServerTest;
 import testsupport.StompTestClient;
 import testsupport.TestUsers;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -131,6 +132,24 @@ class SeatEventsIntegrationTest {
         assertThat(otherShow).as("other shows' viewers hear nothing").isEmpty();
     }
 
+    @Test
+    void theSeatMapCarriesTheLastVersionSoAClientCanResyncWithoutLosingUpdates() throws Exception {
+        BlockingQueue<SeatEventMessage> events = subscribed(SeatTopics.forShow(showId));
+        tx.executeWithoutResult(status -> seatStatus.markHeld(showId, List.of(seatId)));
+        SeatEventMessage held = next(events);
+
+        // Resync = re-fetch the seat map: its version covers the event, and the seat shows the new status
+        JsonNode map = seatMap();
+        assertThat(map.get("version").asLong()).isEqualTo(held.version());
+        assertThat(statusOf(map, seatId)).isEqualTo("HELD");
+
+        tx.executeWithoutResult(status -> seatStatus.markAvailable(showId, List.of(seatId)));
+        SeatEventMessage freed = next(events);
+        assertThat(freed.version()).as("the next change is newer than the map: the client applies it")
+                .isGreaterThan(map.get("version").asLong());
+        assertThat(seatMap().get("version").asLong()).isEqualTo(freed.version());
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private BlockingQueue<SeatEventMessage> subscribed(String destination) throws InterruptedException {
@@ -141,6 +160,23 @@ class SeatEventsIntegrationTest {
         SeatEventMessage message = events.poll(StompTestClient.TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
         assertThat(message).as("seat event within %s", StompTestClient.TIMEOUT).isNotNull();
         return message;
+    }
+
+    private JsonNode seatMap() throws Exception {
+        HttpResponse<String> response = HttpClient.newHttpClient().send(
+                HttpRequest.newBuilder(uri("/api/v1/shows/" + showId + "/seats")).GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).isEqualTo(200);
+        return JSON.readTree(response.body());
+    }
+
+    private static String statusOf(JsonNode map, long seat) {
+        for (JsonNode s : map.get("seats")) {
+            if (s.get("seatId").asLong() == seat) {
+                return s.get("status").asString();
+            }
+        }
+        throw new AssertionError("seat " + seat + " not in the map");
     }
 
     private URI uri(String path) {
