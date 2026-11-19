@@ -3,15 +3,15 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 5 · Day 1 (not started, planned Tue Dec 8): STOMP WebSocket config, seat-event topics, JWT auth on STOMP CONNECT, as 2 combined tasks. Branch `w5-d1` (create with `git switch -c w5-d1 origin/main` after #12 is squash-merged)
-- **Last completed:** Week 4 · Day 6: `SeatLockingStrategy` (redis-hold | optimistic, V11) with races A/B on both, `webhook_events` retention job, ADR-013 + ADR index, README "what works", Week 4 review (planned Mon Dec 7, done Thu Nov 19)
+- **Current day:** Week 5 · Day 2 (not started, planned Wed Dec 9): Redis Pub/Sub relay across instances, event version numbers across the relay, resync endpoint, as 2 combined tasks. Branch `w5-d2` (create with `git switch -c w5-d2 origin/main` after #13 is squash-merged)
+- **Last completed:** Week 5 · Day 1: STOMP `/ws`, seat topics, `SeatsChangedEvent` from holds and `ShowSeatStatusService` (AFTER_COMMIT), per-show Redis versions, JWT on STOMP CONNECT, subscription/SEND rules, origin allow-list, ADR-014 (planned Tue Dec 8, done Thu Nov 19)
 - **Live URLs:** Frontend https://seatlock-nu.vercel.app · Backend https://seatlock-prajjwal.duckdns.org · Swagger https://seatlock-prajjwal.duckdns.org/swagger-ui.html · Version https://seatlock-prajjwal.duckdns.org/api/v1/system/version · Grafana —
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public) · CI + Deploy badges in README · `main` protected (ruleset `protect-main`)
 - **Hosting:** Azure VM `seatlock-vm` (India South Central, B2als_v2 x64) + Vercel; images from GHCR (ADR-005, #62, #71–#74); decommission after ~2–3 months
 - **Git workflow (from W4·D5):** **2 combined tasks per day** (plan tasks grouped as feasible); each = changes → one verify/test block → one one-line commit + push on the daily branch; day end → PR on GitHub → squash-merge when CI is green; next branch with `git switch -c wN-dM origin/main`; never push to a branch after its PR is merged (#9, #75, #116, #141, #142)
-- **Carry-overs:** silence Mockito's dynamic-agent warning (W6·D1) · JetBrains student license · IntelliJ vulnerable-dependency scan · consume `refund.processed`/`refund.failed` webhooks (stretch) · WireMock 4.x stable re-check (W8·D1) · prod log check after #12 deploys (strategy, gateway, no I/O errors)
-- **Schedule:** **~18 days ahead** (W4·D6 done Thu Nov 19 instead of Mon Dec 7); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
-- **Top risk:** WebSockets across 2 instances (Redis Pub/Sub relay, Nginx upgrade, VM RAM for 2 app containers) (W5); VM burst credits (load tests stay local)
+- **Carry-overs:** confirm `@Scheduled` jobs still log on `scheduling-N` threads, not `MessageBroker-N` (W5·D2) · silence Mockito's dynamic-agent warning (W6·D1) · JetBrains student license · IntelliJ vulnerable-dependency scan · consume `refund.processed`/`refund.failed` webhooks (stretch) · WireMock 4.x stable re-check (W8·D1) · prod log check after #12/#13 deploy (strategy, gateway, no I/O errors)
+- **Schedule:** **~19 days ahead** (W5·D1 done Thu Nov 19 instead of Tue Dec 8); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
+- **Top risk:** WebSockets across 2 instances (Redis Pub/Sub relay, event ordering, Nginx upgrade, VM RAM for 2 app containers) (W5); VM burst credits (load tests stay local)
 
 ## Decisions Log (ADR summary)
 | # | Date | Decision | Why |
@@ -165,6 +165,12 @@
 | 147 | 2026-11-19 | **ADR-013 `SeatLockingStrategy`:** `redis-hold` (default, Lua + TTL) or `optimistic` (V11 `seat_holds` + `seat_hold_claims`; advisory lock per user/show, multi-row `INSERT … ON CONFLICT … DO UPDATE … WHERE expires_at <= now`, sorted seats, all-or-nothing rollback), chosen by `seatlock.holds.strategy`; `HoldService` and the seat-map overlay (`LiveHoldLookup`) depend only on the interface | One contract, two implementations, measured on W6·D4; `@Version` on `show_seats` and `FOR UPDATE` rejected |
 | 148 | 2026-11-19 | Races A/B run on both strategies via subclasses with `@TestPropertySource`; `testsupport.HoldInspector` reads Redis or `seat_hold_claims`; warm-up once per strategy context | The same proof for both, no copy-paste of race logic |
 | 149 | 2026-11-19 | `webhook_events` deleted after **30 days** (`WebhookEventCleanupJob`, daily); expired optimistic holds deleted hourly | Razorpay retries end within about a day; tables stay small |
+| 150 | 2026-11-19 | **ADR-014:** Spring WebSocket + STOMP at `/ws` (native WebSocket, no SockJS), in-memory simple broker for `/topic`, one topic per show `/topic/shows/{id}/seats`, 10 s heart-beats on `messageBrokerTaskScheduler` | Plan stack; Redis relay on D2; heart-beats keep idle connections alive through Nginx's 60 s read timeout |
+| 151 | 2026-11-19 | **Observer:** `SeatsChangedEvent` published by catalog's `ShowSeatStatusService` (`UPDATE … RETURNING seat_id`, exactly the seats that moved) and `HoldService` (hold, user release); `SeatEventBroadcaster` = `@TransactionalEventListener(AFTER_COMMIT, fallbackExecution = true)`; hold → booking uses `releaseConvertedHold` (no event); TTL expiry publishes nothing, HELD carries `holdExpiresAt` | Two choke points cover every flow (hold, booking, confirm, expiry, cancel, refund); rollbacks never announced; no AVAILABLE flash after a booking; no keyspace notifications |
+| 152 | 2026-11-19 | Per-show version = Redis `INCR realtime:seat-version:show:{id}` (no TTL); a gap or a smaller number (Redis restart) means resync; after-commit numbering can rarely swap two back-to-back commits (CORRECTNESS section 1n) | Shared by both instances; a version column on `shows` would serialize every hold/booking of a show on one row |
+| 153 | 2026-11-19 | STOMP auth in our own inbound `ChannelInterceptor` via identity's public `TokenAuthenticator` (same decoder, validators, roles as REST); `Authorization: Bearer` on CONNECT **optional** (public seat maps), present but invalid → ERROR `INVALID_TOKEN`; checked at CONNECT only | `@EnableWebSocketSecurity` needs a CSRF token on CONNECT (cookie sessions) that is only removable by overriding an internal bean; module rule kept |
+| 154 | 2026-11-19 | Frame rules: SUBSCRIBE only `/topic/shows/{id}/seats` (`SUBSCRIPTION_DENIED`), max 10 per connection (`TOO_MANY_SUBSCRIPTIONS`), SEND always `SEND_NOT_ALLOWED`; ERROR `message` = code, unexpected → `INTERNAL_ERROR`; handshake Origin = CORS allow-list (403), `/ws` permitAll in HTTP security | No forged seat events; no wildcard or foreign subscriptions; other sites can't open connections from a visitor's browser |
+| 155 | 2026-11-19 | Broadcasting is **best effort**: failures (Redis, broker) are logged and swallowed | The change is committed; the user who made it must not get an error; viewers recover by resync |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -209,6 +215,9 @@
 | Race A, both strategies (informal) | redis-hold p50 0.87–0.97 s / p99 1.84–2.13 s; optimistic p50 1.15–1.48 s / p99 1.94–2.51 s; both exactly 1 winner of 200, 3/3 | race logs in one `mvnw verify` run (not a benchmark; W6·D4) | 2026-11-19 |
 | Optimistic claims | 20 concurrent claims of one seat → **1 winner**; race B on optimistic → 0 double-sold, 3/3 | `OptimisticHoldStoreIntegrationTest`, `OverlappingHoldsRaceOptimisticIntegrationTest` | 2026-11-19 |
 | Tests | 453 (440 + 13 new incl. repetitions) | `mvnw verify` / CI | 2026-11-19 |
+| Live seat events | hold + release over HTTP → HELD then AVAILABLE on a real STOMP client, consecutive versions; rolled-back change → no message | `SeatEventsIntegrationTest` | 2026-11-19 |
+| STOMP security | 5 bad tokens, foreign origin (403), 6 bad destinations, 11th subscription, forged SEND: all refused | `StompSecurityIntegrationTest` | 2026-11-19 |
+| Tests | 484 (453 + 31 new) | `mvnw verify` | 2026-11-19 |
 
 ## Accounts & Config (no secrets here, only where they live)
 | Item | Status | Where stored |
@@ -1138,3 +1147,32 @@
 - Reusing a test suite across implementations (inheritance + property overrides), and why informal numbers aren't benchmarks
 - Data retention for dedupe tables; documentation as part of done (ADRs, failure drills, correctness tables)
 **Commit:** `feat(booking): SeatLockingStrategy with optimistic claims; Week 4 review (W4·D6)` (squashed into one commit on `main`)
+
+### Week 5 · Day 1: STOMP seat events + JWT on CONNECT (planned Tue, Dec 8; done Thu, Nov 19, 2026)
+**Status:** ✅ Done
+**Built:**
+- A: `spring-boot-starter-websocket`; `WebSocketConfig` (`/ws`, simple broker `/topic`, heart-beats); `SeatsChangedEvent` (catalog events); `ShowSeatStatusService` publishes with `RETURNING seat_id`; `HoldService` publishes HELD (+ `holdExpiresAt`) and AVAILABLE on release, `releaseConvertedHold` for bookings; `SeatEventBroadcaster` (AFTER_COMMIT, best effort), `SeatEventVersions` (Redis INCR), `SeatEventMessage`, `SeatTopics`; `/ws` permitAll; `StompTestClient` + `SeatEventsIntegrationTest`
+- B: `TokenAuthenticator` (identity, public); `StompAuthChannelInterceptor` (optional JWT on CONNECT, seat topics only, max 10 subscriptions, no SEND); `StompErrorHandler` + `StompRejectedException` (codes in ERROR frames); origin allow-list on the endpoint; `StompSecurityIntegrationTest`, `SeatTopicsTest`; ADR-014, architecture section 2j, CORRECTNESS section 1n
+- Tests: **484** (31 new), 0 failures
+**Files created/changed:**
+- `backend\pom.xml`; `catalog\events\SeatsChangedEvent.java`; `catalog\application\ShowSeatStatusService.java`; `booking\hold\HoldService.java`; `booking\application\BookingService.java`; `identity\security\{SecurityConfig, TokenAuthenticator}.java`
+- `realtime\{WebSocketConfig, SeatEventBroadcaster, SeatEventVersions, SeatEventMessage, SeatTopics, StompAuthChannelInterceptor, StompErrorHandler, StompRejectedException}.java`
+- Tests: `testsupport\StompTestClient`, `realtime\{SeatEventsIntegrationTest, StompSecurityIntegrationTest, SeatTopicsTest}`, `booking\hold\HoldServiceTest`
+- `docs\decisions\{ADR-014-realtime-seat-events.md, README.md}`, `docs\{architecture.md, CORRECTNESS.md}`, `progress.md`
+**Decisions:**
+- See Decisions Log #150–#155
+**Metrics recorded:**
+- Live seat events and STOMP security proven over a real WebSocket; 484 tests
+**Problems & fixes:**
+- 4 `tearDown` errors (`Connection closed` / `MessageDeliveryException`): after an ERROR frame the server closes the socket while the client still reports connected, so the test client's DISCONNECT hit a closed connection → best-effort `close()` in `StompTestClient` (test code only)
+- Task B's files went into the fix commit (`8e976f7`, staged together by `git add -A`); harmless after the squash merge
+- Spring logs refused frames at ERROR (`StompSubProtocolHandler`): expected noise in test output
+**Carry-over:**
+- Confirm `@Scheduled` jobs run on `scheduling-N` threads (the broker's `TaskScheduler` bean could make Boot skip its own); Mockito agent warning (W6·D1); JetBrains license; IntelliJ dependency scan; refund status webhooks (stretch); WireMock 4.x re-check (W8·D1)
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- WebSocket vs SSE vs polling; STOMP frames (CONNECT, SUBSCRIBE, SEND, MESSAGE, ERROR), simple broker vs broker relay, heart-beats behind proxies
+- Observer with domain events; `@TransactionalEventListener` phases and `fallbackExecution`; why publish after commit
+- Token auth for WebSockets (CONNECT frame vs query string vs cookies), CSRF on WebSockets, origin checks (cross-site WebSocket hijacking)
+- Authorizing subscriptions and refusing client publishes; per-connection limits
+- Event versioning, gap detection and resync; ordering limits of after-commit numbering
+**Commit:** `feat(realtime): live seat events over STOMP with JWT on CONNECT (W5·D1)` (squashed into one commit on `main`)
