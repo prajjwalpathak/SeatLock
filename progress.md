@@ -3,15 +3,15 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 5 · Day 5 (not started, planned Sat Dec 12): prod with 2 app instances + Nginx WebSocket upgrade, "My bookings" page, as 2 combined tasks. Branch `w5-d5` (create with `git switch -c w5-d5 origin/main` after #16 is squash-merged)
-- **Last completed:** Week 5 · Day 4: `app-1` + `app-2` behind a local Nginx LB (`infra/docker-compose.scale.yml`, `infra/nginx/local/seatlock-lb.conf`), `X-SeatLock-Instance` + `/system/version.instance`, `load-tests/cross-instance-check.ps1`, `docs/local-scale.md` (planned Fri Dec 11, done Thu Nov 19)
+- **Current day:** Week 5 · Day 6 (not started, planned Mon Dec 14): failure drills (kill an instance mid-booking, Redis/Postgres restarts) → `FAILURES.md`, Week 5 review, as 2 combined tasks. Branch `w5-d6` (create with `git switch -c w5-d6 origin/main`; its first commit carries the W5·D5 progress/docs)
+- **Last completed:** Week 5 · Day 5: prod on **2 app instances** (app-1/app-2, 900 MB each) behind Nginx upstream with `/ws`, rolling `deploy.sh`, dual-instance smoke test, VM cutover done; `GET /api/v1/me/bookings` + "My bookings" page; live seat updates verified on prod (planned Sat Dec 12, done Thu Nov 19 → Fri Nov 20)
 - **Live URLs:** Frontend https://seatlock-nu.vercel.app · Backend https://seatlock-prajjwal.duckdns.org · Swagger https://seatlock-prajjwal.duckdns.org/swagger-ui.html · Version https://seatlock-prajjwal.duckdns.org/api/v1/system/version · Grafana —
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public) · CI + Deploy badges in README · `main` protected (ruleset `protect-main`)
-- **Hosting:** Azure VM `seatlock-vm` (India South Central, B2als_v2 x64) + Vercel; images from GHCR (ADR-005, #62, #71–#74); decommission after ~2–3 months
+- **Hosting:** Azure VM `seatlock-vm` (India South Central, B2als_v2 x64) + Vercel; images from GHCR (ADR-005, #62, #71–#74, #167); **2 app instances** since W5·D5; decommission after ~2–3 months
 - **Git workflow (from W4·D5):** **2 combined tasks per day** (plan tasks grouped as feasible); each = changes → one verify/test block → one one-line commit + push on the daily branch; day end → PR on GitHub → squash-merge when CI is green; next branch with `git switch -c wN-dM origin/main`; never push to a branch after its PR is merged (#9, #75, #116, #141, #142)
-- **Carry-overs:** W5·D4 results to record in `docs/local-scale.md` (cross-instance script both directions, browser kill/restart drill) · W5·D3 manual checks (silent hold expiry with `SEATLOCK_HOLDS_TTL=PT1M`, Redis restart, background tab) · both fold into W5·D6 failure drills if not done earlier · confirm `@Scheduled` jobs log on `scheduling-N` threads · Mockito agent warning (W6·D1) · JetBrains license · IntelliJ dependency scan · refund status webhooks (stretch) · WireMock 4.x re-check (W8·D1) · prod log check after #12–#16 deploy
-- **Schedule:** **~22 days ahead** (W5·D4 done Thu Nov 19 instead of Fri Dec 11); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
-- **Top risk:** prod RAM for 2 app containers + Postgres + Redis + Nginx on 4 GB (local idle ~385 MiB per app; limits 2×1200 + 768 + 256 MB), Nginx WebSocket upgrade in prod (W5·D5); VM burst credits (load tests stay local)
+- **Carry-overs:** first **rolling deploy** run on the 2-instance VM (Actions → Deploy → Run workflow; expect `replacing app-1 … both instances on sha-…`) · W5·D4 cross-instance script + kill drill numbers → `docs/local-scale.md` · W5·D3 manual checks (silent hold expiry, Redis restart, background tab) · all fold into W5·D6 drills · duplicate `Strict-Transport-Security` header (Spring + Nginx) → W8·D1 · same-site frontend/API (Brave Shields, F7) → W8 stretch · confirm `@Scheduled` thread names · Mockito agent warning (W6·D1) · JetBrains license · IntelliJ dependency scan · refund status webhooks (stretch) · WireMock 4.x re-check (W8·D1)
+- **Schedule:** **~23 days ahead** (W5·D5 done Fri Nov 20 instead of Sat Dec 12); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
+- **Top risk:** failure behaviour across 2 instances under real faults (W5·D6); VM burst credits (load tests stay local)
 
 ## Decisions Log (ADR summary)
 | # | Date | Decision | Why |
@@ -182,6 +182,11 @@
 | 164 | 2026-11-19 | Nginx LB: `upstream` with `zone` + `resolve` (Docker DNS, 10 s), round robin, no sticky sessions, passive health `max_fails=1 fail_timeout=5s`, `proxy_next_upstream error timeout` (never POST/DELETE), keepalive 16 with `Connection` empty for plain requests / `upgrade` for WS, `/ws` 75 s timeouts, `X-Upstream` header | Stateless API; WS pinned by nature; restarted containers re-resolved; heart-beats every 10 s keep WS under the timeout |
 | 165 | 2026-11-19 | `seatlock.instance-id` (`SEATLOCK_INSTANCE_ID`, default `local`) → `X-SeatLock-Instance` on every response + `/system/version.instance`; a configured name, never host name/IP | Cross-instance checks can tell instances apart; no infrastructure details leaked |
 | 166 | 2026-11-19 | `load-tests/cross-instance-check.ps1`: raw STOMP over .NET `ClientWebSocket` on one instance, hold/release over HTTP on the other, expects HELD/AVAILABLE with consecutive versions; exit code for scripting | Proves the relay with separate JVMs and no extra tools |
+| 167 | 2026-11-19 | **Prod = 2 app instances** (`app-1`/`app-2`, one image, **900 MB** each; budget 2 × 900 + 768 + 256 + ~40 ≈ 2.9 of 3.8 GB) behind Nginx upstream `seatlock_app` (same rules as local, #164) with `/ws` 75 s; ADR-005 update | Measured ~370 MiB idle per app; 1200 MB limits would have summed to 3.4 GB |
+| 168 | 2026-11-19 | **Rolling `deploy.sh`:** app-1 → wait healthy → app-2 → wait healthy; any failure rolls both back; CI smoke test passes only when both `app-1` and `app-2` report the new revision | Deploys no longer take the API down; "deployed" means both instances serve the commit. Known gap: an in-flight request on a keep-alive connection to the stopping instance can 502 |
+| 169 | 2026-11-19 | Infra cutover by `tar --exclude=.env.prod` + `scp`, then `dc up -d --remove-orphans` **and `dc up -d --force-recreate --no-deps nginx`** (deploy.md section 3b) | Compose doesn't recreate Nginx for a changed bind-mounted template (F7); excluding `.env.prod` protects prod secrets |
+| 170 | 2026-11-19 | `GET /api/v1/me/bookings`: offset `PageResponse` (size 1–50, default 20; UI uses 10), `created_at DESC, id DESC`, JdbcClient read model (seat count subquery + count) + catalog `findShowLabels` (one query, any show status); page in the URL on the frontend; query key under `['me', …]` | No entity loading or in-memory pagination of collections; stable order across pages; module rule kept; cleared on sign-out |
+| 171 | 2026-11-20 | Browsers that block the cross-site WebSocket (Brave Shields, F7) stay on fallback (refetch on focus/Refresh/own actions); fix later by putting frontend and API under one site | No server fault (clean browser: Live in 198 ms); not worth a domain change mid-plan |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -233,6 +238,9 @@
 | Tests | 490 (484 + 6 new) | `mvnw verify` | 2026-11-19 |
 | Local 2-instance stack, idle memory | app-1 382.8 MiB, app-2 387.1 MiB (limit 1200 MB); nginx 7.7 MiB, Postgres 99.7 MiB, Redis 13.5 MiB | `docker stats --no-stream` | 2026-11-19 |
 | Local LB round robin + WS upgrade | 6 requests → app-2/app-1 alternating; `/ws` → 101 through Nginx | `system/version`, `curl.exe` | 2026-11-19 |
+| Prod, 2 instances idle | app-1 347.7 MiB, app-2 342.2 MiB (limit 900 MiB); Postgres 74.4 MiB, Redis 11.7 MiB, Nginx 8.1 MiB; VM used 1.5 GiB, available 2.3 GiB of 3.8 GiB | `docker stats`, `free -h` on the VM | 2026-11-19 |
+| Prod live seat event | built-in browser: WS open 198 ms (`v12.stomp`), hold via API → seat "on hold" on the page within 2 s, release → available | live site, show 14 | 2026-11-20 |
+| Tests | 492 (490 + 2 new) | `mvnw verify` | 2026-11-19 |
 
 ## Accounts & Config (no secrets here, only where they live)
 | Item | Status | Where stored |
@@ -1269,3 +1277,35 @@
 - Container memory limits vs JVM heap (`MaxRAMPercentage`), capacity planning on a small VM
 - Environment-specific config via Compose overlays and env precedence
 **Commit:** `feat(infra): two instances behind a local Nginx load balancer with a cross-instance check (W5·D4)` (squashed into one commit on `main`)
+
+### Week 5 · Day 5: Two instances in production + My bookings (planned Sat, Dec 12; done Thu, Nov 19 → Fri, Nov 20, 2026)
+**Status:** ⚠️ Partial (all built and live; the first manual rolling-deploy run on the 2-instance VM not yet reported)
+**Built:**
+- A: prod Compose `app-1`/`app-2` (anchor, `SEATLOCK_INSTANCE_ID`, 900 MB); Nginx template upstream (`zone` + `resolve`, round robin, passive health, keepalive, `proxy_next_upstream`, `/ws` 75 s); rolling `deploy.sh` (`roll()`, rollback of both); CI smoke test requires both instances on the new revision; deploy.md section 3b cutover; ADR-005 update
+- B: `ShowLabel` + `ShowQueryRepository.showLabels` + `ShowCatalogService.findShowLabels`; `MyBookingsQuery` (JdbcClient), `MyBookingsService`, `MyBookingSummary`; `GET /api/v1/me/bookings`; tests (only mine, newest first, show details, paging, 400 on bad size, 401 anonymous); frontend `MyBookingsPage` (URL page, keepPreviousData, empty state), route `/bookings`, user-menu link, shared `bookingStatus.ts`
+- VM cutover: infra copied, old `app` removed, both instances healthy, Nginx recreated (F7); live seat updates verified on prod in a clean browser
+- Tests: **492** (2 new)
+**Files created/changed:**
+- `infra\{docker-compose.prod.yml, nginx\templates\seatlock.conf.template, scripts\deploy.sh}`; `.github\workflows\deploy.yml`
+- `catalog\application\{ShowLabel, ShowQueryRepository, ShowCatalogService}.java`; `booking\application\{MyBookingsQuery, MyBookingsService, MyBookingSummary}.java`; `booking\api\BookingController.java`; test `booking\api\BookingApiIntegrationTest`
+- `frontend\src\{pages\MyBookingsPage.tsx, pages\BookingPage.tsx, features\booking\bookingStatus.ts, api\holds.ts, types\api.ts, router.tsx, components\UserMenu.tsx}`
+- `docs\{deploy.md, FAILURES.md}`, `docs\decisions\ADR-005-hosting.md`, `progress.md`
+**Decisions:**
+- See Decisions Log #167–#171
+**Metrics recorded:**
+- Prod memory with 2 instances; prod live seat event timing (see Metrics table)
+**Problems & fixes:**
+- `docker compose config` printed nothing on the laptop (cause not found); structure verified by parsing the merged YAML instead
+- Bridge to the laptop dropped mid-task; resumed from a precise list of written / not-written files
+- After the cutover every request was 502: Nginx not recreated (bind-mounted template) → `--force-recreate --no-deps nginx` (F7)
+- `dc: unrecognized option` in a new SSH session: `dc` alias missing (Unix `dc` calculator ran) → alias in `~/.bashrc`
+- "WebSocket failed" in the user's browser + phone while curl got 101: requests never reached Nginx; clean built-in browser worked → Brave Shields (F7)
+**Carry-over:**
+- First manual rolling deploy on the VM; duplicate HSTS header (W8·D1); same-site frontend/API (W8 stretch); W5·D3/D4 manual checks → W5·D6 drills
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- Rolling deployments with health gates and rollback on a single host; what "zero downtime" really covers (keep-alive in-flight requests)
+- Capacity planning: container limits vs measured usage, JVM heap share, swap as a safety net
+- Compose recreate semantics (config hash vs bind-mounted file contents)
+- Offset vs keyset pagination for per-user lists; read models vs entities; stable sort keys
+- Debugging client-only failures: access logs as ground truth, clean-browser repro, Chrome's WebSocket connection limits, privacy blockers and cross-site sockets
+**Commit:** `feat: two prod instances with rolling deploy, My bookings page (W5·D5)` (squashed as #17 on `main`); progress/docs in the first commit of `w5-d6`
