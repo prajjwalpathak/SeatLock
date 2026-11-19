@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { useEffect, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useSyncExternalStore } from 'react'
 import { catalogKeys } from '../../api/catalog'
+import { useServerClockOffset } from '../../lib/serverClock'
 import { getLiveStatus, subscribeLiveStatus, watchTopic, type LiveStatus } from '../../lib/stompClient'
 import type { SeatEventMessage, ShowSeatMap } from '../../types/api'
 import { applySeatEvent } from './liveSeats'
@@ -12,11 +13,20 @@ import { applySeatEvent } from './liveSeats'
  */
 export function useLiveSeatMap(showId: number, enabled: boolean): LiveStatus {
   const queryClient = useQueryClient()
+  const clockOffset = useServerClockOffset()
+  const offsetRef = useRef(clockOffset)
+  useEffect(() => {
+    offsetRef.current = clockOffset // read inside the message handler without re-subscribing
+  }, [clockOffset])
 
   useEffect(() => {
     if (!enabled) return
     const key = catalogKeys.seatMap(showId)
-    const resync = () => void queryClient.invalidateQueries({ queryKey: key })
+    let lastSeenVersion = 0
+    const resync = () => {
+      lastSeenVersion = 0 // the reloaded map is the new baseline (also after a counter restart)
+      void queryClient.invalidateQueries({ queryKey: key })
+    }
 
     return watchTopic(
       `/topic/shows/${showId}/seats`,
@@ -30,9 +40,17 @@ export function useLiveSeatMap(showId: number, enabled: boolean): LiveStatus {
         if (event.showId !== showId) return
         const map = queryClient.getQueryData<ShowSeatMap>(key)
         if (!map) return // first load still in flight: it reflects this event or the next one shows a gap
-        const update = applySeatEvent(map, event)
+        const updatedAt = queryClient.getQueryState(key)?.dataUpdatedAt ?? 0
+        const update = applySeatEvent(map, event, {
+          lastSeenVersion,
+          mapUpdatedAtServerMs: updatedAt + offsetRef.current,
+        })
+        if (update.kind === 'resync') {
+          resync()
+          return
+        }
+        lastSeenVersion = Math.max(lastSeenVersion, event.version)
         if (update.kind === 'apply') queryClient.setQueryData(key, update.map)
-        else if (update.kind === 'resync') resync()
       },
       resync,
     )

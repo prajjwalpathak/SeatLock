@@ -430,6 +430,9 @@ sequenceDiagram
   every instance's listener forwards each message, in order on one thread, to its own broker.
 - Resync: the seat map carries `version` (read before the statuses); clients apply only messages with a greater version
   and reload the map on a gap, a smaller version (Redis restart) or a reconnect.
+- Browser (W5·D3): one shared `@stomp/stompjs` connection per tab; `useLiveSeatMap` writes events into the cached
+  seat map (`applySeatEvent`), reloads on every (re)subscription; HELD-by-hold seats lapse locally at `holdExpiresAt`;
+  header badge: Live / Connecting… / Reconnecting… / Live updates paused.
 
 ## 3. Conventions
 - Internal keys are `bigint` identity. Bookings expose a random `public_id` (UUID), so IDs in URLs can't be enumerated.

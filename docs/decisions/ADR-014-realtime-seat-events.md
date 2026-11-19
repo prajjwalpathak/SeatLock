@@ -58,3 +58,14 @@
 9. Rejected: Redis Streams (replayable, but consumer groups/trimming for a portfolio app; resync already covers loss),
    per-show channels with `PSUBSCRIBE` (more pattern matching per message for no gain at 2 instances), a dedicated
    resync endpoint (the seat map already is one; one request on load and on resync).
+
+## W5·D3 update: browser client
+10. **One STOMP connection per tab** (`frontend/src/lib/stompClient.ts`, `@stomp/stompjs` 7), ref-counted, closed 10 s
+    after the last live view; JWT from storage in CONNECT, a refused token is not resent (anonymous instead);
+    reconnect 1 s → 30 s exponential with jitter; 10 s heart-beats both ways.
+11. **Subscribe, then load:** every (re)subscription reloads the seat map; events are written into the TanStack Query
+    cache by version (`applySeatEvent`): ≤ map.version ignore, next one apply, gap reload, `version: null` reload.
+12. **Counter restarts** (Redis restart) are detected by a version smaller than one already received, or by a
+    message ≤ map.version that happened > 5 s after the map was loaded (server clock); both reload the map.
+13. **Hold expiry on the client:** HELD-by-hold seats turn AVAILABLE at `holdExpiresAt` (server clock, 1 s tick while
+    any is pending). Refetch on tab focus stays as an extra resync after sleep.

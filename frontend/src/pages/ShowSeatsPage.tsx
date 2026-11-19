@@ -8,6 +8,7 @@ import { ErrorMessage } from '../components/ErrorMessage'
 import { useAuth } from '../features/auth/useAuth'
 import { HoldPanel } from '../features/seatmap/HoldPanel'
 import { LiveBadge } from '../features/seatmap/LiveBadge'
+import { nextHoldExpiry, withExpiredHolds } from '../features/seatmap/liveSeats'
 import { forgetHold, recallHold, rememberHold } from '../features/seatmap/holdStorage'
 import { SeatLegend } from '../features/seatmap/SeatLegend'
 import { SeatMap } from '../features/seatmap/SeatMap'
@@ -71,20 +72,28 @@ type ViewProps = {
   onRefresh: () => void
 }
 
+/** Client time `seconds` from now (event handlers only; never called during render). */
+function clientTimeIn(seconds: number): number {
+  return Date.now() + seconds * 1000
+}
+
 /** Retry only what is safe and likely to succeed with the SAME Idempotency-Key. */
 function retryHold(failures: number, error: unknown): boolean {
   if (failures >= 2) return false
   return (error instanceof ApiError && error.status === 0) || hasCode(error, 'HOLDS_UNAVAILABLE', 'IDEMPOTENCY_IN_PROGRESS')
 }
 
-function ShowSeatsView({ seatMap, liveStatus, refreshing, onRefresh }: ViewProps) {
-  const showId = seatMap.showId
+function ShowSeatsView({ seatMap: cachedMap, liveStatus, refreshing, onRefresh }: ViewProps) {
+  const showId = cachedMap.showId
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { status: authStatus } = useAuth()
   const signedIn = authStatus === 'signedIn'
   const clockOffset = useServerClockOffset()
-  const now = useNow(15_000)
+  // Tick every second while some hold may lapse soon (holds expire in Redis without a message), else every 15 s
+  const holdExpiry = nextHoldExpiry(cachedMap)
+  const now = useNow(holdExpiry !== null ? 1_000 : 15_000)
+  const seatMap = withExpiredHolds(cachedMap, now + clockOffset)
   const started = new Date(seatMap.startsAt).getTime() <= now + clockOffset
 
   const [selectedIds, setSelectedIds] = useState<number[]>([])
@@ -158,7 +167,7 @@ function ShowSeatsView({ seatMap, liveStatus, refreshing, onRefresh }: ViewProps
         }
       } else if (hasCode(error, 'RATE_LIMITED')) {
         const wait = error.retryAfterSeconds ?? 30
-        setBlockedUntil(Date.now() + wait * 1000)
+        setBlockedUntil(clientTimeIn(wait))
         setNotice(`Too many attempts. Please wait ${wait} seconds and try again.`)
       } else if (hasCode(error, 'SHOW_STARTED')) {
         setNotice('This show has already started.')
