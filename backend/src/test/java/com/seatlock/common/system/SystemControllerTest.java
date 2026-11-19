@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.seatlock.common.web.InstanceHeaderFilter;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -18,7 +19,8 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import testsupport.SecurityRulesSlice;
 
-@WebMvcTest(controllers = SystemController.class, properties = "seatlock.build.revision=0123456789abcdef")
+@WebMvcTest(controllers = SystemController.class,
+        properties = {"seatlock.build.revision=0123456789abcdef", "seatlock.instance-id=app-2"})
 @SecurityRulesSlice // real URL rules: proves the endpoint is public
 @ActiveProfiles("test")
 class SystemControllerTest {
@@ -52,6 +54,8 @@ class SystemControllerTest {
         mvc.perform(get("/api/v1/system/version"))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Cache-Control", "no-store"))
-                .andExpect(jsonPath("$.revision").value("0123456789abcdef"));
+                .andExpect(jsonPath("$.revision").value("0123456789abcdef"))
+                .andExpect(jsonPath("$.instance").value("app-2"))
+                .andExpect(header().string(InstanceHeaderFilter.HEADER, "app-2"));
     }
 }

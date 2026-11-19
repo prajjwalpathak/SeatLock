@@ -56,6 +56,7 @@ springdoc:
 seatlock:
   build:
     revision: ${SEATLOCK_REVISION:local}      # git commit, baked into the image by CI (GET /api/v1/system/version)
+  instance-id: ${SEATLOCK_INSTANCE_ID:local}   # which app instance answered (X-SeatLock-Instance, /system/version); set per container
   cache:
     enabled: ${SEATLOCK_CACHE_ENABLED:true}   # false = kill switch / "before" benchmarks (NoOpCacheManager)
   jwt:

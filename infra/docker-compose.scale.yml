@@ -1,0 +1,64 @@
+# Two app instances behind Nginx, locally (W5·D4). Adds to the local stack; run from the repo root:
+#   docker compose --env-file .env -f infra/docker-compose.local.yml -f infra/docker-compose.scale.yml up -d --build
+# API + WebSocket through the load balancer: http://localhost:8088 (instances directly: 8081 / 8082, checks only)
+# Both instances use the prod profile (JSON logs, health probes, forwarded headers) with local values below.
+# Stop only the scale-out services:  docker compose ... stop app-1 app-2 lb
+
+x-app: &app
+  build:
+    context: ../backend
+    args:
+      GIT_SHA: local-scale
+  image: seatlock-backend:local
+  env_file: ../.env                     # JWT keys, admin, Google, Razorpay (same values as the IDE run)
+  environment: &app-env
+    SPRING_PROFILES_ACTIVE: prod
+    POSTGRES_HOST: postgres             # Compose network names, not the host ports in .env
+    POSTGRES_PORT: "5432"
+    REDIS_HOST: redis
+    REDIS_PORT: "6379"
+    FRONTEND_BASE_URL: http://localhost:5173
+    CORS_ALLOWED_ORIGINS: http://localhost:5173
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  deploy:
+    resources:
+      limits:
+        memory: 1200m                   # same as prod: shows whether two fit next to Postgres/Redis on 4 GB
+  restart: unless-stopped
+
+services:
+  app-1:
+    <<: *app
+    container_name: seatlock-app-1
+    ports:
+      - "127.0.0.1:8081:8080"           # direct access, only for cross-instance checks (bypasses the LB)
+    environment:
+      <<: *app-env
+      SEATLOCK_INSTANCE_ID: app-1
+
+  app-2:
+    <<: *app
+    container_name: seatlock-app-2
+    ports:
+      - "127.0.0.1:8082:8080"
+    environment:
+      <<: *app-env
+      SEATLOCK_INSTANCE_ID: app-2
+
+  lb:
+    image: nginx:1.28-alpine
+    container_name: seatlock-lb
+    ports:
+      - "127.0.0.1:8088:80"
+    volumes:
+      - ./nginx/local/seatlock-lb.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      app-1:
+        condition: service_healthy
+      app-2:
+        condition: service_healthy
+    restart: unless-stopped
