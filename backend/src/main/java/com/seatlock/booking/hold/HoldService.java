@@ -6,6 +6,7 @@ import com.seatlock.booking.hold.HoldAttempt.SeatsTaken;
 import com.seatlock.catalog.application.HoldableShow;
 import com.seatlock.catalog.application.ShowCatalogService;
 import com.seatlock.catalog.domain.ShowSeatStatus;
+import com.seatlock.catalog.events.SeatsChangedEvent;
 import com.seatlock.common.exception.ConflictException;
 import com.seatlock.common.exception.InvalidRequestException;
 import com.seatlock.common.exception.NotFoundException;
@@ -23,6 +24,7 @@ import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 
@@ -33,6 +35,8 @@ import org.springframework.stereotype.Service;
  * concurrent users comes only from the Lua script (and, at booking time, the DB unique index).</p>
  * <p>Not {@code @Transactional}: the catalog reads are single queries, and no DB connection should be
  * held across the Redis call (same reasoning as the seat map).</p>
+ * <p>Successful holds and user releases publish a {@link SeatsChangedEvent} (no transaction here, so it is
+ * broadcast at once). Expiry by TTL publishes nothing: the HELD event carries {@code holdExpiresAt}.</p>
  */
 @Service
 @EnableConfigurationProperties(HoldProperties.class)
@@ -46,12 +50,15 @@ public class HoldService {
     private final SeatLockingStrategy store;
     private final HoldProperties props;
     private final Clock clock;
+    private final ApplicationEventPublisher events;
 
-    public HoldService(ShowCatalogService catalog, SeatLockingStrategy store, HoldProperties props, Clock clock) {
+    public HoldService(ShowCatalogService catalog, SeatLockingStrategy store, HoldProperties props, Clock clock,
+                       ApplicationEventPublisher events) {
         this.catalog = catalog;
         this.store = store;
         this.props = props;
         this.clock = clock;
+        this.events = events;
     }
 
     public Hold createHold(long userId, long showId, List<Long> seatIds) {
@@ -81,7 +88,10 @@ public class HoldService {
         Instant expiresAt = now.plus(props.ttl()).truncatedTo(ChronoUnit.MILLIS);
         HoldAttempt attempt = withRedis(() -> store.tryHold(holdId, userId, showId, seatIds, props.ttl(), expiresAt));
         return switch (attempt) {
-            case Held held -> toHold(held.holdId(), showId, seatIds, byId, expiresAt);
+            case Held held -> {
+                events.publishEvent(new SeatsChangedEvent(showId, seatIds, ShowSeatStatus.HELD, expiresAt));
+                yield toHold(held.holdId(), showId, seatIds, byId, expiresAt);
+            }
             case SeatsTaken taken -> throw new SeatsUnavailableException(taken.seatIds());
             case HoldExists exists -> throw new HoldExistsException(exists.existingHoldId());
         };
@@ -97,11 +107,23 @@ public class HoldService {
         return toHold(holdId, record.showId(), record.seatIds(), byId, record.expiresAt());
     }
 
-    /** Releases the caller's hold; the seats are free again immediately. */
+    /** Releases the caller's hold; the seats are free again immediately (and viewers are told so). */
     public void releaseHold(long userId, String holdId) {
         HoldRecord record = ownedRecord(userId, holdId);
         int released = withRedis(() -> store.release(record));
         log.debug("Released hold {} ({} seats)", holdId, released);
+        if (released > 0) {
+            events.publishEvent(SeatsChangedEvent.of(record.showId(), record.seatIds(), ShowSeatStatus.AVAILABLE));
+        }
+    }
+
+    /**
+     * Drops the hold's keys after it became a booking. Publishes nothing: the seats are HELD in the DB now
+     * (announced by the booking's own commit), so an AVAILABLE event here would be wrong.
+     */
+    public void releaseConvertedHold(long userId, String holdId) {
+        HoldRecord record = ownedRecord(userId, holdId);
+        withRedis(() -> store.release(record));
     }
 
     // ------------------------------------------------------------------ helpers

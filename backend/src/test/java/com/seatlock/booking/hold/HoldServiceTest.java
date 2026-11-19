@@ -28,6 +28,8 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import com.seatlock.catalog.events.SeatsChangedEvent;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.redis.RedisConnectionFailureException;
 
 class HoldServiceTest {
@@ -40,8 +42,9 @@ class HoldServiceTest {
 
     private final ShowCatalogService catalog = mock(ShowCatalogService.class);
     private final RedisHoldStore store = mock(RedisHoldStore.class);
+    private final ApplicationEventPublisher events = mock(ApplicationEventPublisher.class);
     private final HoldService service = new HoldService(catalog, store, new HoldProperties(TTL, 6),
-            Clock.fixed(NOW, ZoneOffset.UTC));
+            Clock.fixed(NOW, ZoneOffset.UTC), events);
 
     // ------------------------------------------------------------------ create
 
@@ -57,12 +60,13 @@ class HoldServiceTest {
         assertThat(hold.seats()).extracting(Hold.HeldSeat::seatId).containsExactly(1L, 2L);
         assertThat(hold.totalPaise()).isEqualTo(225_000);
         assertThat(hold.expiresAt()).isEqualTo(NOW.plus(TTL));
+        verify(events).publishEvent((Object) new SeatsChangedEvent(SHOW, List.of(1L, 2L), ShowSeatStatus.HELD, NOW.plus(TTL)));
     }
 
     @Test
     void expiryIsTruncatedToMillisecondsLikeTheRedisRecord() {
         Instant nanos = Instant.parse("2026-12-01T12:00:00.123456789Z");
-        HoldService precise = new HoldService(catalog, store, new HoldProperties(TTL, 6), Clock.fixed(nanos, ZoneOffset.UTC));
+        HoldService precise = new HoldService(catalog, store, new HoldProperties(TTL, 6), Clock.fixed(nanos, ZoneOffset.UTC), events);
         when(catalog.findHoldableSeats(eq(SHOW), anyList())).thenReturn(Optional.of(new HoldableShow(SHOW,
                 nanos.plus(Duration.ofDays(1)), List.of(seat(1, 100, ShowSeatStatus.AVAILABLE)))));
         when(store.tryHold(anyString(), anyLong(), anyLong(), anyList(), any(), any()))
@@ -157,6 +161,20 @@ class HoldServiceTest {
         service.releaseHold(USER, HOLD_ID);
 
         verify(store).release(record);
+        verify(events, never()).publishEvent(any(Object.class)); // nothing was released (already expired)
+    }
+
+    @Test
+    void releasingAHoldAnnouncesTheSeatsButReleasingAConvertedHoldDoesNot() {
+        HoldRecord record = new HoldRecord(HOLD_ID, USER, SHOW, List.of(1L, 2L), NOW.plus(TTL));
+        when(store.find(HOLD_ID)).thenReturn(Optional.of(record));
+        when(store.release(record)).thenReturn(2);
+
+        service.releaseConvertedHold(USER, HOLD_ID);   // seats are HELD by the booking now: no AVAILABLE event
+        verify(events, never()).publishEvent(any(Object.class));
+
+        service.releaseHold(USER, HOLD_ID);
+        verify(events).publishEvent((Object) SeatsChangedEvent.of(SHOW, List.of(1L, 2L), ShowSeatStatus.AVAILABLE));
     }
 
     @Test
