@@ -1,5 +1,7 @@
 # Local dev infrastructure. Run from the repo root:
 #   docker compose --env-file .env -f infra/docker-compose.local.yml up -d
+# Monitoring (W6·D2): Prometheus http://localhost:9090, Grafana http://localhost:3000 (admin / GRAFANA_ADMIN_PASSWORD).
+# Prometheus scrapes the IDE app (host port 8080) and app-1/app-2 when the scale overlay runs (docs/monitoring.md).
 name: seatlock-local
 
 services:
@@ -35,6 +37,44 @@ services:
             retries: 10
         restart: unless-stopped
 
+    prometheus:
+        image: prom/prometheus:v3.13.5 # 3.13 = LTS line (supported to Jul 2027)
+        container_name: seatlock-prometheus
+        command:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.retention.time=7d
+        ports:
+            - "127.0.0.1:9090:9090"
+        extra_hosts:
+            - "host.docker.internal:host-gateway" # the backend running in IntelliJ on the laptop
+        volumes:
+            - ./prometheus/prometheus.local.yml:/etc/prometheus/prometheus.yml:ro
+            - promdata:/prometheus
+        restart: unless-stopped
+
+    grafana:
+        image: grafana/grafana:13.2.4
+        container_name: seatlock-grafana
+        environment:
+            GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin} # local only; prod requires its own
+            GF_USERS_ALLOW_SIGN_UP: "false"
+            GF_AUTH_ANONYMOUS_ENABLED: "false"
+            GF_ANALYTICS_REPORTING_ENABLED: "false"
+            GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+            GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/seatlock.json
+        ports:
+            - "127.0.0.1:3000:3000"
+        volumes:
+            - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+            - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+            - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+            - grafanadata:/var/lib/grafana
+        depends_on:
+            - prometheus
+        restart: unless-stopped
+
 volumes:
     pgdata:
     redisdata:
+    promdata:
+    grafanadata:

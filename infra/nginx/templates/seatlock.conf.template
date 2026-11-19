@@ -85,7 +85,15 @@ server {
         proxy_pass http://seatlock_app;
     }
     location /actuator/ {
-        return 404;
+        return 404;      # includes /actuator/prometheus: scraped only on the Docker network
+    }
+
+    # Grafana (W6·D2): its own login (admin from .env.prod), served from the /grafana/ sub-path.
+    # Through a variable so Nginx still starts if Grafana is down (resolved at request time by Docker DNS).
+    location /grafana/ {
+        set $grafana_upstream http://grafana:3000;
+        proxy_pass $grafana_upstream;
+        proxy_read_timeout 75s;      # Grafana Live (WebSocket) keeps a connection open
     }
 
     location ~ ^/api/v1/auth/(login|register)$ {

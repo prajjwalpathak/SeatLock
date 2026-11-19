@@ -3,15 +3,15 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 6 · Day 2 (not started, planned Wed Dec 16): custom Micrometer metrics (oversells, hold conflicts, cache hits), Prometheus + Grafana locally and in prod, dashboard JSON committed, as 2 combined tasks. Branch `w6-d2` (create with `git switch -c w6-d2 origin/main` after #20 is squash-merged)
-- **Last completed:** Week 6 · Day 1: unit tests for the biggest branch gaps (branches 77.1 → 81.2 %), Mockito as a `-javaagent` (warning gone), JaCoCo gate in CI (≥ 85 % lines, ≥ 80 % branches); W5·D6 docs restored after the #19 branch update (F9) (planned Tue Dec 15, done Fri Nov 20)
-- **Live URLs:** Frontend https://seatlock-nu.vercel.app · Backend https://seatlock-prajjwal.duckdns.org · Swagger https://seatlock-prajjwal.duckdns.org/swagger-ui.html · Version https://seatlock-prajjwal.duckdns.org/api/v1/system/version · Grafana —
+- **Current day:** Week 6 · Day 3 (not started, planned Thu Dec 17): k6 scripts (browse + flash-sale: many users → limited seats), p95/p99 and oversells = 0 recorded, as **one task** (all 6 plan tasks). Branch `w6-d3` (create with `git switch -c w6-d3 origin/main` after the W6·D2 PR is squash-merged)
+- **Last completed:** Week 6 · Day 2: Micrometer business meters (holds by outcome, oversells blocked, double-sold gauge, payment captures, STOMP sessions), `/actuator/prometheus`, Prometheus + Grafana locally and in prod (Grafana at `/grafana/`), dashboard JSON provisioned from Git, ADR-015 (planned Wed Dec 16, done Fri Nov 20)
+- **Live URLs:** Frontend https://seatlock-nu.vercel.app · Backend https://seatlock-prajjwal.duckdns.org · Swagger https://seatlock-prajjwal.duckdns.org/swagger-ui.html · Version https://seatlock-prajjwal.duckdns.org/api/v1/system/version · Grafana https://seatlock-prajjwal.duckdns.org/grafana/ (after the deploy.md section 3c rollout)
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public) · CI + Deploy badges in README · `main` protected (ruleset `protect-main`)
-- **Hosting:** Azure VM `seatlock-vm` (India South Central, B2als_v2 x64) + Vercel; images from GHCR (ADR-005, #62, #71–#74, #167); **2 app instances** since W5·D5; decommission after ~2–3 months
-- **Git workflow (from W4·D5):** **2 combined tasks per day** (plan tasks grouped as feasible); each = changes → one verify/test block → one one-line commit + push on the daily branch; day end → PR on GitHub → squash-merge when CI is green; next branch with `git switch -c wN-dM origin/main`; never push to a branch after its PR is merged; **never use GitHub's "Update branch" / web conflict editor** (#9, #75, #116, #141, #142, #176)
-- **Carry-overs:** duplicate `Strict-Transport-Security` (Spring + Nginx) → W8·D1 · same-site frontend/API for privacy blockers (F7) → W8 stretch · JetBrains license · IntelliJ dependency scan · refund status webhooks (stretch) · WireMock 4.x re-check (W8·D1)
-- **Schedule:** **~25 days ahead** (W6·D1 done Fri Nov 20 instead of Tue Dec 15); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
-- **Top risk:** Prometheus + Grafana RAM on the 4 GB VM next to 2 app instances (W6·D2); k6 numbers are laptop-relative (W6·D3)
+- **Hosting:** Azure VM `seatlock-vm` (India South Central, B2als_v2 x64) + Vercel; images from GHCR (ADR-005, #62, #71–#74, #167); **2 app instances** since W5·D5 + Prometheus/Grafana since W6·D2; decommission after ~2–3 months
+- **Git workflow (from W6·D2):** **one task per day** = all 6 plan tasks → one verify/test block → one one-line commit + push on the daily branch → PR on GitHub → squash-merge when CI is green; next branch with `git switch -c wN-dM origin/main`; never push to a branch after its PR is merged; **never use GitHub's "Update branch" / web conflict editor** (#9, #75, #116, #141, #142, #176, #181)
+- **Carry-overs:** prod monitoring rollout + memory check (deploy.md section 3c) after the W6·D2 merge · duplicate `Strict-Transport-Security` (Spring + Nginx) → W8·D1 · same-site frontend/API for privacy blockers (F7) → W8 stretch · JetBrains license · IntelliJ dependency scan · refund status webhooks (stretch) · WireMock 4.x re-check (W8·D1)
+- **Schedule:** **~26 days ahead** (W6·D2 done Fri Nov 20 instead of Wed Dec 16); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
+- **Top risk:** k6 numbers are laptop-relative (W6·D3); prod RAM with Prometheus + Grafana (limits ~3.3 of 3.8 GB) to be confirmed by `docker stats` after the rollout
 
 ## Decisions Log (ADR summary)
 | # | Date | Decision | Why |
@@ -196,6 +196,12 @@
 | 178 | 2026-11-20 | **Mockito as a real `-javaagent`** (`maven-dependency-plugin:properties` → `${org.mockito:mockito-core:jar}` in surefire `argLine` after `@{argLine}` for JaCoCo; `-Xshare:off`; empty `argLine` default) | Mockito's documented fix for the JDK "dynamically loaded agent" warning (carry-over since W3·D5); keeps JaCoCo's agent |
 | 179 | 2026-11-20 | **JaCoCo gate** (`jacoco:check` in `verify`, after `report`): BUNDLE **lines ≥ 85 %, branches ≥ 80 %**; CI summary prints the gate; floors only go up | Lines 94.0 % (9 pt headroom), branches 81.2 % (the plan's 80 % target, little headroom on purpose: untested branches in new code fail CI); per-class floors rejected (would force tests for trivial records) |
 | 180 | 2026-11-20 | CI Maven cache via `actions/cache` with `restore-keys` (instead of setup-java's pom-hash-only cache) + resolver retries (`retryHandler.count=5`, `interval=10000`) | First run after a pom change got **429 from Maven Central** (cold cache, everything re-downloaded on a shared runner IP); fallback cache downloads only what changed |
+| 181 | 2026-11-20 | **Workflow from W6·D2 (supersedes #141):** **one task per day** covering all 6 plan tasks; one verify block, one one-line commit + push, then PR + squash | User decision; fewer round trips at the same pace |
+| 182 | 2026-11-20 | **ADR-015:** Micrometer Prometheus registry; `/actuator/prometheus` on the **same port**, `permitAll`, hidden at the edge (Nginx 404) with unpublished app ports; other actuator endpoints stay ADMIN-only; `application=seatlock` tag; `http.server.requests` histogram buckets | A management port would also move `/actuator/health` (HEALTHCHECK, deploy.sh, smoke test); histograms aggregate across instances, client percentiles don't |
+| 183 | 2026-11-20 | Business meters with **low-cardinality tags only**: `seatlock.holds{strategy,outcome}`, `seatlock.oversell.blocked{guard}`, `seatlock.payments.captures{outcome}` (**after commit**), `seatlock.websocket.sessions` (set of session ids) | No per-show/seat/user series; rolled-back captures and duplicate disconnects can't skew the numbers |
+| 184 | 2026-11-20 | **Oversells measured from the data:** gauge `seatlock.seats.double_sold` = the race tests' invariant SQL, run by `SeatInvariantMonitor` every minute (not per scrape), `-1` before the first count, last value kept on DB errors | Proves "0 oversells" independently of the code paths; scrapes stay cheap and never wait on Postgres |
+| 185 | 2026-11-20 | Prometheus **3.13.5 (LTS)**, 15 s scrapes, 7 d / 1 GB, 256 MB; Grafana **13.2.4**, 192 MB; data source (fixed uid) + dashboard provisioned from `infra/grafana/`, UI edits not kept | Reproducible dashboards in Git; fits the VM (limits ~3.3 of 3.8 GB, idle use far lower, 2 GB swap) |
+| 186 | 2026-11-20 | Prod Grafana behind Nginx at **`/grafana/`** (sub-path, `proxy_pass` via a variable), own admin login (`GRAFANA_ADMIN_PASSWORD` generated on the VM), sign-up/anonymous off; Prometheus never public | One domain/certificate; Nginx starts even if Grafana is down; secrets stay on the VM (#66) |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -259,6 +265,7 @@
 | Tests | 493 (492 + 1 new) | `mvnw verify` | 2026-11-20 |
 | Test coverage (JaCoCo) | **94.0 % lines** (2580/2744), **81.2 % branches** (607/748, was 77.1 %), 94.2 % instructions | `mvnw verify` (`jacoco.csv`) | 2026-11-20 |
 | Tests | 513 (493 + 20 new) | `mvnw verify` / CI | 2026-11-20 |
+| Tests | 516 (513 + 3 new; hold-meter assertions added to 4 existing tests) | `mvnw verify` / CI | 2026-11-20 |
 | **Prod rolling deploy, new revision (#18 merge)** | **2198/2198 requests 200, 0 failures**; app-1 switched at 03:01:53, app-2 at 03:02:11 (18 s later, after app-1 was healthy); slowest request 742 ms | `deploy-watch.ps1 -Minutes 12` during the CI deploy | 2026-11-20 |
 | Prod job threads after #18 | thread dump of app-1: `scheduling-1`, `scheduling-2` present; `MessageBroker-N` lines only from `WebSocketMessageBrokerStats` | `docker kill -s QUIT` + logs | 2026-11-20 |
 
@@ -1394,3 +1401,36 @@
 - Java agents: JaCoCo instrumentation, Mockito's inline mock maker, JDK 21+ dynamic-agent restrictions
 - Git: why merging `main` into a branch before a squash can silently drop work
 **Commit:** `test: branch-gap unit tests, Mockito agent, JaCoCo gate; W5·D6 docs restored (W6·D1)` (squashed into one commit on `main`)
+
+### Week 6 · Day 2: Custom metrics, Prometheus + Grafana (planned Wed, Dec 16; done Fri, Nov 20, 2026)
+**Status:** ✅ Done (code, local stack, docs; prod rollout per deploy.md section 3c after the merge)
+**Built:**
+- First day as one task (all 6 plan tasks, #181)
+- `micrometer-registry-prometheus`, `/actuator/prometheus` (permitAll, edge-hidden), `application` tag, HTTP histogram buckets
+- Meters: `seatlock.holds{strategy,outcome}` in `HoldService`; `seatlock.oversell.blocked` in `BookingService` (live-seat index path, + WARN log); `seatlock.payments.captures{outcome}` after commit in `PaymentCaptureService`; `SeatInvariantMonitor` (double-sold gauge, job every minute); `StompSessionMetrics` (open STOMP sessions)
+- Local: Prometheus (`ide`, `app-1`, `app-2` targets) + Grafana in `docker-compose.local.yml`; prod: Prometheus + Grafana services, Nginx `/grafana/`, `GRAFANA_ADMIN_PASSWORD` in `.env.prod.example` + `init-env-prod.sh`
+- Dashboard `infra/grafana/dashboards/seatlock.json` (14 panels: oversells, blocked oversells, hold conflict rate, cache hit rate, WS sessions, instances up, holds by outcome, captures, p95/p99, status codes, slowest routes, cache per cache, heap, Hikari; `$instance` variable)
+- Docs: ADR-015, `docs/monitoring.md`, architecture section 2k, deploy.md section 3c, ADR index
+- Tests: **516** (3 new + meter assertions in `HoldServiceTest`)
+**Files created/changed:**
+- `backend\pom.xml`; `application.yml`, `application-local.yml`; `identity\security\SecurityConfig.java`
+- `booking\hold\HoldService.java`; `booking\application\{BookingService, SeatInvariantMonitor}.java`; `payment\application\PaymentCaptureService.java`; `realtime\StompSessionMetrics.java`
+- Tests: `booking\hold\HoldServiceTest`, `booking\application\SeatInvariantMonitorIntegrationTest`, `realtime\StompSessionMetricsTest`
+- `infra\{docker-compose.local.yml, docker-compose.prod.yml, .env.prod.example}`, `infra\nginx\templates\seatlock.conf.template`, `infra\scripts\init-env-prod.sh`, `infra\prometheus\{prometheus.local.yml, prometheus.prod.yml}`, `infra\grafana\provisioning\{datasources\prometheus.yml, dashboards\seatlock.yml}`, `infra\grafana\dashboards\seatlock.json`; `.env.example`
+- `docs\decisions\{ADR-015-monitoring.md, README.md}`, `docs\{monitoring.md, architecture.md, deploy.md}`, `progress.md`
+**Decisions:**
+- See Decisions Log #181–#186
+**Metrics recorded:**
+- 516 tests; prod memory with monitoring after the rollout (carry-over)
+**Problems & fixes:**
+- Plan's management-port idea dropped: it would move `/actuator/health` used by the HEALTHCHECK, deploy.sh and the CI smoke test → same port, hidden at the edge (#182)
+- `HoldServiceTest.bookedSeatsAreRejectedWithoutTouchingRedis` used `verifyNoInteractions(store)`; the strategy tag now reads `store.name()` → asserts `tryHold` was never called instead
+**Carry-over:**
+- Prod rollout (deploy.md section 3c): `up` targets, `/actuator/prometheus` 404 from outside, Grafana login, `docker stats`
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- Metrics types (counter, gauge, timer, histogram); pull vs push; scrape intervals and `rate`/`increase`
+- Server-side histograms vs client-side percentiles (aggregation across instances); `histogram_quantile`
+- Label cardinality and why ids never become tags
+- Measuring invariants from data vs counting events in code; counting after commit
+- Securing metrics endpoints (network isolation, edge rules); provisioning dashboards as code
+**Commit:** `feat(infra): business metrics, Prometheus and Grafana with a provisioned dashboard (W6·D2)`

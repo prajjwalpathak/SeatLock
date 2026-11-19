@@ -11,6 +11,8 @@ import com.seatlock.catalog.application.HoldableShow;
 import com.seatlock.catalog.application.ShowCatalogService;
 import com.seatlock.catalog.application.ShowSeatStatusService;
 import com.seatlock.common.exception.NotFoundException;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
 import java.util.List;
 import java.util.Map;
@@ -47,15 +49,25 @@ public class BookingService {
     private final ShowSeatStatusService seatStatus;
     private final TransactionTemplate tx;
     private final Clock clock;
+    /**
+     * {@code seatlock.oversell.blocked}: a conversion the partial unique index {@code ux_booking_seats_live_seat}
+     * rejected after Redis/CAS let it through. Each one is an oversell the database stopped; non-zero means the
+     * fast path lost data (e.g. a Redis restart), never that a seat was sold twice.
+     */
+    private final Counter oversellBlocked;
 
     public BookingService(BookingRepository bookings, HoldService holds, ShowCatalogService catalog,
-                          ShowSeatStatusService seatStatus, TransactionTemplate tx, Clock clock) {
+                          ShowSeatStatusService seatStatus, TransactionTemplate tx, Clock clock, MeterRegistry meters) {
         this.bookings = bookings;
         this.holds = holds;
         this.catalog = catalog;
         this.seatStatus = seatStatus;
         this.tx = tx;
         this.clock = clock;
+        this.oversellBlocked = Counter.builder("seatlock.oversell.blocked")
+                .description("Bookings rejected by the live-seat unique index (oversells stopped by Postgres)")
+                .tag("guard", "ux_booking_seats_live_seat")
+                .register(meters);
     }
 
     /** Result of a conversion: the booking, and whether this call created it (201) or found it (200). */
@@ -89,6 +101,8 @@ public class BookingService {
             if (e instanceof DataIntegrityViolationException dive
                     && String.valueOf(dive.getMostSpecificCause().getMessage()).contains("ux_booking_seats_live_seat")) {
                 // Redis said free but a live booking already has a seat (Redis lost data?): the DB guard wins.
+                oversellBlocked.increment();
+                log.warn("Live-seat index blocked a booking for hold {} (Redis/DB disagreed)", holdId);
                 throw new SeatsUnavailableException(hold.seats().stream().map(Hold.HeldSeat::seatId).toList());
             }
             throw e;

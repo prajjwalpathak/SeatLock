@@ -27,6 +27,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import com.seatlock.catalog.events.SeatsChangedEvent;
 import org.springframework.context.ApplicationEventPublisher;
@@ -43,8 +44,13 @@ class HoldServiceTest {
     private final ShowCatalogService catalog = mock(ShowCatalogService.class);
     private final RedisHoldStore store = mock(RedisHoldStore.class);
     private final ApplicationEventPublisher events = mock(ApplicationEventPublisher.class);
+    private final SimpleMeterRegistry meters = new SimpleMeterRegistry();
     private final HoldService service = new HoldService(catalog, store, new HoldProperties(TTL, 6),
-            Clock.fixed(NOW, ZoneOffset.UTC), events);
+            Clock.fixed(NOW, ZoneOffset.UTC), events, meters);
+
+    {
+        when(store.name()).thenReturn("redis-hold");   // tag on seatlock.holds
+    }
 
     // ------------------------------------------------------------------ create
 
@@ -61,12 +67,13 @@ class HoldServiceTest {
         assertThat(hold.totalPaise()).isEqualTo(225_000);
         assertThat(hold.expiresAt()).isEqualTo(NOW.plus(TTL));
         verify(events).publishEvent((Object) new SeatsChangedEvent(SHOW, List.of(1L, 2L), ShowSeatStatus.HELD, NOW.plus(TTL)));
+        assertThat(holds(HoldService.OUTCOME_HELD)).isEqualTo(1.0);
     }
 
     @Test
     void expiryIsTruncatedToMillisecondsLikeTheRedisRecord() {
         Instant nanos = Instant.parse("2026-12-01T12:00:00.123456789Z");
-        HoldService precise = new HoldService(catalog, store, new HoldProperties(TTL, 6), Clock.fixed(nanos, ZoneOffset.UTC), events);
+        HoldService precise = new HoldService(catalog, store, new HoldProperties(TTL, 6), Clock.fixed(nanos, ZoneOffset.UTC), events, meters);
         when(catalog.findHoldableSeats(eq(SHOW), anyList())).thenReturn(Optional.of(new HoldableShow(SHOW,
                 nanos.plus(Duration.ofDays(1)), List.of(seat(1, 100, ShowSeatStatus.AVAILABLE)))));
         when(store.tryHold(anyString(), anyLong(), anyLong(), anyList(), any(), any()))
@@ -118,7 +125,8 @@ class HoldServiceTest {
 
         assertThatThrownBy(() -> service.createHold(USER, SHOW, List.of(1L, 2L)))
                 .isInstanceOfSatisfying(SeatsUnavailableException.class, e -> assertThat(e.getSeatIds()).containsExactly(2L));
-        verifyNoInteractions(store);
+        verify(store, never()).tryHold(anyString(), anyLong(), anyLong(), anyList(), any(), any()); // only name() for the tag
+        assertThat(holds(HoldService.OUTCOME_SEATS_UNAVAILABLE)).isEqualTo(1.0);
     }
 
     @Test
@@ -129,6 +137,8 @@ class HoldServiceTest {
 
         assertThatThrownBy(() -> service.createHold(USER, SHOW, List.of(1L, 2L)))
                 .isInstanceOfSatisfying(SeatsUnavailableException.class, e -> assertThat(e.getSeatIds()).containsExactly(2L));
+        assertThat(holds(HoldService.OUTCOME_SEATS_TAKEN)).isEqualTo(1.0);
+        assertThat(holds(HoldService.OUTCOME_HELD)).isZero();
     }
 
     @Test
@@ -138,6 +148,7 @@ class HoldServiceTest {
                 .thenReturn(new HoldAttempt.HoldExists("existing"));
 
         assertCode(() -> service.createHold(USER, SHOW, List.of(1L)), ConflictException.class, "HOLD_EXISTS");
+        assertThat(holds(HoldService.OUTCOME_HOLD_EXISTS)).isEqualTo(1.0);
     }
 
     @Test
@@ -198,6 +209,12 @@ class HoldServiceTest {
     }
 
     // ------------------------------------------------------------------ helpers
+
+    /** seatlock.holds{strategy=redis-hold, outcome}; 0 if never counted. */
+    private double holds(String outcome) {
+        var counter = meters.find(HoldService.METER_HOLDS).tag("strategy", "redis-hold").tag("outcome", outcome).counter();
+        return counter == null ? 0 : counter.count();
+    }
 
     private void showStartsIn(Duration fromNow, HoldableShow.Seat... seats) {
         when(catalog.findHoldableSeats(eq(SHOW), anyList()))

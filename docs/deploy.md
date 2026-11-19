@@ -137,6 +137,32 @@ free -h && docker stats --no-stream
 Then run **Actions → Deploy → Run workflow** with the current `sha-…` tag once: the log must show `replacing app-1`,
 `app-1 healthy`, `replacing app-2`, `app-2 healthy`, and the smoke test `both instances on sha-…`.
 
+## 3c. Monitoring rollout: Prometheus + Grafana (W6·D2)
+
+After the W6·D2 PR is merged and its deploy is green (the new image exposes `/actuator/prometheus`):
+
+```powershell
+cd D:\Prajjwal\Code\SeatLock
+tar --exclude=.env.prod -czf $env:TEMP\seatlock-infra.tgz infra
+scp -i $HOME\.ssh\azure_seatlock $env:TEMP\seatlock-infra.tgz ubuntu@seatlock-prajjwal.duckdns.org:~/
+```
+```bash
+# Run on the Azure VM (via ssh)
+cd ~/seatlock && alias dc='docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml'
+cp -r infra ~/infra.bak-w6d2 && cp infra/.env.prod ~/env.prod.bak
+tar -xzf ~/seatlock-infra.tgz -C ~/seatlock && chmod +x infra/scripts/*.sh
+grep -q '^GRAFANA_ADMIN_PASSWORD=.' infra/.env.prod || echo "GRAFANA_ADMIN_PASSWORD=$(openssl rand -hex 16)" >> infra/.env.prod
+grep '^GRAFANA_ADMIN_PASSWORD=' infra/.env.prod      # save it in your password manager
+dc up -d prometheus grafana                          # app-1/app-2 untouched
+dc up -d --force-recreate --no-deps nginx            # REQUIRED for the template change (F7)
+dc ps && docker stats --no-stream && free -h
+dc exec prometheus wget -qO- 'http://localhost:9090/api/v1/query?query=up' ; echo   # both targets "1"
+curl -s -o /dev/null -w '%{http_code}\n' https://seatlock-prajjwal.duckdns.org/actuator/prometheus   # 404
+curl -s -o /dev/null -w '%{http_code}\n' https://seatlock-prajjwal.duckdns.org/grafana/login          # 200
+```
+Then sign in at `https://seatlock-prajjwal.duckdns.org/grafana/` (admin) and check the SeatLock overview dashboard.
+Rollback: `dc stop grafana prometheus`, restore `~/infra.bak-w6d2`, recreate nginx.
+
 ## 4. Change configuration / secrets
 
 ```bash

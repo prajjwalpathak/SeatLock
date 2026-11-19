@@ -46,7 +46,15 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        # prometheus: scraped by Prometheus on the Docker network (W6·D2). Never public: Nginx answers 404 for
+        # /actuator/* except health, and the app ports are not published on the VM.
+        include: health,info,prometheus
+  metrics:
+    tags:
+      application: seatlock        # on every meter; the scrape adds instance (app-1 / app-2)
+    distribution:
+      percentiles-histogram:
+        "[http.server.requests]": true   # histogram buckets → p95/p99 per route in Grafana (histogram_quantile)
 
 springdoc:
   api-docs:
@@ -70,6 +78,8 @@ seatlock:
     # RS256 key pair, base64 DER on one line (PEM headers optional). Local: repo-root .env.
     private-key: ${JWT_PRIVATE_KEY:}
     public-key: ${JWT_PUBLIC_KEY:}
+  metrics:
+    invariant-interval: PT1M     # SeatInvariantMonitor: re-count double-sold seats (seatlock.seats.double_sold)
   holds:
     ttl: 8m                      # how long seats stay held (decision #83); all hold keys share this TTL
     max-seats: 6                 # seats per hold; the UI uses the same cap

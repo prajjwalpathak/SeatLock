@@ -19,3 +19,4 @@ The full decisions log (including small ones) lives in [progress.md](../../progr
 | [012](ADR-012-refunds.md) | Refund outbox, receipt idempotency, rules-based cancellation policy | W4 |
 | [013](ADR-013-seat-locking-strategy.md) | `SeatLockingStrategy`: Redis Lua holds or optimistic Postgres claims | W4 |
 | [014](ADR-014-realtime-seat-events.md) | Live seat events: STOMP topics, AFTER_COMMIT domain events, Redis versions, JWT on CONNECT | W5 |
+| [015](ADR-015-monitoring.md) | Micrometer → Prometheus → Grafana; business meters, edge-hidden scrape endpoint, Grafana at /grafana/ | W6 |
