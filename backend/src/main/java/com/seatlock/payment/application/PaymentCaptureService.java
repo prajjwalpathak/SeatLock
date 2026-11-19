@@ -5,6 +5,7 @@ import com.seatlock.booking.application.BookingService.ConfirmResult;
 import com.seatlock.common.exception.NotFoundException;
 import com.seatlock.payment.domain.Payment;
 import com.seatlock.payment.domain.PaymentRepository;
+import com.seatlock.payment.domain.RefundReason;
 import com.seatlock.payment.gateway.GatewayName;
 import java.time.Clock;
 import java.util.UUID;
@@ -31,9 +32,12 @@ public class PaymentCaptureService {
         CONFIRMED,
         /** Same payment already processed (duplicate callback / webhook). */
         ALREADY_DONE,
-        /** Payment captured, but the booking expired or was cancelled first: refund needed (W4·D4). */
+        /** Payment captured, but the booking expired or was cancelled first: a full refund is queued. */
         CAPTURED_BOOKING_LOST,
-        /** The order was already paid by a different payment id, or the attempt had failed: refund/review (W4·D4). */
+        /**
+         * Not confirmed, look at it: a second payment for an already paid order (that payment is refunded
+         * automatically), a reported amount that doesn't match, or a capture on a FAILED attempt.
+         */
         NEEDS_REVIEW
     }
 
@@ -41,11 +45,14 @@ public class PaymentCaptureService {
 
     private final PaymentRepository payments;
     private final BookingService bookings;
+    private final RefundService refunds;
     private final Clock clock;
 
-    public PaymentCaptureService(PaymentRepository payments, BookingService bookings, Clock clock) {
+    public PaymentCaptureService(PaymentRepository payments, BookingService bookings, RefundService refunds,
+                                 Clock clock) {
         this.payments = payments;
         this.bookings = bookings;
+        this.refunds = refunds;
         this.clock = clock;
     }
 
@@ -72,8 +79,10 @@ public class PaymentCaptureService {
                 if (paymentId.equals(payment.getGatewayPaymentId())) {
                     return result(Outcome.ALREADY_DONE, bookingId);
                 }
-                log.warn("Order {} already paid by {}; second payment {} needs a refund", orderId,
+                log.warn("Order {} already paid by {}; second payment {} is refunded", orderId,
                         payment.getGatewayPaymentId(), paymentId);
+                refunds.request(payment, paymentId, amountPaise != null ? amountPaise : payment.getAmountPaise(),
+                        RefundReason.DUPLICATE_PAYMENT);
                 return result(Outcome.NEEDS_REVIEW, bookingId);
             }
             case FAILED -> {
@@ -89,8 +98,27 @@ public class PaymentCaptureService {
             case ALREADY_CONFIRMED -> Outcome.ALREADY_DONE;
             case NOT_CONFIRMABLE -> Outcome.CAPTURED_BOOKING_LOST;
         };
+        if (outcome == Outcome.CAPTURED_BOOKING_LOST) {
+            // Money taken, seats gone: the full amount goes back. Queued in this transaction, sent by the worker.
+            refunds.request(payment, paymentId, payment.getAmountPaise(), RefundReason.LATE_PAYMENT);
+        }
         log.info("Payment {} for order {} captured: {}", paymentId, orderId, outcome);
         return result(outcome, bookingId);
+    }
+
+    /**
+     * {@code payment.failed}: record the reason on the order; it stays CREATED so the user can retry (the same order
+     * in Checkout, or "Pay" again, which returns this open order). Never turns a paid order back into a failed one.
+     * @return false if the order isn't ours
+     */
+    @Transactional
+    public boolean recordFailedAttempt(GatewayName gateway, String orderId, String paymentId, String reason) {
+        return payments.findForUpdateByGatewayOrder(gateway, orderId)
+                .map(payment -> {
+                    payment.recordFailedAttempt(paymentId + ": " + reason, clock.instant());
+                    return true;
+                })
+                .orElse(false);
     }
 
     /** Booking public id looked up last: by now the booking is either locked in this context or not touched again. */

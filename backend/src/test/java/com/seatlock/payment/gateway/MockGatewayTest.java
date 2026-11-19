@@ -41,6 +41,16 @@ class MockGatewayTest {
     }
 
     @Test
+    void mockRefundsAreIdempotentByReceipt() {
+        GatewayRefund first = gateway.refund(new RefundCommand("pay_1", 100, "rf1"));
+        GatewayRefund again = gateway.refund(new RefundCommand("pay_1", 100, "rf1"));
+        GatewayRefund other = gateway.refund(new RefundCommand("pay_1", 100, "rf2"));
+
+        assertThat(first.refundId()).startsWith("rfnd_mock_").isEqualTo(again.refundId());
+        assertThat(other.refundId()).isNotEqualTo(first.refundId());
+    }
+
+    @Test
     void configSelectsMockByName() {
         assertThat(PaymentGatewayConfig.select(GatewayName.MOCK, RazorpayGatewayTest.props("", "")))
                 .isInstanceOf(MockGateway.class);

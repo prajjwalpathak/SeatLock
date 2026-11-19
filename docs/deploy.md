@@ -179,6 +179,7 @@ The static IP survives, so DNS and the certificate keep working.
 | Smoke test: wrong `live revision` | rollback happened (new image unhealthy) | Read the deploy step's log output; fix, push again |
 | App won't start: `needs RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET` / `Only Razorpay test-mode keys` | gateway `razorpay` without (test) keys | Section 4: set the `rzp_test_` pair or go back to `mock` |
 | Pay now → 503 `PAYMENTS_UNAVAILABLE` | Razorpay rejected the key (401) or timed out | `dc logs app \| grep Razorpay` shows the HTTP status + error code; check the key pair |
+| Log: `Rejected Razorpay webhook: bad or missing signature` + compose warning `The "Xy" variable is not set` | a `$` in `RAZORPAY_WEBHOOK_SECRET` (or any `.env.prod` value) is interpolated by Compose and cut out | Use a hex secret (`openssl rand -hex 32`), update dashboard + `.env.prod`, recreate the app |
 | Payments stay "Payment in progress" | verify callback failed and the webhook isn't arriving (wrong URL/secret, events not selected) | Dashboard → Webhooks → the delivery log shows the HTTP status; 400 = secret mismatch |
 | Checkout modal doesn't open | `checkout.razorpay.com` blocked (ad blocker, offline) | The page says so; allow the domain |
 | CI green locally red in CI | test order/timing differences (e.g. deferred cache `evict`/`clear`) | Use `evictIfPresent`/`invalidate` (immediate) |

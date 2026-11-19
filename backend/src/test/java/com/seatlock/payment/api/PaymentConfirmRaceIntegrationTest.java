@@ -95,6 +95,7 @@ class PaymentConfirmRaceIntegrationTest {
     void cleanUp() {
         String booking = "(SELECT id FROM bookings WHERE public_id = '" + bookingId + "'::uuid)";
         jdbc.update("DELETE FROM webhook_events WHERE event_id LIKE 'evt_race_%'");
+        jdbc.update("DELETE FROM refunds WHERE payment_id IN (SELECT id FROM payments WHERE booking_id = " + booking + ")");
         jdbc.update("DELETE FROM payments WHERE booking_id = " + booking);
         jdbc.update("DELETE FROM booking_seats WHERE booking_id = " + booking);
         jdbc.update("DELETE FROM bookings WHERE public_id = ?::uuid", bookingId);

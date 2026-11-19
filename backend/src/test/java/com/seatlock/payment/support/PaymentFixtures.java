@@ -54,13 +54,18 @@ public final class PaymentFixtures {
         this.tokens = tokens;
         this.showId = jdbc.queryForObject("""
                 SELECT s.id FROM shows s JOIN events e ON e.id = s.event_id
-                WHERE e.status = 'PUBLISHED' AND s.status = 'SCHEDULED' AND s.starts_at > now() + interval '1 hour'
+                WHERE e.status = 'PUBLISHED' AND s.status = 'SCHEDULED' AND s.starts_at > now() + interval '3 days'
                 ORDER BY s.id LIMIT 1
                 """, Long.class);
     }
 
     public long showId() {
         return showId;
+    }
+
+    /** Seats handed out by this fixture so far (for assertions on show_seats). */
+    public List<Long> seatIds() {
+        return List.copyOf(seatIds);
     }
 
     public String newUserToken(String name) {
@@ -72,6 +77,15 @@ public final class PaymentFixtures {
 
     /** A PAYMENT_PENDING booking for one free seat with an open order labelled as Razorpay's. */
     public Order razorpayOrder(String token) throws Exception {
+        Order mock = mockOrder(token);
+        String razorpayOrderId = "order_" + UUID.randomUUID().toString().replace("-", "").substring(0, 14);
+        jdbc.update("UPDATE payments SET gateway = 'RAZORPAY', gateway_order_id = ? WHERE gateway_order_id = ?",
+                razorpayOrderId, mock.orderId());
+        return new Order(token, mock.bookingId(), razorpayOrderId, mock.amountPaise());
+    }
+
+    /** A PAYMENT_PENDING booking for one free seat with an open order from the (active) mock gateway. */
+    public Order mockOrder(String token) throws Exception {
         long seat = jdbc.queryForObject("""
                 SELECT seat_id FROM show_seats WHERE show_id = ? AND status = 'AVAILABLE' ORDER BY seat_id LIMIT 1
                 """, Long.class, showId);
@@ -88,10 +102,8 @@ public final class PaymentFixtures {
         String order = mvc.perform(post("/api/v1/bookings/{id}/payment-order", bookingId)
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
-        String razorpayOrderId = "order_" + UUID.randomUUID().toString().replace("-", "").substring(0, 14);
-        jdbc.update("UPDATE payments SET gateway = 'RAZORPAY', gateway_order_id = ? WHERE gateway_order_id = ?",
-                razorpayOrderId, (String) JsonPath.read(order, "$.orderId"));
-        return new Order(token, bookingId, razorpayOrderId, ((Number) JsonPath.read(order, "$.amountPaise")).longValue());
+        return new Order(token, bookingId, JsonPath.read(order, "$.orderId"),
+                ((Number) JsonPath.read(order, "$.amountPaise")).longValue());
     }
 
     public static String checkoutSignature(String orderId, String paymentId) {
@@ -122,6 +134,7 @@ public final class PaymentFixtures {
     public void cleanUp() {
         String ids = userIds.stream().map(String::valueOf).reduce((a, b) -> a + "," + b).orElse("0");
         String mine = "SELECT id FROM bookings WHERE user_id IN (%s)".formatted(ids);
+        jdbc.update("DELETE FROM refunds WHERE payment_id IN (SELECT id FROM payments WHERE booking_id IN (" + mine + "))");
         jdbc.update("DELETE FROM payments WHERE booking_id IN (" + mine + ")");
         jdbc.update("DELETE FROM booking_seats WHERE booking_id IN (" + mine + ")");
         jdbc.update("DELETE FROM bookings WHERE user_id IN (%s)".formatted(ids));

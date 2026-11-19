@@ -1,5 +1,5 @@
-import type { PaymentOrder, PaymentVerification } from '../types/api'
-import { apiPost, apiPostWithStatus } from './client'
+import type { PaidCancellation, PaymentOrder, PaymentVerification, RefundQuote } from '../types/api'
+import { apiGet, apiPost, apiPostWithStatus } from './client'
 
 /**
  * "Pay now": creates the booking's payment order, or returns the open one (created = false). No body: the server
@@ -20,4 +20,16 @@ export async function createPaymentOrder(bookingPublicId: string): Promise<{ ord
  */
 export function verifyPayment(orderId: string, paymentId: string, signature: string): Promise<PaymentVerification> {
   return apiPost<PaymentVerification>('/api/v1/payments/razorpay/verify', { orderId, paymentId, signature })
+}
+
+export function getRefundQuote(bookingPublicId: string, signal?: AbortSignal): Promise<RefundQuote> {
+  return apiGet<RefundQuote>(`/api/v1/bookings/${encodeURIComponent(bookingPublicId)}/refund-quote`, undefined, signal)
+}
+
+/** Cancel a CONFIRMED booking for a refund. Safe to repeat. Errors: CANCELLATION_CLOSED, NOT_A_PAID_BOOKING. */
+export async function cancelPaidBooking(bookingPublicId: string): Promise<PaidCancellation> {
+  const { data } = await apiPostWithStatus<PaidCancellation>(
+    `/api/v1/bookings/${encodeURIComponent(bookingPublicId)}/refund`,
+  )
+  return data
 }

@@ -77,6 +77,14 @@ public class ShowQueryRepository {
             ORDER BY st.grid_row, st.grid_col
             """;
 
+    /** Start time of any show (cancelled or not). */
+    public Optional<Instant> startsAt(long showId) {
+        return jdbc.sql("SELECT starts_at FROM shows WHERE id = :showId")
+                .param("showId", showId)
+                .query((rs, rowNum) -> rs.getObject("starts_at", OffsetDateTime.class).toInstant())
+                .optional();
+    }
+
     /** The show, if it can be booked: SCHEDULED and its event PUBLISHED. */
     public Optional<ShowHeader> findBookableShow(long showId) {
         return jdbc.sql(BOOKABLE_SHOW_SQL)

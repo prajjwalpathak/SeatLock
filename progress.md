@@ -3,15 +3,15 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 4 · Day 3 (not started, planned Thu Dec 3): checkout signature verification, webhook endpoint (raw body, `X-Razorpay-Signature`, event-ID dedupe), confirm inside a transaction with the holdId check + unique constraint. Branch `w4-d3` (from `main`, only after #8 is squash-merged)
-- **Last completed:** Week 4 · Day 2: `RazorpayGateway` on `RestClient` (Orders API, test keys only), `keyId` in the order response, "Pay now" with Razorpay Checkout.js, prod config + runbook (planned Wed Dec 2, done Wed Nov 18)
+- **Current day:** Week 4 · Day 5 (not started, planned Sat Dec 5): WireMock tests for Razorpay over real HTTP, webhook dedupe tests, local webhook testing via cloudflared, as 2 combined tasks. Branch `w4-d5` (create with `git switch -c w4-d5 origin/main` after #10 is squash-merged)
+- **Last completed:** Week 4 · Day 4: `payment.failed` keeps orders open, refund outbox + worker (receipt-idempotent), automatic refunds for late/duplicate payments, `RefundPolicyEngine`, paid cancellation with seats back on sale (planned Fri Dec 4, done Thu Nov 19)
 - **Live URLs:** Frontend https://seatlock-nu.vercel.app · Backend https://seatlock-prajjwal.duckdns.org · Swagger https://seatlock-prajjwal.duckdns.org/swagger-ui.html · Version https://seatlock-prajjwal.duckdns.org/api/v1/system/version · Grafana —
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public) · CI + Deploy badges in README · `main` protected (ruleset `protect-main`)
 - **Hosting:** Azure VM `seatlock-vm` (India South Central, B2als_v2 x64) + Vercel; images from GHCR (ADR-005, #62, #71–#74); decommission after ~2–3 months
-- **Git workflow (from W4):** 3 combined tasks per day (2 plan tasks each); each combined task = changes → one verify/test block → one one-line commit + push on the daily branch; day end → PR → squash-merge when CI is green (#9, #75, #116)
-- **Carry-overs:** silence Mockito's dynamic-agent warning (W6·D1) · JetBrains student license · IntelliJ vulnerable-dependency scan · `.\mvnw.cmd clean` to drop the stale W3·D6 `ConcurrencyHarnessIntegrationTest` surefire report · prod `SEATLOCK_PAYMENTS_GATEWAY=razorpay` once D3 verification is live
-- **Schedule:** **~14 days ahead** (W4·D2 done Wed Nov 18 instead of Wed Dec 2); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
-- **Top risk:** webhooks need a public tunnel (cloudflared, D3/D5); confirm-vs-expiry races on payment (reuse the harness); VM burst credits (load tests stay local)
+- **Git workflow (from W4·D5):** **2 combined tasks per day** (plan tasks grouped as feasible); each = changes → one verify/test block → one one-line commit + push on the daily branch; day end → PR on GitHub → squash-merge when CI is green; next branch with `git switch -c wN-dM origin/main`; never push to a branch after its PR is merged (#9, #75, #116, #141, #142)
+- **Carry-overs:** silence Mockito's dynamic-agent warning (W6·D1) · JetBrains student license · IntelliJ vulnerable-dependency scan · make the confirm-vs-sweeper race hit both branches · `webhook_events` cleanup job (W8) · consume `refund.processed`/`refund.failed` webhooks (stretch)
+- **Schedule:** **~15 days ahead** (W4·D4 done Thu Nov 19 instead of Fri Dec 4); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
+- **Top risk:** WireMock on Boot 4 / Jetty versions (D5); `SeatLockingStrategy` benchmark design (D6); VM burst credits (load tests stay local)
 
 ## Decisions Log (ADR summary)
 | # | Date | Decision | Why |
@@ -143,6 +143,21 @@
 | 125 | 2026-11-18 | **Test keys only:** `gateway=razorpay` without keys or with `rzp_live_` fails startup; `RazorpayProperties.toString()` masks the secret; test profile pins `gateway: mock` and blank keys | Portfolio never takes real money; misconfiguration fails the boot (deploy.sh rolls back); `.env` can't make tests call Razorpay |
 | 126 | 2026-11-18 | Order response carries public **`keyId`** (null for mock; only for orders of the active gateway); Checkout.js loaded **on demand**, `timeout` = seconds to `payBy`, prefill name/email, `confirm_close`; the success callback is only a claim until server-side verification (D3) | Secret stays server-side; no script on pages that don't pay; the modal can't outlive the booking |
 | 127 | 2026-11-18 | Prod stays on **`mock`** until W4·D3 (keys may already sit in `.env.prod`) | A live test payment that can't be confirmed would just expire in PAYMENT_PENDING |
+| 128 | 2026-11-19 | **ADR-011:** own `RazorpaySignatures`: checkout `HMAC_SHA256(key_secret, order_id\|payment_id)`, webhook `HMAC_SHA256(webhook_secret, raw body)` on the exact bytes before parsing, lowercase hex, `MessageDigest.isEqual`; blank secret never valid; `gateway=razorpay` also requires `RAZORPAY_WEBHOOK_SECRET` | No SDK (#123); no timing oracle; re-serialized JSON can't pass |
+| 129 | 2026-11-19 | One `PaymentCaptureService.capture()` for callback and webhook, one transaction: **payment row lock → booking row lock** (`confirmPayment`, `MANDATORY`), CREATED → CAPTURED, PAYMENT_PENDING → CONFIRMED, `show_seats` HELD → BOOKED (all or rollback) | Exactly one confirms; no lock cycle with order creation, sweeper (SKIP LOCKED) or cancel |
+| 130 | 2026-11-19 | Capture **outcomes**: `CONFIRMED`, `ALREADY_DONE` (same payment id), `CAPTURED_BOOKING_LOST` (sweeper/cancel won; payment kept CAPTURED for the D4 refund), `NEEDS_REVIEW` (amount mismatch, second payment id, capture on a FAILED attempt). A late capture **before** the sweeper still confirms | Money is never lost or confirmed wrongly; seats are never sold twice |
+| 131 | 2026-11-19 | `POST /api/v1/payments/razorpay/verify` (USER): signature → caller owns the order's booking (else 404) → capture → 200 `{outcome, booking}`; 400 `INVALID_PAYMENT_SIGNATURE` | Browser success is only a claim; no confirming other users' orders |
+| 132 | 2026-11-19 | `POST /api/v1/webhooks/razorpay` public (HMAC instead of JWT), raw `byte[]`; event id = `X-Razorpay-Event-Id` (else body SHA-256) claimed in **V9 `webhook_events`** with `ON CONFLICT DO NOTHING` **in the processing transaction**; duplicate/unknown order/other events → 200, bad signature → 400, processing error → 500 (claim rolls back, retry reprocessed); `payment.failed` recorded for D4 | At-least-once delivery handled exactly once; failures never swallowed |
+| 133 | 2026-11-19 | **Lock-first rule:** in a transaction that locks a row, the first read of that entity is the locked one (`existsBy…` checks, public ids resolved after locking) | Hibernate 7 throws on a newer version of an already-managed entity (FAILURES F5) |
+| 134 | 2026-11-19 | Frontend: Checkout success → `verifyPayment`; result written into the booking cache; verify failure → "Razorpay will notify us" + polling; notices for `CAPTURED_BOOKING_LOST` (refund) and `NEEDS_REVIEW` | Lost callbacks still confirm via webhook; honest messages for every outcome |
+| 135 | 2026-11-19 | `payment.failed` only records the reason (`recordFailedAttempt`); the order stays CREATED and payable; a paid order is never changed | Razorpay lets the user retry the same order in Checkout; marking it FAILED would turn a later success into NEEDS_REVIEW |
+| 136 | 2026-11-19 | **Cancellation policy** (config `seatlock.refunds.policy`): **≥ 48 h before the show → 100 %, ≥ 24 h → 50 %, less → not cancellable**; most generous tier still met wins; inclusive bounds; round down to the paisa; started shows never cancellable | Common ticketing practice; simple, testable, changeable without code |
+| 137 | 2026-11-19 | **ADR-012 refund outbox (V10):** row written in the deciding transaction (LATE_PAYMENT full on CAPTURED_BOOKING_LOST, DUPLICATE_PAYMENT of the second provider payment, CANCELLATION per policy); `UNIQUE (gateway_payment_id, reason)`; receipt `rf` + 32 hex | Never forgotten (commits with the decision), never queued twice |
+| 138 | 2026-11-19 | `RefundProcessor` every 30 s: **claim** (SKIP LOCKED + 2 min lease) → **send** outside any tx → **record** (SUBMITTED + payment REFUNDED, or backoff 30 s·2ⁿ ≤ 1 h, FAILED after 8 with ERROR log); refunds for another gateway's payment never sent | Two instances safe; no lock across the network; crash between send and record healed by lease + receipt lookup |
+| 139 | 2026-11-19 | `PaymentGateway.refund` **idempotent by receipt**: Razorpay `GET /v1/payments/{id}/refunds` first (adopt ours), then `POST …/refund {amount, speed: normal, receipt}`; the read-only lookup retries once immediately; errors log the innermost cause | A lost answer never pays twice; stale keep-alive connections (EOF, seen live) don't wait 30 s |
+| 140 | 2026-11-19 | Paid cancellation: `GET /bookings/{id}/refund-quote`, `POST /bookings/{id}/refund` (idempotent); read outside, then one tx: payment lock → existing refund? return → quote (409 `CANCELLATION_CLOSED`) → `BookingService.refundBooking` (booking lock, CONFIRMED → REFUNDED, seats BOOKED → AVAILABLE) → queue refund; non-paid → 409 `NOT_A_PAID_BOOKING` | Seats back on sale at once, money follows; concurrent cancels give one refund |
+| 141 | 2026-11-19 | **Workflow from W4·D5 (refines #116):** **2 combined tasks per day**, plan tasks grouped as feasible; same verify → one-line commit → push per task, PR + squash at day end; branches created with `git switch -c wN-dM origin/main` | User decision; fewer, bigger steps at the same pace; that branch command can't pick up a stale local branch (happened on W4·D2 and D4) |
+| 142 | 2026-11-19 | The day-end docs commit is pushed **before** the PR is merged; anything pushed to a merged branch is lost (W4·D3 progress had to be restored from `eccb27f`) | Squash merges only take what the branch had at merge time |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -174,6 +189,12 @@
 | Payment-order race | 20 concurrent "Pay now" for one booking over real HTTP → **1 × 201, 19 × 200, one order id, one payment row**, 5/5 runs | `PaymentOrderRaceIntegrationTest` | 2026-11-18 |
 | Tests | 364 (327 + 37 new incl. repetitions) | `mvnw verify` / CI | 2026-11-18 |
 | Tests | 371 (364 + 7 new) | `mvnw verify` / CI | 2026-11-18 |
+| Confirm race | 10 checkout callbacks + 10 webhooks for one payment at once → **1 CONFIRMED, 19 ALREADY_DONE, 20 × 200**, seats BOOKED, payment captured once, 5/5 runs; p99 ~0.2–0.3 s | `PaymentConfirmRaceIntegrationTest` | 2026-11-19 |
+| Confirm vs sweeper | same race with the expiry sweeper looping → booking/seats/payment always consistent (EXPIRED + AVAILABLE + CAPTURED_BOOKING_LOST in 5/5 runs: sweeper won every time) | same | 2026-11-19 |
+| Tests | 403 (371 + 32 new incl. repetitions) | `mvnw verify` / CI | 2026-11-19 |
+| Paid cancellation race | 6 concurrent cancels of one confirmed booking → **1 refund row**, booking REFUNDED, every caller the same answer | `PaidCancellationIntegrationTest` | 2026-11-19 |
+| Real refund (test mode) | first Refund API call failed (stale connection, `I/O error … null`), retried after 30 s by the outbox → `rfnd_…` submitted, 25000 paise | local run, Razorpay test dashboard | 2026-11-19 |
+| Tests | 427 (403 + 24 new) | `mvnw verify` / CI | 2026-11-19 |
 
 ## Accounts & Config (no secrets here, only where they live)
 | Item | Status | Where stored |
@@ -183,7 +204,7 @@
 | Azure for Students | ✅ Active ($100, 12 months; **production host**: `seatlock-vm` in RG `seatlock-vm_group`, India South Central; budget alert) | portal.azure.com (DTU email); SSH key `~\\.ssh\\azure_seatlock`; prod secrets in `~/seatlock/infra/.env.prod` on the VM |
 | AWS | ❌ Free plan already used up; not used for this project | — |
 | DuckDNS domain | ✅ `seatlock-prajjwal.duckdns.org` → VM static IP | duckdns.org (token in DuckDNS account) |
-| Razorpay test mode | ✅ account + test API keys (W4·D2); test payments via netbanking mock bank or test cards (UPI ID option not offered in this checkout) | local `.env` (`RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET`, git-ignored); prod `infra/.env.prod` on the VM (gateway `mock` until D3) |
+| Razorpay test mode | ✅ account + test API keys (W4·D2); test payments via netbanking mock bank or test cards (UPI ID option not offered in this checkout) | local `.env` (`RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET`, git-ignored); prod `infra/.env.prod` on the VM (gateway `razorpay` since W4·D3, hex secrets only); webhooks: local cloudflared tunnel (delete after use) + prod `https://seatlock-prajjwal.duckdns.org/api/v1/webhooks/razorpay`, secret `RAZORPAY_WEBHOOK_SECRET` |
 | Google OAuth client | ✅ Web client "SeatLock local" (Testing mode, test user added); redirect `http://localhost:8080/login/oauth2/code/google`; prod URI `https://seatlock-prajjwal.duckdns.org/login/oauth2/code/google` added W2·D5 | `.env` (`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`, git-ignored) |
 | Gemini/Groq API key | — (W7·D1) | `.env` (git-ignored) |
 | Vercel project | ✅ imported from GitHub (root `frontend`), `https://seatlock-nu.vercel.app`; env `VITE_API_BASE_URL` | vercel.com (GitHub login) |
@@ -972,3 +993,75 @@
 - Loading third-party scripts on demand; modal lifecycles (success, failure + retry, dismiss, timeout)
 - Feature flags for providers per environment; refusing live credentials in a test system
 **Commit:** `feat(payment): Razorpay Orders API on RestClient and Checkout.js pay flow (W4·D2)` (squashed into one commit on `main`)
+
+### Week 4 · Day 3: Payment verification, webhook, confirm in one transaction (planned Thu, Dec 3; done Thu, Nov 19, 2026)
+**Status:** ✅ Done
+**Built:**
+- A: `RazorpaySignatures` (checkout + webhook HMAC, constant-time), `webhookSecret` in `RazorpayProperties` (required with razorpay); `PaymentCaptureService.capture()` with outcomes; `BookingService.confirmPayment` (`MANDATORY`, row lock) + `isOwnedBy` / `publicIdOf`; `ShowSeatStatusService.markBooked`; locked finders for payment (by gateway order) and booking (by id)
+- B: `PaymentVerificationService` + `POST /api/v1/payments/razorpay/verify`; V9 `webhook_events`; `RazorpayWebhookService` + `POST /api/v1/webhooks/razorpay` (public, raw body, dedupe in the processing transaction)
+- C: `PaymentConfirmRaceIntegrationTest` (callbacks + webhooks, with/without sweeper); frontend verify call + outcome notices; real webhook through a cloudflared quick tunnel (normal flow → `ALREADY_DONE` webhooks; verify blocked in DevTools → webhook `CONFIRMED`); ADR-011, architecture section 2h, CORRECTNESS section 1j, deploy.md webhook setup
+- Fixed F5 (lock-first reads) found by the race test
+- Tests: **403** (32 new incl. repetitions), 0 failures
+**Files created/changed:**
+- `db\migration\V9__webhook_events.sql`; `application.yml`, `application-test.yml`; `.env.example`; `infra\.env.prod.example`
+- `payment\gateway\{RazorpaySignatures, RazorpayProperties}.java`; `payment\application\{PaymentCaptureService, PaymentVerificationService, RazorpayWebhookService}.java`; `payment\api\{PaymentController, RazorpayWebhookController, VerifyPaymentRequest}.java`; `payment\domain\PaymentRepository.java`
+- `booking\application\BookingService.java`; `booking\domain\BookingRepository.java`; `catalog\application\ShowSeatStatusService.java`; `identity\security\SecurityConfig.java`
+- Tests: `payment\gateway\{RazorpaySignaturesTest, RazorpayGatewayTest}`, `payment\application\PaymentCaptureIntegrationTest`, `payment\api\{PaymentVerifyIntegrationTest, RazorpayWebhookIntegrationTest, PaymentConfirmRaceIntegrationTest}`, `payment\support\PaymentFixtures`
+- Frontend: `src\types\api.ts`, `src\api\payments.ts`, `src\features\booking\PayNowButton.tsx`, `src\pages\BookingPage.tsx`
+- `docs\decisions\ADR-011-payment-confirmation.md`, `docs\{architecture.md, CORRECTNESS.md, FAILURES.md, deploy.md}`, `progress.md`
+**Decisions:**
+- See Decisions Log #128–#134
+**Metrics recorded:**
+- Confirm race: 20 concurrent → 1 CONFIRMED, all 200 (5/5); confirm vs sweeper always consistent (5/5); 403 tests
+**Problems & fixes:**
+- `RazorpaySignatures` had two constructors → Spring found no usable one ("No default constructor found") → single constructor + static `of()` for unit tests
+- Race test: 2–7/20 requests → 500 `conflicting version of entity already held in persistence context` (unlocked read before a locked re-read in the same transaction) → `existsBy…` check and late `publicIdOf` (FAILURES F5, #133)
+- Confirm-vs-sweeper race: the sweeper won 5/5 runs, so the "confirm wins" branch isn't exercised by that test (covered by the other race) → carry-over: delay the sweeper's start
+**Carry-over:**
+- Prod gateway → razorpay + prod webhook (after #9 deploys); race branch coverage; `webhook_events` cleanup (W8); Mockito agent warning (W6·D1); JetBrains license; IntelliJ dependency scan
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- HMAC signatures, raw-body verification, constant-time comparison, timing attacks; public vs secret keys
+- Webhooks: at-least-once delivery, idempotency via event-id claims in the same transaction, which status codes stop retries
+- Payment confirmation races (callback vs webhook vs expiry), lock ordering to avoid deadlocks, outcomes instead of exceptions
+- Hibernate persistence context and locking: why the first read must be the locked one
+- Never trusting client-side payment success; reconciling captured payments with lost bookings (refunds)
+**Commit:** `feat(payment): signed checkout verify, deduplicated webhook and race-safe confirm (W4·D3)` (squashed into one commit on `main`)
+
+### Week 4 · Day 4: `payment.failed`, refund outbox, refund policy, paid cancellation (planned Fri, Dec 4; done Thu, Nov 19, 2026)
+**Status:** ✅ Done
+**Built:**
+- A: `payment.failed` → `recordFailedAttempt` (order stays open); GET on `/api/v1/webhooks/**` → 405 (public for any method); V10 `refunds` outbox + `Refund` (claim, submit, backoff), `RefundRepository.lockDueIds` (SKIP LOCKED); `PaymentGateway.refund` (mock: same refund per receipt; Razorpay: receipt lookup, then create, amount check)
+- B: `RefundService.request` (`MANDATORY`), refunds queued on `CAPTURED_BOOKING_LOST` and duplicate payments; `RefundProcessor` + `RefundWorker` (30 s); `RefundPolicyEngine` + `RefundProperties` / `RefundPolicyConfig`
+- C: `PaidCancellationService` + `GET …/refund-quote` / `POST …/refund`; `BookingService.paidBooking` / `refundBooking`; catalog `startsAtOf` / `releaseBooked`; frontend `CancelPaidBooking` (quote, two-click confirm, result); ADR-012, architecture section 2i, CORRECTNESS section 1k
+- Real test-mode refund end to end (cancel → worker → `rfnd_…` in the dashboard); hardening from it: one immediate retry of the read-only refund lookup, innermost cause in error messages
+- Restored the W4·D3 progress entry (pushed after #9 was merged, so it never reached `main`)
+- Tests: **427** (24 new), 0 failures
+**Files created/changed:**
+- `db\migration\V10__refunds.sql`; `application.yml` (`seatlock.refunds`); `infra\.env.prod.example`, `docs\deploy.md` (no `$` in `.env.prod`)
+- `payment\domain\{Refund, RefundStatus, RefundReason, RefundRepository, Payment, PaymentRepository}.java`
+- `payment\gateway\{PaymentGateway, RefundCommand, GatewayRefund, MockGateway, RazorpayGateway}.java`
+- `payment\application\{RefundService, RefundProcessor, RefundWorker, RefundProperties, RefundPolicyEngine, RefundPolicyConfig, PaidCancellationService, PaymentCaptureService, RazorpayWebhookService}.java`; `payment\api\PaidCancellationController.java`
+- `booking\application\{BookingService, PaidBooking}.java`; `catalog\application\{ShowCatalogService, ShowQueryRepository, ShowSeatStatusService}.java`; `identity\security\SecurityConfig.java`
+- Tests: `payment\domain\RefundTest`, `payment\gateway\{RazorpayGatewayTest, MockGatewayTest}`, `payment\application\{RefundPolicyEngineTest, RefundProcessorIntegrationTest, RefundProcessorTest}`, `payment\api\{PaidCancellationIntegrationTest, RazorpayWebhookIntegrationTest}`, `payment\support\PaymentFixtures`, cleanups in 4 payment test classes, `SecurityMatrixIntegrationTest`
+- Frontend: `src\types\api.ts`, `src\api\payments.ts`, `src\features\booking\CancelPaidBooking.tsx`, `src\pages\BookingPage.tsx`
+- `docs\decisions\ADR-012-refunds.md`, `docs\{architecture.md, CORRECTNESS.md}`, `progress.md`
+**Decisions:**
+- See Decisions Log #135–#142
+**Metrics recorded:**
+- 6 concurrent cancels → 1 refund; real test-mode refund retried once by the outbox; 427 tests
+**Problems & fixes:**
+- Prod webhook rejected every delivery: a `$` in `RAZORPAY_WEBHOOK_SECRET` was interpolated away by Docker Compose (`The "Ot" variable is not set`) → hex secret (`openssl rand -hex 32`); then a dashboard/env mismatch → secret re-entered; prod now `payment.captured: CONFIRMED`, `order.paid: ALREADY_DONE`
+- Opening the webhook URL in a browser (GET) gave 401 → `/api/v1/webhooks/**` public for all methods, GET → 405
+- `w4-d4` created from `w4-d3` again → `git reset --keep origin/main` (no commits yet); branches now created from `origin/main` directly (#141)
+- W4·D3's progress commit was pushed after #9 was merged → lost on `main`, restored from `eccb27f` (#142)
+- First live Refund API call: `I/O error … null` (stale pooled connection) → outbox retried after 30 s and succeeded; now the lookup retries once immediately and logs the innermost cause
+**Carry-over:**
+- Confirm-vs-sweeper race branch coverage; `webhook_events` cleanup (W8); refund status webhooks (stretch); Mockito agent warning (W6·D1); JetBrains license; IntelliJ dependency scan
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- Transactional outbox; at-least-once workers with leases and SKIP LOCKED; exponential backoff and dead-lettering (FAILED)
+- Idempotent external calls via client-generated keys (receipt) and lookup-before-create; safe vs unsafe retries (GET vs POST)
+- Refund flows: late payments, duplicate payments, partial refunds; never refunding more than the policy
+- Rules engines in plain code vs config; boundary and rounding rules for money
+- Releasing inventory on cancellation while keeping history; lock order across modules
+- Ops lessons: env-file interpolation, signature mismatches, reading provider delivery logs
+**Commit:** `feat(payment): refund outbox, refund policy and paid cancellation (W4·D4)` (squashed into one commit on `main`)

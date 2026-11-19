@@ -87,6 +87,13 @@ seatlock:
       base-url: https://api.razorpay.com
       connect-timeout: 2s
       read-timeout: 5s
+  refunds:
+    interval: PT30S            # RefundWorker: send due refunds (outbox) every 30 s
+    batch-size: 20             # refunds claimed per run
+    lease: 2m                  # a claimed refund is invisible to other workers this long while the call runs
+    policy:                    # cancellation of a CONFIRMED booking (decision #136): first tier met wins
+      - { hours-before: 48, percent: 100 }
+      - { hours-before: 24, percent: 50 }
   idempotency:
     ttl: 24h                     # how long a key's response is replayed (decision #90)
     lease: 30s                   # an IN_PROGRESS claim older than this may be taken over by a retry

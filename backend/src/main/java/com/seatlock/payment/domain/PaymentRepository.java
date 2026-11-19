@@ -15,6 +15,12 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
     /** The open or successful attempt, if any (at most one: ux_payments_live_booking). */
     Optional<Payment> findFirstByBookingIdAndStatusIn(Long bookingId, Collection<PaymentStatus> statuses);
 
+    /** The booking's captured payment, row-locked (paid cancellation; same lock order as capture: payment first). */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p from Payment p where p.bookingId = :bookingId and p.status = :status")
+    Optional<Payment> findForUpdateByBookingIdAndStatus(@Param("bookingId") Long bookingId,
+                                                        @Param("status") PaymentStatus status);
+
     /** Latest attempt; the next attempt number is this + 1. */
     Optional<Payment> findTopByBookingIdOrderByAttemptDesc(Long bookingId);
 

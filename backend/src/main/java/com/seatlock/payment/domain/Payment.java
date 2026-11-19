@@ -105,6 +105,18 @@ public class Payment extends AuditableEntity {
         this.status = PaymentStatus.FAILED;
     }
 
+    /**
+     * A payment try inside Checkout failed (payment.failed webhook). The order stays CREATED and payable: Razorpay lets
+     * the user retry the same order, and a later payment on it must still confirm. Only the last reason is kept.
+     */
+    public void recordFailedAttempt(String reason, Instant now) {
+        if (status != PaymentStatus.CREATED) {
+            return; // already paid (by another try) or closed: a late failure report changes nothing
+        }
+        this.failureReason = reason == null ? null : reason.substring(0, Math.min(reason.length(), 255));
+        this.failedAt = now;
+    }
+
     /** CAPTURED → REFUNDED (W4·D4). */
     public void markRefunded(Instant now) {
         require(PaymentStatus.CAPTURED, "be refunded");

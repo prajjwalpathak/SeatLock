@@ -124,6 +124,34 @@ class RazorpayWebhookIntegrationTest {
     }
 
     @Test
+    void aFailedTryKeepsTheOrderOpenAndALaterPaymentStillConfirms() throws Exception {
+        Order o = fx.razorpayOrder(fx.newUserToken("alice"));
+        String failed = """
+                {"entity":"event","event":"payment.failed","payload":{"payment":{"entity":{"id":"pay_FAIL000000001",
+                 "amount":%d,"currency":"INR","status":"failed","order_id":"%s","error_code":"BAD_REQUEST_ERROR",
+                 "error_description":"Payment failed at the bank"}}}}""".formatted(o.amountPaise(), o.orderId());
+
+        send(failed, webhookSignature(failed), eventId).andExpect(status().isOk());
+
+        assertThat(outcome(eventId)).isEqualTo("RECORDED_FAILED_ATTEMPT");
+        assertThat(fx.paymentStatus(o.orderId())).as("Razorpay lets the user retry the same order").isEqualTo("CREATED");
+        assertThat(jdbc.queryForObject("SELECT failure_reason FROM payments WHERE gateway_order_id = ?", String.class,
+                o.orderId())).contains("pay_FAIL000000001").contains("failed at the bank");
+
+        String captured = webhookBody("payment.captured", o.orderId(), "pay_OK00000000001", o.amountPaise());
+        String second = "evt_" + UUID.randomUUID();
+        send(captured, webhookSignature(captured), second).andExpect(status().isOk());
+        assertThat(outcome(second)).isEqualTo("CONFIRMED");
+        assertThat(fx.bookingStatus(o.bookingId())).isEqualTo("CONFIRMED");
+    }
+
+    @Test
+    void aGetOnTheWebhookUrlIs405NotSignIn() throws Exception {
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/v1/webhooks/razorpay"))
+                .andExpect(status().isMethodNotAllowed());
+    }
+
+    @Test
     void withoutAnEventIdTheBodyHashDeduplicates() throws Exception {
         Order o = fx.razorpayOrder(fx.newUserToken("alice"));
         String body = webhookBody("payment.captured", o.orderId(), "pay_WH0000000001", o.amountPaise());

@@ -158,7 +158,9 @@ class SecurityMatrixIntegrationTest {
                 get("/api/v1/bookings/{id}", unknown),
                 post("/api/v1/bookings/{id}/cancel", unknown),
                 post("/api/v1/holds/{id}/booking", unknown),
-                post("/api/v1/bookings/{id}/payment-order", unknown))) {
+                post("/api/v1/bookings/{id}/payment-order", unknown),
+                get("/api/v1/bookings/{id}/refund-quote", unknown),
+                post("/api/v1/bookings/{id}/refund", unknown))) {
             if (!caller.equals("ANONYMOUS")) {
                 request.header(HttpHeaders.AUTHORIZATION, "Bearer " + tokens.get(Role.valueOf(caller)));
             }
