@@ -87,6 +87,8 @@ export type ShowSeatMap = {
   seats: SeatView[]
   /** false = Redis holds couldn't be read; statuses are the DB view only (held seats may look free). */
   holdsLive: boolean
+  /** Last live seat event already in this map (0 = none); apply only messages with a greater version. null = Redis down. */
+  version: number | null
 }
 
 /** Query parameters of GET /api/v1/events (all optional; cursor is passed separately). */

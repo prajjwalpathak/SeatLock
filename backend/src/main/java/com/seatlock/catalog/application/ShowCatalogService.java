@@ -26,6 +26,10 @@ import org.springframework.stereotype.Service;
  * <p>Deliberately <b>not</b> {@code @Transactional}: each query borrows a connection only for itself,
  * so no DB connection is held while we wait on Redis. If Redis hangs (up to the 500 ms timeout),
  * a transaction around the call would pin one Hikari connection per request and could exhaust the pool.</p>
+ * <p>Resync (W5·D2): the live-event {@code version} is read <b>before</b> the seat statuses. Every event with
+ * a version up to it was numbered after its change committed, so that change is already in what we read;
+ * events with a greater version may or may not be, and re-applying them is harmless (each one states the
+ * seats' new status). So "load the map, then apply messages with version &gt; map.version" never loses an update.</p>
  */
 @Service
 public class ShowCatalogService {
@@ -34,16 +38,19 @@ public class ShowCatalogService {
 
     private final ShowQueryRepository showQueries;
     private final SeatHoldLookup holds;
+    private final SeatEventVersionLookup versions;
 
-    public ShowCatalogService(ShowQueryRepository showQueries, SeatHoldLookup holds) {
+    public ShowCatalogService(ShowQueryRepository showQueries, SeatHoldLookup holds, SeatEventVersionLookup versions) {
         this.showQueries = showQueries;
         this.holds = holds;
+        this.versions = versions;
     }
 
     /** Seat map for a bookable show. 404 if unknown, cancelled, or its event isn't published. */
     public ShowSeatMapResponse getSeatMap(long showId) {
         ShowHeader show = showQueries.findBookableShow(showId)
                 .orElseThrow(() -> new NotFoundException("Show", showId));
+        Long version = readVersion(showId);   // first: see the class comment
         List<SeatView> dbSeats = showQueries.seatsForShow(showId);
 
         LiveHolds live = readHolds(showId, dbSeats);
@@ -66,7 +73,7 @@ public class ShowCatalogService {
 
         return new ShowSeatMapResponse(show.showId(), show.eventId(), show.eventTitle(), show.startsAt(),
                 new VenueRef(show.venueId(), show.venueName(), show.city()),
-                gridRows, gridCols, sections, seats, live.available());
+                gridRows, gridCols, sections, seats, live.available() && version != null, version);
     }
 
     /**
@@ -103,6 +110,16 @@ public class ShowCatalogService {
         } catch (DataAccessException e) {
             log.warn("Seat holds unavailable for show {}; serving database status only ({})", showId, e.toString());
             return new LiveHolds(Set.of(), false);
+        }
+    }
+
+    /** Redis down → no version: the client can't follow live events and shows the same banner as for holds. */
+    private Long readVersion(long showId) {
+        try {
+            return versions.currentVersion(showId);
+        } catch (DataAccessException e) {
+            log.warn("Seat event version unavailable for show {} ({})", showId, e.toString());
+            return null;
         }
     }
 

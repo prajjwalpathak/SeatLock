@@ -18,24 +18,20 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.ApplicationContext;
 import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.messaging.Message;
-import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
-import org.springframework.messaging.simp.SimpMessageType;
-import org.springframework.messaging.simp.broker.AbstractBrokerMessageHandler;
-import org.springframework.messaging.simp.broker.SimpleBrokerMessageHandler;
-import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.transaction.support.TransactionTemplate;
+import testsupport.BrokerSubscriptions;
 import testsupport.RealServerTest;
 import testsupport.StompTestClient;
 import testsupport.TestUsers;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Observer end to end: a change (hold over real HTTP, or a committed DB update) → domain event →
- * AFTER_COMMIT broadcaster → in-memory broker → a real STOMP client on {@code /ws}.
+ * AFTER_COMMIT broadcaster → Redis relay → in-memory broker → a real STOMP client on {@code /ws}.
  */
 @RealServerTest
 class SeatEventsIntegrationTest {
@@ -48,7 +44,7 @@ class SeatEventsIntegrationTest {
     @Autowired TokenService tokenService;
     @Autowired ShowSeatStatusService seatStatus;
     @Autowired TransactionTemplate tx;
-    @Autowired @Qualifier("simpleBrokerMessageHandler") AbstractBrokerMessageHandler broker;
+    @Autowired ApplicationContext app;
 
     private int port;
     private StompTestClient stomp;
@@ -136,31 +132,51 @@ class SeatEventsIntegrationTest {
         assertThat(otherShow).as("other shows' viewers hear nothing").isEmpty();
     }
 
-    // ------------------------------------------------------------------ helpers
+    @Test
+    void theSeatMapCarriesTheLastVersionSoAClientCanResyncWithoutLosingUpdates() throws Exception {
+        BlockingQueue<SeatEventMessage> events = subscribed(SeatTopics.forShow(showId));
+        tx.executeWithoutResult(status -> seatStatus.markHeld(showId, List.of(seatId)));
+        SeatEventMessage held = next(events);
 
-    /** SUBSCRIBE has no acknowledgement on the simple broker: wait until the broker has registered it. */
-    private BlockingQueue<SeatEventMessage> subscribed(String destination) throws InterruptedException {
-        int before = subscriberCount(destination);
-        BlockingQueue<SeatEventMessage> queue = stomp.subscribe(destination);
-        long deadline = System.nanoTime() + StompTestClient.TIMEOUT.toNanos();
-        while (subscriberCount(destination) <= before) {
-            assertThat(System.nanoTime()).as("subscription registered in time").isLessThan(deadline);
-            Thread.sleep(20);
-        }
-        return queue;
+        // Resync = re-fetch the seat map: its version covers the event, and the seat shows the new status
+        JsonNode map = seatMap();
+        assertThat(map.get("version").asLong()).isEqualTo(held.version());
+        assertThat(statusOf(map, seatId)).isEqualTo("HELD");
+
+        tx.executeWithoutResult(status -> seatStatus.markAvailable(showId, List.of(seatId)));
+        SeatEventMessage freed = next(events);
+        assertThat(freed.version()).as("the next change is newer than the map: the client applies it")
+                .isGreaterThan(map.get("version").asLong());
+        assertThat(seatMap().get("version").asLong()).isEqualTo(freed.version());
     }
 
-    private int subscriberCount(String destination) {
-        SimpMessageHeaderAccessor accessor = SimpMessageHeaderAccessor.create(SimpMessageType.MESSAGE);
-        accessor.setDestination(destination);
-        Message<byte[]> probe = MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders());
-        return ((SimpleBrokerMessageHandler) broker).getSubscriptionRegistry().findSubscriptions(probe).size();
+    // ------------------------------------------------------------------ helpers
+
+    private BlockingQueue<SeatEventMessage> subscribed(String destination) throws InterruptedException {
+        return BrokerSubscriptions.subscribe(app, stomp, destination);
     }
 
     private static SeatEventMessage next(BlockingQueue<SeatEventMessage> events) throws InterruptedException {
         SeatEventMessage message = events.poll(StompTestClient.TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
         assertThat(message).as("seat event within %s", StompTestClient.TIMEOUT).isNotNull();
         return message;
+    }
+
+    private JsonNode seatMap() throws Exception {
+        HttpResponse<String> response = HttpClient.newHttpClient().send(
+                HttpRequest.newBuilder(uri("/api/v1/shows/" + showId + "/seats")).GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).isEqualTo(200);
+        return JSON.readTree(response.body());
+    }
+
+    private static String statusOf(JsonNode map, long seat) {
+        for (JsonNode s : map.get("seats")) {
+            if (s.get("seatId").asLong() == seat) {
+                return s.get("status").asString();
+            }
+        }
+        throw new AssertionError("seat " + seat + " not in the map");
     }
 
     private URI uri(String path) {

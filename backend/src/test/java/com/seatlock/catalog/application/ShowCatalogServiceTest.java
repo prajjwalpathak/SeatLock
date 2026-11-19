@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -20,6 +21,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import org.springframework.data.redis.RedisConnectionFailureException;
 
 /** Merge rules for the seat map: DB = durable BOOKED, Redis = ephemeral HELD, Redis down = DB view. */
@@ -29,7 +31,8 @@ class ShowCatalogServiceTest {
 
     private final ShowQueryRepository queries = mock(ShowQueryRepository.class);
     private final SeatHoldLookup holds = mock(SeatHoldLookup.class);
-    private final ShowCatalogService service = new ShowCatalogService(queries, holds);
+    private final SeatEventVersionLookup versions = mock(SeatEventVersionLookup.class);
+    private final ShowCatalogService service = new ShowCatalogService(queries, holds, versions);
 
     @BeforeEach
     void seatsInDb() {
@@ -88,5 +91,29 @@ class ShowCatalogServiceTest {
 
     private static Map<Long, ShowSeatStatus> statuses(ShowSeatMapResponse map) {
         return map.seats().stream().collect(Collectors.toMap(SeatView::seatId, SeatView::status));
+    }
+
+    @Test
+    void theEventVersionIsReadBeforeTheSeatStatuses() {
+        when(versions.currentVersion(SHOW)).thenReturn(41L);
+
+        ShowSeatMapResponse map = service.getSeatMap(SHOW);
+
+        assertThat(map.version()).isEqualTo(41L);
+        InOrder order = inOrder(versions, queries, holds);
+        order.verify(versions).currentVersion(SHOW);
+        order.verify(queries).seatsForShow(SHOW);
+        order.verify(holds).heldSeatIds(eq(SHOW), anyCollection());
+    }
+
+    @Test
+    void noVersionWhenRedisIsDownAndTheMapSaysLiveDataIsOff() {
+        when(versions.currentVersion(SHOW)).thenThrow(new RedisConnectionFailureException("down"));
+
+        ShowSeatMapResponse map = service.getSeatMap(SHOW);
+
+        assertThat(map.version()).isNull();
+        assertThat(map.holdsLive()).isFalse();
+        assertThat(map.seats()).hasSize(3);
     }
 }

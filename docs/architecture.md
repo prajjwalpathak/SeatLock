@@ -418,15 +418,18 @@ sequenceDiagram
     B->>WS: SUBSCRIBE /topic/shows/{id}/seats
     S->>S: change seats (in a transaction, or a Redis hold)
     S-->>L: SeatsChangedEvent (AFTER_COMMIT)
-    L->>R: INCR realtime:seat-version:show:{id}
-    L->>WS: SeatEventMessage {version, status, seatIds, holdExpiresAt}
+    L->>R: publish_seat_event.lua (INCR version + PUBLISH realtime:seat-events)
+    R-->>WS: "version|json" to every instance's listener → its broker
     WS-->>B: MESSAGE
 ```
 
 - Publishers: `HoldService` (HELD with `holdExpiresAt`, AVAILABLE on release) and `ShowSeatStatusService`
   (every DB change: booking HELD, confirm BOOKED, expiry/cancel/refund AVAILABLE). No WebSocket code in those modules.
 - Inbound rules (`StompAuthChannelInterceptor`): optional JWT on CONNECT, seat topics only (max 10), no SEND.
-- One instance today; W5·D2 relays events between instances through Redis Pub/Sub and adds resync.
+- Across instances (W5·D2): the broadcaster runs `publish_seat_event.lua` (INCR + PUBLISH on `realtime:seat-events`);
+  every instance's listener forwards each message, in order on one thread, to its own broker.
+- Resync: the seat map carries `version` (read before the statuses); clients apply only messages with a greater version
+  and reload the map on a gap, a smaller version (Redis restart) or a reconnect.
 
 ## 3. Conventions
 - Internal keys are `bigint` identity. Bookings expose a random `public_id` (UUID), so IDs in URLs can't be enumerated.

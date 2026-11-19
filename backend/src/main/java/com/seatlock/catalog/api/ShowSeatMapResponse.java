@@ -10,6 +10,8 @@ import java.util.List;
  * <p>Status merges two sources: BOOKED from Postgres (durable) and HELD from Redis hold keys (TTL).
  * {@code holdsLive = false} means Redis couldn't be read: statuses are the database view only,
  * so a held seat may show as AVAILABLE (the hold attempt will still be rejected atomically).</p>
+ * <p>{@code version} = the last live seat event already reflected here (0 = none yet); apply only
+ * {@code /topic/shows/{id}/seats} messages with a greater version. Null when Redis couldn't be read.</p>
  */
 public record ShowSeatMapResponse(
         Long showId,
@@ -21,7 +23,8 @@ public record ShowSeatMapResponse(
         int gridCols,
         List<SectionPrice> sections,
         List<SeatView> seats,
-        boolean holdsLive) {
+        boolean holdsLive,
+        Long version) {
 
     public ShowSeatMapResponse {
         sections = List.copyOf(sections);

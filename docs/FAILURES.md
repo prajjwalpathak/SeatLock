@@ -10,6 +10,7 @@ Each drill can be repeated with the commands shown.
 | F3 | Merge silently disabled rate limiting | CI test + startup log | never "accept incoming"; features that can be off must say so |
 | F4 | Squash merge reverted a day's docs | stash conflict | diff the branch head against the merged result after every merge |
 | F5 | Locked re-read clashed with an unlocked copy (500s) | 20-request race test | first read of a row in a locking transaction must be the locked one |
+| F6 | STOMP ERROR frame lost before the close | CI-only flaky test | after CONNECT, rely on the close, not on the ERROR frame |
 | (W4·D3) | Webhook secret with `$` cut by Compose interpolation | prod delivery logs | no `$` in env files; hex secrets; check compose warnings |
 | (W4·D5) | HTTP/2 h2c upgrade / stream resets to the provider | WireMock over real HTTP | pin provider clients to HTTP/1.1 |
 
@@ -152,3 +153,14 @@ nothing changes between the two reads, which is why only the race exposed it.
 - Correctness assertions alone weren't enough: the race test also asserts every request gets a 2xx, which caught it.
 - "Works for one request" says nothing about lock-and-reread code; concurrency tests belong next to every row lock.
 
+## F6. STOMP ERROR frames lost in a write/close race (W5·D2 CI, 2026-11-19)
+- **What happened:** `StompSecurityIntegrationTest.onlySeatTopicsCanBeSubscribedTo` failed once on GitHub Actions: a refused
+  SUBSCRIBE got no ERROR frame (`null`), though the same test passed locally and in the W5·D1 CI run.
+- **Why (most likely, not reproduced):** since W5·D2 the broker preserves publish order, so CONNECTED is written from a pooled
+  outbound thread. A refused frame's ERROR is written from the inbound thread, and Spring closes the session right after.
+  `ConcurrentWebSocketSessionDecorator` allows one writer at a time: if CONNECTED is still being flushed, the ERROR is only
+  buffered, and the immediate close can discard it.
+- **Impact:** a client refused after CONNECT may see a close without the reason. Security is unchanged (no subscription, no
+  forwarded SEND, connection closed). `INVALID_TOKEN` on CONNECT is not affected (nothing was written before it).
+- **Fix:** tests for post-CONNECT refusals assert that the server closes the connection, and that the code is the expected one
+  whenever the ERROR frame arrives (`StompTestClient.awaitRejection`). Revisit if real clients need reliable reasons.

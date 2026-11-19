@@ -3,15 +3,15 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 5 · Day 2 (not started, planned Wed Dec 9): Redis Pub/Sub relay across instances, event version numbers across the relay, resync endpoint, as 2 combined tasks. Branch `w5-d2` (create with `git switch -c w5-d2 origin/main` after #13 is squash-merged)
-- **Last completed:** Week 5 · Day 1: STOMP `/ws`, seat topics, `SeatsChangedEvent` from holds and `ShowSeatStatusService` (AFTER_COMMIT), per-show Redis versions, JWT on STOMP CONNECT, subscription/SEND rules, origin allow-list, ADR-014 (planned Tue Dec 8, done Thu Nov 19)
+- **Current day:** Week 5 · Day 3 (not started, planned Thu Dec 10): frontend live seat map with @stomp/stompjs, reconnect + resync, as 2 combined tasks. Branch `w5-d3` (create with `git switch -c w5-d3 origin/main` after #14 is squash-merged)
+- **Last completed:** Week 5 · Day 2: Redis Pub/Sub relay across instances (`publish_seat_event.lua`: INCR + PUBLISH atomically, one forwarding thread, preserved publish order), seat map carries `version` for resync, 2-instance relay test (planned Wed Dec 9, done Thu Nov 19)
 - **Live URLs:** Frontend https://seatlock-nu.vercel.app · Backend https://seatlock-prajjwal.duckdns.org · Swagger https://seatlock-prajjwal.duckdns.org/swagger-ui.html · Version https://seatlock-prajjwal.duckdns.org/api/v1/system/version · Grafana —
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public) · CI + Deploy badges in README · `main` protected (ruleset `protect-main`)
 - **Hosting:** Azure VM `seatlock-vm` (India South Central, B2als_v2 x64) + Vercel; images from GHCR (ADR-005, #62, #71–#74); decommission after ~2–3 months
 - **Git workflow (from W4·D5):** **2 combined tasks per day** (plan tasks grouped as feasible); each = changes → one verify/test block → one one-line commit + push on the daily branch; day end → PR on GitHub → squash-merge when CI is green; next branch with `git switch -c wN-dM origin/main`; never push to a branch after its PR is merged (#9, #75, #116, #141, #142)
-- **Carry-overs:** confirm `@Scheduled` jobs still log on `scheduling-N` threads, not `MessageBroker-N` (W5·D2) · silence Mockito's dynamic-agent warning (W6·D1) · JetBrains student license · IntelliJ vulnerable-dependency scan · consume `refund.processed`/`refund.failed` webhooks (stretch) · WireMock 4.x stable re-check (W8·D1) · prod log check after #12/#13 deploy (strategy, gateway, no I/O errors)
-- **Schedule:** **~19 days ahead** (W5·D1 done Thu Nov 19 instead of Tue Dec 8); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
-- **Top risk:** WebSockets across 2 instances (Redis Pub/Sub relay, event ordering, Nginx upgrade, VM RAM for 2 app containers) (W5); VM burst credits (load tests stay local)
+- **Carry-overs:** confirm `@Scheduled` jobs log on `scheduling-N` threads, not `MessageBroker-N` (not yet reported) · silence Mockito's dynamic-agent warning (W6·D1) · JetBrains student license · IntelliJ vulnerable-dependency scan · consume `refund.processed`/`refund.failed` webhooks (stretch) · WireMock 4.x stable re-check (W8·D1) · prod log check after #12–#14 deploy (strategy, gateway, relay subscribed, no I/O errors)
+- **Schedule:** **~20 days ahead** (W5·D2 done Thu Nov 19 instead of Wed Dec 9); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
+- **Top risk:** Nginx WebSocket upgrade + 2 app containers within the VM's 4 GB (W5·D4/D5); VM burst credits (load tests stay local)
 
 ## Decisions Log (ADR summary)
 | # | Date | Decision | Why |
@@ -171,6 +171,9 @@
 | 153 | 2026-11-19 | STOMP auth in our own inbound `ChannelInterceptor` via identity's public `TokenAuthenticator` (same decoder, validators, roles as REST); `Authorization: Bearer` on CONNECT **optional** (public seat maps), present but invalid → ERROR `INVALID_TOKEN`; checked at CONNECT only | `@EnableWebSocketSecurity` needs a CSRF token on CONNECT (cookie sessions) that is only removable by overriding an internal bean; module rule kept |
 | 154 | 2026-11-19 | Frame rules: SUBSCRIBE only `/topic/shows/{id}/seats` (`SUBSCRIPTION_DENIED`), max 10 per connection (`TOO_MANY_SUBSCRIPTIONS`), SEND always `SEND_NOT_ALLOWED`; ERROR `message` = code, unexpected → `INTERNAL_ERROR`; handshake Origin = CORS allow-list (403), `/ws` permitAll in HTTP security | No forged seat events; no wildcard or foreign subscriptions; other sites can't open connections from a visitor's browser |
 | 155 | 2026-11-19 | Broadcasting is **best effort**: failures (Redis, broker) are logged and swallowed | The change is committed; the user who made it must not get an error; viewers recover by resync |
+| 156 | 2026-11-19 | **Relay (ADR-014 update):** one Redis Pub/Sub channel `realtime:seat-events`; `publish_seat_event.lua` = `INCR` version + `PUBLISH "<version>|<json>"` atomically; every instance forwards everything it receives (own events too) to its simple broker | Redis delivers in version order to all instances; one delivery path, one order; Streams/per-show channels rejected |
+| 157 | 2026-11-19 | Ordering end to end: listener container on **one** dedicated `seat-relay-` thread (not a bean), broker `setPreservePublishOrder(true)`; re-subscribe every 2 s | Default thread-per-message executor and the pooled outbound channel could reorder; an `Executor` bean would make Boot drop its task executor |
+| 158 | 2026-11-19 | **Resync = the seat map:** `GET /shows/{id}/seats` returns `version` (catalog port `SeatEventVersionLookup`, realtime implements), read **before** the statuses; client applies only newer messages, reloads on gap / smaller version / reconnect; Redis down → `version: null`, `holdsLive: false` | Versions are assigned after commit, so everything ≤ version is in the statuses read next; re-applying newer events is harmless (full seat state); no extra endpoint |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -218,6 +221,8 @@
 | Live seat events | hold + release over HTTP → HELD then AVAILABLE on a real STOMP client, consecutive versions; rolled-back change → no message | `SeatEventsIntegrationTest` | 2026-11-19 |
 | STOMP security | 5 bad tokens, foreign origin (403), 6 bad destinations, 11th subscription, forged SEND: all refused | `StompSecurityIntegrationTest` | 2026-11-19 |
 | Tests | 484 (453 + 31 new) | `mvnw verify` | 2026-11-19 |
+| Cross-instance relay | 2 instances × 20 concurrent committed changes → both viewers got the same 40 messages, consecutive versions, same order | `SeatEventRelayIntegrationTest` | 2026-11-19 |
+| Tests | 490 (484 + 6 new) | `mvnw verify` | 2026-11-19 |
 
 ## Accounts & Config (no secrets here, only where they live)
 | Item | Status | Where stored |
@@ -1176,3 +1181,31 @@
 - Authorizing subscriptions and refusing client publishes; per-connection limits
 - Event versioning, gap detection and resync; ordering limits of after-commit numbering
 **Commit:** `feat(realtime): live seat events over STOMP with JWT on CONNECT (W5·D1)` (squashed into one commit on `main`)
+
+### Week 5 · Day 2: Redis Pub/Sub relay + resync (planned Wed, Dec 9; done Thu, Nov 19, 2026)
+**Status:** ✅ Done
+**Built:**
+- A: `publish_seat_event.lua`; `SeatEventRelay` (publish + `decode`, own Jackson 3 mapper), `SeatEventRelayListener` (→ local broker), `SeatEventRelayConfig` (listener container, single dispatch thread, 2 s recovery); broadcaster publishes to the relay; `setPreservePublishOrder(true)`; `SeatEventVersions` reduced to the key; tests `SeatEventRelayTest`, `SeatEventRelayIntegrationTest` (second app instance in the same JVM), `testsupport\BrokerSubscriptions`
+- B: `SeatEventVersionLookup` port + `SeatEventVersionReader`; `ShowCatalogService` reads the version first; `ShowSeatMapResponse.version`; frontend type; tests (read order, Redis down, map version = last event); ADR-014 update, architecture section 2j, CORRECTNESS section 1n rows
+- Tests: **490** (6 new)
+**Files created/changed:**
+- `resources\redis\publish_seat_event.lua`; `realtime\{SeatEventRelay, SeatEventRelayListener, SeatEventRelayConfig, SeatEventVersionReader, SeatEventBroadcaster, SeatEventVersions, WebSocketConfig}.java`
+- `catalog\application\{SeatEventVersionLookup, ShowCatalogService}.java`; `catalog\api\ShowSeatMapResponse.java`; `frontend\src\types\api.ts`
+- Tests: `realtime\{SeatEventRelayTest, SeatEventRelayIntegrationTest, SeatEventsIntegrationTest}`, `catalog\application\ShowCatalogServiceTest`, `testsupport\BrokerSubscriptions`
+- `docs\decisions\ADR-014-realtime-seat-events.md`, `docs\{architecture.md, CORRECTNESS.md}`, `progress.md`
+**Decisions:**
+- See Decisions Log #156–#158
+**Metrics recorded:**
+- 2-instance relay: identical, consecutive 40-message streams on both viewers; 490 tests
+**Problems & fixes:**
+- Second instance connected to `localhost:5432`: `SpringApplicationBuilder.properties()` are only default properties, so `application-test.yml`'s placeholder datasource won → pass the settings as `--` command-line arguments
+- Claude can't delete files in the repo → `SeatEventVersions` kept as the key holder instead of removed
+- CI-only failure: a refused SUBSCRIBE got no ERROR frame (likely ERROR buffered behind the CONNECTED write, then dropped by the immediate close) → post-CONNECT refusal tests assert the close and the code when present (FAILURES F6)
+**Carry-over:**
+- Scheduler thread-name check (D1) still to report; Mockito agent warning (W6·D1); JetBrains license; IntelliJ dependency scan; refund status webhooks (stretch); WireMock 4.x re-check (W8·D1)
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- Scaling WebSockets out: broker relay vs Pub/Sub fan-out vs sticky sessions; at-most-once Pub/Sub vs Streams
+- Ordering: atomic numbering + publish, single-threaded consumers, per-session publish order; where reordering creeps in (thread pools)
+- Snapshot + version resync (gap detection, idempotent full-state events, read-version-first rule)
+- Running two app instances in one test; property source precedence (defaults vs config files vs command line)
+**Commit:** `feat(realtime): Redis Pub/Sub relay across instances and versioned resync (W5·D2)` (squashed into one commit on `main`)
