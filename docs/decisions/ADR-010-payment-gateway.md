@@ -76,3 +76,6 @@ and OkHttp 3 + `org.json` as extra dependencies. Decision:
 5. Contract tests bind `MockRestServiceServer` to the adapter's `RestClient.Builder` (exact URL, auth header, strict
    JSON body, error/timeout handling); WireMock over real HTTP follows on W4·D5.
 6. Prod stays on `mock` until W4·D3, so a live demo never takes a test payment it can't confirm.
+7. (W4·D5) The adapter's JDK HttpClient is pinned to **HTTP/1.1**: the default HTTP/2 tried an h2c upgrade on plain
+   http (WireMock answered with reset streams) and shares one multiplexed connection that a provider-side close
+   breaks for the next call. Razorpay's volume here gains nothing from HTTP/2.

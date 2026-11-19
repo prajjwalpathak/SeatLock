@@ -129,9 +129,10 @@ dc up -d --force-recreate app        # env is read only at container start
   URL `https://seatlock-prajjwal.duckdns.org/api/v1/webhooks/razorpay`, secret = `RAZORPAY_WEBHOOK_SECRET`, events
   `payment.captured`, `order.paid`, `payment.failed`. A local tunnel webhook and the prod one can exist side by side;
   each environment ignores orders it doesn't know (`IGNORED_UNKNOWN_ORDER`).
-- **Local webhook testing**: `cloudflared tunnel --url http://localhost:8080` prints a `https://….trycloudflare.com`
-  URL (new on every start): add `<url>/api/v1/webhooks/razorpay` as a second webhook with the same secret as local
-  `.env`. Delete it afterwards.
+- **Local webhook testing**: `.\infra\scripts\razorpay-webhook-tunnel.ps1` (backend running) starts a cloudflared
+  quick tunnel, prints `<url>/api/v1/webhooks/razorpay` (new URL on every start) and sends one signed synthetic event
+  through it (200 = tunnel and secret OK; 400 = the running app has a different `RAZORPAY_WEBHOOK_SECRET`). Add the URL as
+  a second webhook with the same secret as local `.env`, test, press Enter to stop, delete the webhook.
 - **Rotating the Razorpay key**: generate a new test key, update both values, recreate the app; old orders stay payable
   only with the key that created them, so do it when no booking is waiting for payment.
 

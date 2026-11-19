@@ -164,6 +164,20 @@ winner):
 | Cancellation refunds follow the policy, never more | `RefundPolicyEngine` (tiers, inclusive bounds, floor) | `RefundPolicyEngineTest` |
 | Cancelled seats go back on sale at once, history kept | booking REFUNDED (booking_seats inactive) + BOOKED → AVAILABLE in one tx | `PaidCancellationIntegrationTest` (another user holds the seat) |
 
+## 1l. Payments over real HTTP and real webhook behaviour (W4·D5)
+
+| Rule | Enforced by | Proven by |
+|---|---|---|
+| A slow Razorpay can't hold a request | read timeout (5 s prod; 800 ms in the test) on a real socket | `RazorpayWireMockTest` (3 s delay → fails in < 2.5 s) |
+| Connection resets, empty or malformed responses never store anything | every I/O / parse failure → `PaymentGatewayException` → 503 | `RazorpayWireMockTest`, `RazorpayFlowIntegrationTest` (503, no payment row, booking still HELD) |
+| The real wiring (config → adapter → outbox) works | full app with `gateway=razorpay` against WireMock: order, webhook confirm, cancel, Refund API | `RazorpayFlowIntegrationTest` |
+| HTTP/2 quirks can't break provider calls | Razorpay client pinned to HTTP/1.1 | WireMock tests failed on h2c (RST_STREAM) before the pin |
+| Events in any order confirm once | shared capture path, payment row lock | `RazorpayWebhookScenariosIntegrationTest` (order.paid before payment.captured) |
+| A late failure report never undoes a payment | `recordFailedAttempt` is a no-op once paid | same (payment.failed after capture) |
+| 10 identical deliveries at once → processed once | `ON CONFLICT DO NOTHING` waits for the first claim's commit | same (1 row, CONFIRMED) |
+| A delivery we failed (500) is processed on Razorpay's retry | claim and processing roll back together | same (500 → 0 rows, CREATED; retry → CONFIRMED) |
+| Confirm vs sweeper is consistent whichever wins | locks (ADR-011) | `PaymentConfirmRaceIntegrationTest`: sweeper started at once or 60 ms late, both branches logged |
+
 ## 2. Query plans (catalog reads)
 
 **Method:** `docs/explain/catalog-queries.sql` on the seeded local DB (30 events, 90 shows,
