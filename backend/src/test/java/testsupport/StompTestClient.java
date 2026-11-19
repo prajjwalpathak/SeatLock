@@ -38,15 +38,20 @@ public final class StompTestClient implements AutoCloseable {
         this.url = "ws://localhost:" + port + "/ws";
     }
 
-    /** CONNECT, optionally with {@code Authorization: Bearer <token>} and a browser-like Origin. */
-    public CompletableFuture<StompSession> connect(String bearerToken, String origin) {
+    /** {@code Authorization} header value for a token. */
+    public static String bearer(String token) {
+        return "Bearer " + token;
+    }
+
+    /** CONNECT, optionally with an {@code Authorization} header (raw value) and a browser-like Origin. */
+    public CompletableFuture<StompSession> connect(String authorization, String origin) {
         WebSocketHttpHeaders handshake = new WebSocketHttpHeaders();
         if (origin != null) {
             handshake.setOrigin(origin);
         }
         StompHeaders connect = new StompHeaders();
-        if (bearerToken != null) {
-            connect.add("Authorization", "Bearer " + bearerToken);
+        if (authorization != null) {
+            connect.add("Authorization", authorization);
         }
         return client.connectAsync(url, handshake, connect, new StompSessionHandlerAdapter() {
             @Override
@@ -100,10 +105,18 @@ public final class StompTestClient implements AutoCloseable {
         return error == null ? null : error.getFirst("message");
     }
 
+    /**
+     * Best-effort DISCONNECT. After an ERROR frame the server closes the socket, and {@code isConnected()}
+     * may still say true for a moment, so the DISCONNECT can hit a closed connection: that's expected, not a failure.
+     */
     @Override
     public void close() {
         if (session != null && session.isConnected()) {
-            session.disconnect();
+            try {
+                session.disconnect();
+            } catch (RuntimeException alreadyClosedByServer) {
+                // IllegalStateException "Connection closed" / MessageDeliveryException: nothing left to close
+            }
         }
     }
 }

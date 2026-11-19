@@ -189,6 +189,21 @@ winner):
 | No deadlocks between overlapping optimistic holds | seats claimed in sorted order in one statement | race B on optimistic (×3) |
 | The DB stays the last line of defence | `ux_booking_seats_live_seat` under both strategies | race C (unchanged), race B bookings on both |
 
+## 1n. Live seat events (W5·D1, ADR-014)
+
+| Guarantee | How | Proof |
+|---|---|---|
+| A rolled-back change is never announced | `@TransactionalEventListener(AFTER_COMMIT)` | `SeatEventsIntegrationTest` (rollback → no message) |
+| Every seat change is announced, with exactly the seats that moved | events from the two choke points; `UPDATE … RETURNING seat_id` | same test; no event when 0 rows change |
+| A converted hold doesn't flip seats back to AVAILABLE | `releaseConvertedHold` publishes nothing | `HoldServiceTest` |
+| Missed messages are detectable | per-show Redis `INCR` version, consecutive per show | consecutive versions asserted |
+| Clients can't inject seat events | SEND refused before the broker | `StompSecurityIntegrationTest` |
+
+**Known window:** versions are assigned after commit. If two transactions on the same show commit back to back,
+their after-commit hooks can run in the opposite order, so the later state could carry the smaller version.
+Each message is still a true state at its commit; the client's resync (W5·D2/D3) repairs the view. A
+commit-ordered version (column on `shows`) was rejected: it would serialize every hold/booking of a show on one row.
+
 ## 2. Query plans (catalog reads)
 
 **Method:** `docs/explain/catalog-queries.sql` on the seeded local DB (30 events, 90 shows,
