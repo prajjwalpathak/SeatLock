@@ -12,6 +12,7 @@ Each drill can be repeated with the commands shown.
 | F5 | Locked re-read clashed with an unlocked copy (500s) | 20-request race test | first read of a row in a locking transaction must be the locked one |
 | F6 | STOMP ERROR frame lost before the close | CI-only flaky test | after CONNECT, rely on the close, not on the ERROR frame |
 | F7 | Prod 502s after the 2-instance cutover; then "WebSocket failed" in one browser | `curl` loop on the VM; Nginx access log; clean built-in browser | changed bind-mounted config needs `--force-recreate`; reproduce in a clean browser before changing the server |
+| F8 | Drills on 2 instances; Postgres outage made requests hang 30 s | `load-tests/failure-drills.ps1` | fail fast on missing dependencies (3 s pool wait, 503 + Retry-After), like F1 for Redis |
 | (W4·D3) | Webhook secret with `$` cut by Compose interpolation | prod delivery logs | no `$` in env files; hex secrets; check compose warnings |
 | (W4·D5) | HTTP/2 h2c upgrade / stream resets to the provider | WireMock over real HTTP | pin provider clients to HTTP/1.1 |
 
@@ -182,3 +183,16 @@ nothing changes between the two reads, which is why only the race exposed it.
   (e.g. `app.` + `api.` subdomains of one domain) so the socket isn't cross-site.
 - **Lesson:** a symptom seen only in browsers is checked in a clean browser and against the server's access log before
   any server change.
+
+## F8. Failure drills on two instances (W5·D6, local stack)
+Run with `.\load-tests\failure-drills.ps1 -Drill <name>` against `infra/docker-compose.scale.yml`; a probe polls the seat
+map through the LB every 200 ms.
+
+| Drill | Expected | Measured |
+|---|---|---|
+| `instance`: `docker stop app-2` for 20 s | GETs keep working (Nginx moves failed connects to app-1); app-2 back in round robin after restart | ✅ **238/238 requests 200**, 0 errors (app-1 198, app-2 40); stop 0.7 s (graceful); app-2 healthy 16 s after start, round robin alternating again; slowest request 2.2 s |
+| `booking`: book on app-1, `docker kill app-1` | booking readable and cancellable through app-2; seat AVAILABLE after cancel; nothing lost | ✅ GET via LB 200 from app-2 (HELD), seat HELD, cancel 200 (CANCELLED), seat AVAILABLE; app-1 healthy again 21 s after start |
+| `redis`: `docker restart redis` | seat map stays 200 with `holdsLive: false` while down; holds 503; relay re-subscribes (≤ 2 s recovery interval) | ✅ Redis back in 0.7 s; 191/191 seat-map requests 200 (4 degraded, `holdsLive: false`), slowest 2.2 s; fully live 0.56 s after; cross-instance relay working again 3.2 s after (first check) |
+| `postgres`: stop 15 s | readiness DOWN; seat map 5xx while down; recovers by itself after start (Hikari reconnects) | ⚠️ **before fix:** requests hung until the 5 s client timeout (10 × no response, 1 × 500), readiness call ~30 s (Hikari's default 30 s `connection-timeout`); recovered 5.1 s after start. **Fix:** `connection-timeout: 3000` + DB-unreachable → 503 `SERVICE_UNAVAILABLE` + `Retry-After: 5`; **after:** 503 within ≤ 3 s (slowest request 3.0 s, 8 × 503, no hung requests), readiness answers at once, fully back **1.3 s** after start (was 5.1 s); outage window 21 s stop→start (was 48 s, the 30 s readiness wait) |
+| Side finding (drill logs) | jobs on their own scheduler | ⚠️ `RefundWorker` ran on `MessageBroker-2`: `@Scheduled` jobs shared the STOMP broker's scheduler (heart-beats). **Fix:** `SchedulingConfig` gives jobs their own `scheduling-N` pool (2 threads) |
+| Browser on the killed instance | badge Reconnecting…, then Live on the other instance; map reloaded once | ✅ `docker stop` of the viewer's instance → **Live again on app-2 in < 1 s** (first reconnect attempt, 1 s backoff + jitter; Nginx skips the stopped instance) |

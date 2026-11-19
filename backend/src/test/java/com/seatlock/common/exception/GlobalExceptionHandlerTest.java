@@ -61,6 +61,18 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void anUnreachableDatabaseIs503WithRetryAfterAndNoDetails() throws Exception {
+        for (String path : new String[] {"/test/errors/db-down", "/test/errors/tx-down"}) {
+            mvc.perform(get(path))
+                    .andExpect(status().isServiceUnavailable())
+                    .andExpect(header().string("Retry-After", "5"))
+                    .andExpect(jsonPath("$.code").value("SERVICE_UNAVAILABLE"))
+                    .andExpect(jsonPath("$.detail").value(not(containsString("hunter2"))))
+                    .andExpect(jsonPath("$.requestId").exists());
+        }
+    }
+
+    @Test
     void invalidBodyBecomes400WithFieldErrors() throws Exception {
         mvc.perform(post("/test/errors/validate")
                         .contentType(MediaType.APPLICATION_JSON)
