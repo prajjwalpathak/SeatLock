@@ -59,5 +59,6 @@ class RefundPolicyEngineTest {
         var strict = new RefundPolicyEngine(List.of(new RefundProperties.Tier(0, 0)));
         assertThat(strict.quote(100, SHOW, SHOW.minus(Duration.ofDays(10))).cancellable()).isFalse();
         assertThatThrownBy(() -> new RefundPolicyEngine(List.of())).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new RefundPolicyEngine(null)).isInstanceOf(IllegalArgumentException.class);
     }
 }

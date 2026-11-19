@@ -21,6 +21,8 @@
 		<jackson-bom.version>3.1.8</jackson-bom.version>
 		<springdoc.version>3.2.0</springdoc.version>
 		<jacoco.version>0.8.15</jacoco.version>
+		<!-- empty default so @{argLine} resolves even when JaCoCo's agent is skipped (-Djacoco.skip) -->
+		<argLine></argLine>
 		<bucket4j.version>8.22.0</bucket4j.version>
 		<!-- Test only. The standalone jar shades its own Jetty/Jackson, so it can't clash with Boot's versions. -->
 		<wiremock.version>3.13.2</wiremock.version>
@@ -160,6 +162,28 @@
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
+			</plugin>
+			<!-- Mockito's inline mock maker attaches itself at runtime, which JDK 21+ warns about ("dynamically loaded
+     agent ... will be disallowed by default"). Load it as a real -javaagent instead (Mockito's documented setup):
+     dependency:properties exposes the jar path as ${org.mockito:mockito-core:jar}. -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-dependency-plugin</artifactId>
+				<executions>
+					<execution>
+						<goals>
+							<goal>properties</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<configuration>
+					<!-- @{argLine} = JaCoCo's agent (set late by prepare-agent); -Xshare:off avoids the CDS warning agents cause -->
+					<argLine>@{argLine} -javaagent:${org.mockito:mockito-core:jar} -Xshare:off</argLine>
+				</configuration>
 			</plugin>
 			<!-- Test coverage: agent during tests, HTML/XML/CSV report in target/site/jacoco on 'verify'.
      The >= 80% gate is added on W6·D1 (jacoco:check). -->
