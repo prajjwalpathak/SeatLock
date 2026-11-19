@@ -435,6 +435,23 @@ sequenceDiagram
   header badge: Live / Connecting… / Reconnecting… / Live updates paused.
 - Two instances behind Nginx locally (W5·D4): `infra/docker-compose.scale.yml`, runbook and results in `docs/local-scale.md`.
 
+## 2k. Monitoring (W6·D2, ADR-015)
+
+```mermaid
+flowchart LR
+    subgraph VM[Azure VM, private Compose network]
+        A1[app-1 /actuator/prometheus] --- P[(Prometheus 7 d)]
+        A2[app-2 /actuator/prometheus] --- P
+        P --> G[Grafana]
+        N[Nginx]
+    end
+    U[Browser] -->|HTTPS /grafana/| N --> G
+    U -.->|/actuator/prometheus → 404| N
+```
+- Business meters: holds by outcome, oversells blocked by the DB, double-sold seats counted from the data (must be 0),
+  payment captures after commit, open STOMP sessions; plus HTTP histograms, cache, Hikari, JVM (`docs/monitoring.md`).
+- Tags are low-cardinality only (strategy, outcome, status, URI template), never ids.
+
 ## 3. Conventions
 - Internal keys are `bigint` identity. Bookings expose a random `public_id` (UUID), so IDs in URLs can't be enumerated.
 - Enums are `varchar` + `CHECK`, not Postgres `ENUM` types: easier to evolve with Flyway, and mapped with `@Enumerated(EnumType.STRING)`.

@@ -1,0 +1,18 @@
+# Local Prometheus (W6·D2): scrapes the app wherever it runs. Targets that aren't running just show as DOWN.
+#   ide        backend started from IntelliJ on the laptop (port 8080)
+#   app-1/2    the 2-instance stack (docker-compose.scale.yml), same Compose network
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: seatlock
+    metrics_path: /actuator/prometheus
+    scrape_timeout: 5s
+    static_configs:
+      - targets: ["host.docker.internal:8080"]
+        labels: { instance: ide }
+      - targets: ["app-1:8080"]
+        labels: { instance: app-1 }
+      - targets: ["app-2:8080"]
+        labels: { instance: app-2 }

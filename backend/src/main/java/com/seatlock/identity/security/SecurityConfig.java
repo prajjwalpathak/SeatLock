@@ -42,6 +42,7 @@ public class SecurityConfig {
     static final String[] PUBLIC_ANY = {
             "/actuator/health/**",
             "/actuator/info",
+            "/actuator/prometheus",  // Prometheus scrape (no credentials); hidden at the edge by Nginx, app ports unpublished
             "/v3/api-docs/**",
             "/swagger-ui.html",
             "/swagger-ui/**",

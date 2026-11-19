@@ -3,7 +3,7 @@
 # ever travels through chat, Git or your laptop.
 #   bash infra/scripts/init-env-prod.sh
 # Generates: POSTGRES_PASSWORD, JWT key pair (RS256, PKCS#8 / X.509 DER, base64),
-#            SEATLOCK_ADMIN_PASSWORD (printed ONCE - save it in your password manager).
+#            SEATLOCK_ADMIN_PASSWORD and GRAFANA_ADMIN_PASSWORD (printed ONCE - save them in your password manager).
 # You still fill in by hand: LETSENCRYPT_EMAIL, SEATLOCK_ADMIN_EMAIL, GOOGLE_*, FRONTEND_BASE_URL, CORS_ALLOWED_ORIGINS.
 set -euo pipefail
 
@@ -23,16 +23,19 @@ jwt_private=$(openssl pkcs8 -topk8 -nocrypt -in "$tmp/jwt.pem" -outform DER | ba
 jwt_public=$(openssl pkey -in "$tmp/jwt.pem" -pubout -outform DER | base64 -w0)
 pg_password=$(openssl rand -hex 24)
 admin_password=$(openssl rand -base64 18 | tr -d '/+=')
+grafana_password=$(openssl rand -hex 16)
 
 sed -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${pg_password}|" \
     -e "s|^JWT_PRIVATE_KEY=.*|JWT_PRIVATE_KEY=${jwt_private}|" \
     -e "s|^JWT_PUBLIC_KEY=.*|JWT_PUBLIC_KEY=${jwt_public}|" \
     -e "s|^SEATLOCK_ADMIN_PASSWORD=.*|SEATLOCK_ADMIN_PASSWORD=${admin_password}|" \
+    -e "s|^GRAFANA_ADMIN_PASSWORD=.*|GRAFANA_ADMIN_PASSWORD=${grafana_password}|" \
     .env.prod.example > "$target"
 
 chmod 600 "$target"
 echo "Created infra/$target (mode 600) with generated DB password and JWT keys."
 echo
 echo "ADMIN password (shown once, store it now): ${admin_password}"
+echo "GRAFANA admin password (shown once, store it now): ${grafana_password}"
 echo
 echo "Next: nano infra/$target  -> fill LETSENCRYPT_EMAIL, SEATLOCK_ADMIN_EMAIL, GOOGLE_*, FRONTEND_BASE_URL, CORS_ALLOWED_ORIGINS"

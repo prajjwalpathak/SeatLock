@@ -7,12 +7,17 @@ import com.seatlock.payment.domain.Payment;
 import com.seatlock.payment.domain.PaymentRepository;
 import com.seatlock.payment.domain.RefundReason;
 import com.seatlock.payment.gateway.GatewayName;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
+import java.util.Locale;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * "The provider says this order was paid" → payment CAPTURED + booking CONFIRMED, in <b>one transaction</b>.
@@ -47,13 +52,15 @@ public class PaymentCaptureService {
     private final BookingService bookings;
     private final RefundService refunds;
     private final Clock clock;
+    private final MeterRegistry meters;
 
     public PaymentCaptureService(PaymentRepository payments, BookingService bookings, RefundService refunds,
-                                 Clock clock) {
+                                 Clock clock, MeterRegistry meters) {
         this.payments = payments;
         this.bookings = bookings;
         this.refunds = refunds;
         this.clock = clock;
+        this.meters = meters;
     }
 
     /**
@@ -123,6 +130,24 @@ public class PaymentCaptureService {
 
     /** Booking public id looked up last: by now the booking is either locked in this context or not touched again. */
     private CaptureResult result(Outcome outcome, long bookingId) {
+        countAfterCommit(outcome);
         return new CaptureResult(outcome, bookings.publicIdOf(bookingId), bookingId);
+    }
+
+    /**
+     * {@code seatlock.payments.captures{outcome}}, counted only once the transaction commits: a rolled-back capture
+     * (e.g. a webhook retried after our 500) must not be counted twice. capture() is always transactional.
+     */
+    private void countAfterCommit(Outcome outcome) {
+        Counter counter = Counter.builder("seatlock.payments.captures")
+                .description("Captured payments by outcome (callback + webhook)")
+                .tag("outcome", outcome.name().toLowerCase(Locale.ROOT))
+                .register(meters);
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                counter.increment();
+            }
+        });
     }
 }

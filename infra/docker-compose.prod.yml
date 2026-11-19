@@ -4,8 +4,8 @@
 # New backend versions arrive through CI: GitHub Actions -> GHCR -> infra/scripts/deploy.sh.
 # First-time TLS certificate: see docs/deploy.md (certbot "standalone" before Nginx starts).
 #
-# Only Nginx is reachable from the internet (80/443). App, Postgres and Redis sit on the
-# private Compose network with no published ports.
+# Only Nginx is reachable from the internet (80/443). App, Postgres, Redis and Prometheus sit on the
+# private Compose network with no published ports; Grafana is served by Nginx at /grafana/ (its own login).
 name: seatlock-prod
 
 x-logging: &default-logging          # cap Docker logs so they can't fill the 30 GB disk
@@ -53,7 +53,8 @@ services:
     restart: unless-stopped
 
   # Two instances of one image (W5·D5): Nginx balances between them, seat events cross via Redis Pub/Sub,
-  # deploy.sh replaces them one at a time. 900 MB each: 2 × 900 + 768 + 256 + nginx/certbot ≈ 2.9 GB of 3.8 GB.
+  # deploy.sh replaces them one at a time. Limits: 2 × 900 + PG 768 + Redis 256 + Prometheus 256 + Grafana 192
+  # + nginx/certbot ≈ 3.3 GB of 3.8 GB (limits, not usage: measured idle ≈ 1.5 GiB before W6·D2); 2 GB swap.
   app-1: &app
     # CI-built image from GHCR (public). deploy.sh writes the exact tag to APP_IMAGE in .env.prod.
     image: ${APP_IMAGE:-ghcr.io/prajjwalpathak/seatlock-backend:latest}
@@ -82,6 +83,50 @@ services:
     environment:
       <<: *app-env
       SEATLOCK_INSTANCE_ID: app-2
+
+  # Monitoring (W6·D2, ADR-015). Scrapes app-1/app-2 every 15 s; 7 days kept (a few hundred MB at most).
+  prometheus:
+    image: prom/prometheus:v3.13.5
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+      - --storage.tsdb.retention.size=1GB
+    volumes:
+      - ./prometheus/prometheus.prod.yml:/etc/prometheus/prometheus.yml:ro
+      - promdata:/prometheus
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+    logging: *default-logging
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:13.2.4
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD in infra/.env.prod}
+      GF_SERVER_ROOT_URL: https://${DOMAIN}/grafana/
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SECURITY_COOKIE_SECURE: "true"
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/seatlock.json
+    volumes:
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    depends_on:
+      - prometheus
+    deploy:
+      resources:
+        limits:
+          memory: 192m
+    logging: *default-logging
+    restart: unless-stopped
 
   nginx:
     image: nginx:1.28-alpine
@@ -118,3 +163,5 @@ volumes:
   pgdata:
   letsencrypt:
   certbot-www:
+  promdata:
+  grafanadata:

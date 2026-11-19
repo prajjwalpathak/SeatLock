@@ -11,6 +11,8 @@ import com.seatlock.common.exception.ConflictException;
 import com.seatlock.common.exception.InvalidRequestException;
 import com.seatlock.common.exception.NotFoundException;
 import com.seatlock.common.exception.ServiceUnavailableException;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -43,6 +45,15 @@ import org.springframework.stereotype.Service;
 public class HoldService {
 
     private static final Logger log = LoggerFactory.getLogger(HoldService.class);
+    /** Counter {@code seatlock.holds{strategy, outcome}}; everything but {@code held} is a conflict. */
+    static final String METER_HOLDS = "seatlock.holds";
+    static final String OUTCOME_HELD = "held";
+    /** Seats already HELD/BOOKED in Postgres (pre-check, before any claim). */
+    static final String OUTCOME_SEATS_UNAVAILABLE = "seats_unavailable";
+    /** Lost the claim to a concurrent hold (Lua / upsert said taken): the contention we care about. */
+    static final String OUTCOME_SEATS_TAKEN = "seats_taken";
+    static final String OUTCOME_HOLD_EXISTS = "hold_exists";
+
     private static final Pattern HOLD_ID =
             Pattern.compile("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
 
@@ -51,14 +62,16 @@ public class HoldService {
     private final HoldProperties props;
     private final Clock clock;
     private final ApplicationEventPublisher events;
+    private final MeterRegistry meters;
 
     public HoldService(ShowCatalogService catalog, SeatLockingStrategy store, HoldProperties props, Clock clock,
-                       ApplicationEventPublisher events) {
+                       ApplicationEventPublisher events, MeterRegistry meters) {
         this.catalog = catalog;
         this.store = store;
         this.props = props;
         this.clock = clock;
         this.events = events;
+        this.meters = meters;
     }
 
     public Hold createHold(long userId, long showId, List<Long> seatIds) {
@@ -80,6 +93,7 @@ public class HoldService {
                 .filter(id -> byId.get(id).status() != ShowSeatStatus.AVAILABLE)
                 .toList();
         if (!booked.isEmpty()) {
+            count(OUTCOME_SEATS_UNAVAILABLE);
             throw new SeatsUnavailableException(booked);
         }
 
@@ -89,11 +103,18 @@ public class HoldService {
         HoldAttempt attempt = withRedis(() -> store.tryHold(holdId, userId, showId, seatIds, props.ttl(), expiresAt));
         return switch (attempt) {
             case Held held -> {
+                count(OUTCOME_HELD);
                 events.publishEvent(new SeatsChangedEvent(showId, seatIds, ShowSeatStatus.HELD, expiresAt));
                 yield toHold(held.holdId(), showId, seatIds, byId, expiresAt);
             }
-            case SeatsTaken taken -> throw new SeatsUnavailableException(taken.seatIds());
-            case HoldExists exists -> throw new HoldExistsException(exists.existingHoldId());
+            case SeatsTaken taken -> {
+                count(OUTCOME_SEATS_TAKEN);
+                throw new SeatsUnavailableException(taken.seatIds());
+            }
+            case HoldExists exists -> {
+                count(OUTCOME_HOLD_EXISTS);
+                throw new HoldExistsException(exists.existingHoldId());
+            }
         };
     }
 
@@ -127,6 +148,16 @@ public class HoldService {
     }
 
     // ------------------------------------------------------------------ helpers
+
+    /** Two low-cardinality tags only (2 strategies × 4 outcomes): never a show, seat or user id. */
+    private void count(String outcome) {
+        Counter.builder(METER_HOLDS)
+                .description("Hold attempts by outcome; anything but 'held' is a conflict")
+                .tag("strategy", store.name())
+                .tag("outcome", outcome)
+                .register(meters)
+                .increment();
+    }
 
     private void checkSeatList(List<Long> seatIds) {
         if (seatIds == null || seatIds.isEmpty()) {

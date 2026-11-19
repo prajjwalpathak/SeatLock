@@ -1,0 +1,15 @@
+# Prod Prometheus (W6·D2): both app instances over the private Compose network. /actuator/prometheus is never
+# reachable from the internet (Nginx answers 404 for /actuator/* except health; app ports are not published).
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: seatlock
+    metrics_path: /actuator/prometheus
+    scrape_timeout: 5s
+    static_configs:
+      - targets: ["app-1:8080"]
+        labels: { instance: app-1 }
+      - targets: ["app-2:8080"]
+        labels: { instance: app-2 }

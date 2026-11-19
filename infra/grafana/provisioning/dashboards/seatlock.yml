@@ -1,0 +1,13 @@
+# Loads every dashboard JSON in /var/lib/grafana/dashboards (infra/grafana/dashboards, mounted read-only).
+# Edit a dashboard in the UI → "Export → Save to file" → replace the JSON in Git; UI changes alone are not kept.
+apiVersion: 1
+providers:
+  - name: seatlock
+    folder: SeatLock
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 60
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false
