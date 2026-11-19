@@ -7,6 +7,8 @@ import java.util.Objects;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
+import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -58,6 +60,19 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .header(HttpHeaders.RETRY_AFTER, "5")
                 .body(problem(HttpStatus.SERVICE_UNAVAILABLE, "Service unavailable", ex.getMessage(), ex.getCode()));
+    }
+
+    /**
+     * The database (or another data store) is unreachable: no connection within Hikari's 3 s, a failed connect,
+     * or no transaction could be started. A temporary outage, not a bug: 503 + Retry-After, nothing internal leaked.
+     */
+    @ExceptionHandler({DataAccessResourceFailureException.class, CannotCreateTransactionException.class})
+    ResponseEntity<ProblemDetail> handleDataStoreDown(Exception ex) {
+        log.warn("Data store unavailable: {}", ex.toString());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, "5")
+                .body(problem(HttpStatus.SERVICE_UNAVAILABLE, "Service unavailable",
+                        "SeatLock is temporarily unavailable. Please try again in a moment.", "SERVICE_UNAVAILABLE"));
     }
 
     @ExceptionHandler(UnauthorizedException.class)

@@ -34,6 +34,17 @@ public class ErrorTestController {
         throw new ConflictException("SEAT_ALREADY_HELD", "Seat A1 is already held");
     }
 
+    @GetMapping("/db-down")
+    void dbDown() throws Exception {
+        throw new org.springframework.jdbc.CannotGetJdbcConnectionException("Failed to obtain JDBC Connection",
+                new java.sql.SQLTransientConnectionException("HikariPool-1 - Connection is not available, password=hunter2"));
+    }
+
+    @GetMapping("/tx-down")
+    void txDown() {
+        throw new org.springframework.transaction.CannotCreateTransactionException("Could not open JPA EntityManager");
+    }
+
     @GetMapping("/boom")
     void boom() {
         throw new IllegalStateException("db-password=hunter2"); // must never reach the client

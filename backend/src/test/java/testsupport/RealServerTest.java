@@ -18,7 +18,10 @@ import org.springframework.test.context.ActiveProfiles;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         // Tomcat's default TCP backlog is 100; Windows answers a burst of 200 connects beyond it with a reset.
         // Production sits behind Nginx (few long-lived upstream connections), so this only matters for the races.
-        properties = "server.tomcat.accept-count=512")
+        properties = {
+                "server.tomcat.accept-count=512",
+                // 200 requests on a 10-connection pool queue for connections on purpose; that's contention, not an outage
+                "spring.datasource.hikari.connection-timeout=30000"})
 @ActiveProfiles("test")
 @Import(TestcontainersConfiguration.class)
 public @interface RealServerTest {

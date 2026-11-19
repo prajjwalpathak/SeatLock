@@ -15,6 +15,10 @@ spring:
     url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:seatlock}
     username: ${POSTGRES_USER:seatlock}
     password: ${POSTGRES_PASSWORD}
+    hikari:
+      # Fail fast when Postgres is unreachable (F8): Hikari's default waits 30 s for a connection, so every request
+      # hung and held a Tomcat thread during an outage. Normal waits are far below 1 s; 3 s → quick 503 instead.
+      connection-timeout: 3000
 
   jpa:
     open-in-view: false          # no lazy-loading during view rendering (antipattern)
