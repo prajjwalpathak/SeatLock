@@ -281,7 +281,7 @@ public class BookingService {
 
     private void releaseRedisHold(long userId, String holdId) {
         try {
-            holds.releaseHold(userId, holdId);
+            holds.releaseConvertedHold(userId, holdId);
         } catch (RuntimeException e) {
             // Harmless: the DB already says HELD, and the Redis keys expire with the hold's TTL anyway.
             log.warn("Booked hold {} but couldn't release its Redis keys ({}); they will expire", holdId, e.toString());

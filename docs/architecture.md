@@ -404,6 +404,30 @@ flowchart LR
 - `payment.failed` only records the reason: the order stays open for a retry in Checkout.
 - Policy (config): ≥ 48 h → 100 %, ≥ 24 h → 50 %, less → not cancellable; round down.
 
+## 2j. Live seat events (W5·D1, ADR-014)
+
+```mermaid
+sequenceDiagram
+    participant B as Browser (seat map)
+    participant WS as /ws (STOMP)
+    participant S as HoldService / ShowSeatStatusService
+    participant L as SeatEventBroadcaster
+    participant R as Redis
+    B->>WS: CONNECT (Authorization: Bearer … optional)
+    WS-->>B: CONNECTED (or ERROR INVALID_TOKEN)
+    B->>WS: SUBSCRIBE /topic/shows/{id}/seats
+    S->>S: change seats (in a transaction, or a Redis hold)
+    S-->>L: SeatsChangedEvent (AFTER_COMMIT)
+    L->>R: INCR realtime:seat-version:show:{id}
+    L->>WS: SeatEventMessage {version, status, seatIds, holdExpiresAt}
+    WS-->>B: MESSAGE
+```
+
+- Publishers: `HoldService` (HELD with `holdExpiresAt`, AVAILABLE on release) and `ShowSeatStatusService`
+  (every DB change: booking HELD, confirm BOOKED, expiry/cancel/refund AVAILABLE). No WebSocket code in those modules.
+- Inbound rules (`StompAuthChannelInterceptor`): optional JWT on CONNECT, seat topics only (max 10), no SEND.
+- One instance today; W5·D2 relays events between instances through Redis Pub/Sub and adds resync.
+
 ## 3. Conventions
 - Internal keys are `bigint` identity. Bookings expose a random `public_id` (UUID), so IDs in URLs can't be enumerated.
 - Enums are `varchar` + `CHECK`, not Postgres `ENUM` types: easier to evolve with Flyway, and mapped with `@Enumerated(EnumType.STRING)`.

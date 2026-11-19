@@ -46,7 +46,8 @@ public class SecurityConfig {
             "/swagger-ui.html",
             "/swagger-ui/**",
             "/error",                // container error page must stay reachable
-            "/api/v1/webhooks/**"    // provider → us; authenticated by HMAC, not a JWT (any method: GET → 405, not 401)
+            "/api/v1/webhooks/**",   // provider → us; authenticated by HMAC, not a JWT (any method: GET → 405, not 401)
+            "/ws"                    // WebSocket handshake; browsers can't send headers on it, the JWT comes in STOMP CONNECT
     };
 
     /** Order 2: the Google sign-in chain (OAuth2LoginConfig, Order 1) handles its own paths first. */

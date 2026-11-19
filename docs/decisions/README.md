@@ -18,3 +18,4 @@ The full decisions log (including small ones) lives in [progress.md](../../progr
 | [011](ADR-011-payment-confirmation.md) | Signed callback + deduplicated webhook, one-transaction confirm, payment → booking lock order | W4 |
 | [012](ADR-012-refunds.md) | Refund outbox, receipt idempotency, rules-based cancellation policy | W4 |
 | [013](ADR-013-seat-locking-strategy.md) | `SeatLockingStrategy`: Redis Lua holds or optimistic Postgres claims | W4 |
+| [014](ADR-014-realtime-seat-events.md) | Live seat events: STOMP topics, AFTER_COMMIT domain events, Redis versions, JWT on CONNECT | W5 |

@@ -65,6 +65,11 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-security</artifactId>
 		</dependency>
+		<!-- STOMP over WebSocket: live seat events (in-memory broker; Redis Pub/Sub relay on W5·D2) -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-websocket</artifactId>
+		</dependency>
 		<!-- JWT validation (Nimbus); also brings JwtEncoder for issuing our own tokens -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
