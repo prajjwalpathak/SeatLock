@@ -2,7 +2,6 @@ package com.seatlock.booking.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.seatlock.booking.hold.HoldKeys;
 import com.seatlock.identity.domain.UserRepository;
 import com.seatlock.identity.security.TokenService;
 import java.net.http.HttpRequest;
@@ -27,6 +26,7 @@ import org.springframework.core.env.Environment;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import testsupport.ConcurrencyHarness;
+import testsupport.HoldInspector;
 import testsupport.ConcurrencyHarness.Outcome;
 import testsupport.ConcurrencyHarness.Result;
 import testsupport.RealServerTest;
@@ -39,7 +39,7 @@ import testsupport.TestUsers;
  * The seed is logged, so a failing interleaving's requests can be replayed exactly.
  */
 @RealServerTest
-class OverlappingHoldsRaceIntegrationTest {
+public class OverlappingHoldsRaceIntegrationTest {
 
     private static final Logger log = LoggerFactory.getLogger(OverlappingHoldsRaceIntegrationTest.class);
     private static final int USERS = 200;
@@ -60,12 +60,14 @@ class OverlappingHoldsRaceIntegrationTest {
     @Autowired TokenService tokenService;
 
     private ConcurrencyHarness harness;
+    protected HoldInspector holdStore;
     private long showId;
     private List<Long> block;
 
     @BeforeEach
     void setUp() {
         harness = new ConcurrencyHarness(env.getRequiredProperty("local.server.port", Integer.class));
+        holdStore = new HoldInspector(env.getProperty("seatlock.holds.strategy", "redis-hold"), redis, jdbc);
         showId = jdbc.queryForObject("""
                 SELECT s.id FROM shows s JOIN events e ON e.id = s.event_id
                 WHERE e.status = 'PUBLISHED' AND s.status = 'SCHEDULED' AND s.starts_at > now() + interval '1 hour'
@@ -84,10 +86,7 @@ class OverlappingHoldsRaceIntegrationTest {
                 showId, block.toArray(Long[]::new));
         jdbc.update("DELETE FROM booking_seats WHERE booking_id IN (SELECT id FROM bookings WHERE user_id IN (" + users + "))");
         jdbc.update("DELETE FROM bookings WHERE user_id IN (" + users + ")");
-        Set<String> keys = redis.keys("hold:*"); // test-only; production code never uses KEYS
-        if (keys != null && !keys.isEmpty()) {
-            redis.delete(keys);
-        }
+        holdStore.clear();
     }
 
     @RepeatedTest(3)
@@ -124,11 +123,11 @@ class OverlappingHoldsRaceIntegrationTest {
                 assertThat(heldBy.put(seat, holdId)).as("seat %d is in two holds (seed=%d)", seat, seed).isNull();
             }
         }
-        for (Long seat : block) { // Redis says exactly what the API said, nothing more
-            assertThat(redis.opsForValue().get(HoldKeys.seatKey(showId, seat))).as("seat %d", seat)
+        for (Long seat : block) { // the hold store says exactly what the API said, nothing more
+            assertThat(holdStore.holderOf(showId, seat)).as("seat %d (%s)", seat, holdStore.strategy())
                     .isEqualTo(heldBy.get(seat));
         }
-        assertThat(redis.keys("hold:id:*")).hasSize(winners.size());
+        assertThat(holdStore.liveHolds()).isEqualTo(winners.size());
         for (Outcome loser : holds.withStatus(409)) { // a loser's reported conflicts really are held by someone
             assertThat(loser.<List<Integer>>json("$.seatIds")).isNotEmpty()
                     .allSatisfy(s -> assertThat(heldBy).containsKey(s.longValue()));

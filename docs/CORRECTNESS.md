@@ -178,6 +178,17 @@ winner):
 | A delivery we failed (500) is processed on Razorpay's retry | claim and processing roll back together | same (500 → 0 rows, CREATED; retry → CONFIRMED) |
 | Confirm vs sweeper is consistent whichever wins | locks (ADR-011) | `PaymentConfirmRaceIntegrationTest`: sweeper started at once or 60 ms late, both branches logged |
 
+## 1m. Seat locking strategies (W4·D6, ADR-013)
+
+| Rule | Enforced by | Proven by |
+|---|---|---|
+| Both strategies give the same guarantees | one `SeatLockingStrategy` contract; `HoldService` unchanged | races A/B run on both (`*OptimisticIntegrationTest`): 1 winner of 200; overlapping holds never share a seat; 0 double-sold |
+| Optimistic claims never take a live seat | `ON CONFLICT … DO UPDATE … WHERE expires_at <= now` | `OptimisticHoldStoreIntegrationTest` (20 concurrent → 1 winner) |
+| Optimistic holds are all or nothing | fewer rows returned than asked → rollback + taken seats reported | same (overlap: loser writes nothing) |
+| One live hold per user and show (optimistic) | transaction-scoped advisory lock + live-hold check | same |
+| No deadlocks between overlapping optimistic holds | seats claimed in sorted order in one statement | race B on optimistic (×3) |
+| The DB stays the last line of defence | `ux_booking_seats_live_seat` under both strategies | race C (unchanged), race B bookings on both |
+
 ## 2. Query plans (catalog reads)
 
 **Method:** `docs/explain/catalog-queries.sql` on the seeded local DB (30 events, 90 shows,

@@ -2,7 +2,6 @@ package com.seatlock.booking.api;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.seatlock.booking.hold.HoldKeys;
 import com.seatlock.identity.domain.UserRepository;
 import com.seatlock.identity.security.TokenService;
 import java.net.http.HttpRequest;
@@ -20,6 +19,7 @@ import org.springframework.core.env.Environment;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import testsupport.ConcurrencyHarness;
+import testsupport.HoldInspector;
 import testsupport.ConcurrencyHarness.Outcome;
 import testsupport.ConcurrencyHarness.Result;
 import testsupport.RealServerTest;
@@ -30,7 +30,7 @@ import testsupport.TestUsers;
  * over real HTTP (Tomcat, JWT filter, rate limiter, idempotency, DB checks, Lua). Exactly one may win.
  */
 @RealServerTest
-class HoldRace200IntegrationTest {
+public class HoldRace200IntegrationTest {
 
     private static final Logger log = LoggerFactory.getLogger(HoldRace200IntegrationTest.class);
     private static final int USERS = 200;
@@ -41,10 +41,11 @@ class HoldRace200IntegrationTest {
     @Autowired UserRepository userRepository;
     @Autowired TokenService tokenService;
 
-    /** Once per JVM: the first race on a cold server (JIT, pools, Lua load) is not the one we measure. */
-    private static boolean warmedUp;
+    /** Once per context (strategy): the first race on a cold server (JIT, pools, Lua load) is not measured. */
+    private static final Set<String> WARMED_UP = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     private ConcurrencyHarness harness;
+    protected HoldInspector holds;
     private List<String> tokens;
     private long showId;
     private long seatId;
@@ -61,9 +62,9 @@ class HoldRace200IntegrationTest {
         seatId = jdbc.queryForObject("""
                 SELECT seat_id FROM show_seats WHERE show_id = ? AND status = 'AVAILABLE' ORDER BY seat_id LIMIT 1
                 """, Long.class, showId);
-        if (!warmedUp) {
+        holds = new HoldInspector(env.getProperty("seatlock.holds.strategy", "redis-hold"), redis, jdbc);
+        if (WARMED_UP.add(holds.strategy())) {
             warmUp();
-            warmedUp = true;
         }
     }
 
@@ -90,10 +91,7 @@ class HoldRace200IntegrationTest {
 
     @AfterEach
     void removeHoldKeys() {
-        Set<String> keys = redis.keys("hold:*"); // test-only; production code never uses KEYS
-        if (keys != null && !keys.isEmpty()) {
-            redis.delete(keys);
-        }
+        holds.clear();
     }
 
     @RepeatedTest(3)
@@ -109,10 +107,10 @@ class HoldRace200IntegrationTest {
 
         Outcome winner = result.withStatus(201).getFirst();
         String holdId = winner.json("$.holdId");
-        assertThat(redis.opsForValue().get(HoldKeys.seatKey(showId, seatId)))
-                .as("Redis must point at the one hold the API said was created")
+        assertThat(holds.holderOf(showId, seatId))
+                .as("the hold store must point at the one hold the API said was created (%s)", holds.strategy())
                 .isEqualTo(holdId);
-        assertThat(redis.keys("hold:id:*")).as("no second hold record anywhere").hasSize(1);
+        assertThat(holds.liveHolds()).as("no second hold record anywhere").isEqualTo(1);
         // Proves the requests contended (a serial loop would show 1). Not tighter: on a warm server the early
         // requests finish while the last threads are still waking, so the peak varies run to run (53-200 seen).
         assertThat(result.peakInFlight()).as("the requests really overlapped").isGreaterThanOrEqualTo(USERS / 10);

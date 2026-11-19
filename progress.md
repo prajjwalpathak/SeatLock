@@ -3,15 +3,15 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 4 · Day 6 (not started, planned Mon Dec 7): `SeatLockingStrategy` (Optimistic vs RedisHold) behind config + Week 4 review, as 2 combined tasks. Branch `w4-d6` (create with `git switch -c w4-d6 origin/main` after #11 is squash-merged)
-- **Last completed:** Week 4 · Day 5: WireMock contract tests + full-app Razorpay flow over real HTTP, Razorpay client pinned to HTTP/1.1, real-world webhook scenarios, confirm-vs-sweeper race now hits both branches, tunnel check script (planned Sat Dec 5, done Thu Nov 19)
+- **Current day:** Week 5 · Day 1 (not started, planned Tue Dec 8): STOMP WebSocket config, seat-event topics, JWT auth on STOMP CONNECT, as 2 combined tasks. Branch `w5-d1` (create with `git switch -c w5-d1 origin/main` after #12 is squash-merged)
+- **Last completed:** Week 4 · Day 6: `SeatLockingStrategy` (redis-hold | optimistic, V11) with races A/B on both, `webhook_events` retention job, ADR-013 + ADR index, README "what works", Week 4 review (planned Mon Dec 7, done Thu Nov 19)
 - **Live URLs:** Frontend https://seatlock-nu.vercel.app · Backend https://seatlock-prajjwal.duckdns.org · Swagger https://seatlock-prajjwal.duckdns.org/swagger-ui.html · Version https://seatlock-prajjwal.duckdns.org/api/v1/system/version · Grafana —
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public) · CI + Deploy badges in README · `main` protected (ruleset `protect-main`)
 - **Hosting:** Azure VM `seatlock-vm` (India South Central, B2als_v2 x64) + Vercel; images from GHCR (ADR-005, #62, #71–#74); decommission after ~2–3 months
 - **Git workflow (from W4·D5):** **2 combined tasks per day** (plan tasks grouped as feasible); each = changes → one verify/test block → one one-line commit + push on the daily branch; day end → PR on GitHub → squash-merge when CI is green; next branch with `git switch -c wN-dM origin/main`; never push to a branch after its PR is merged (#9, #75, #116, #141, #142)
-- **Carry-overs:** silence Mockito's dynamic-agent warning (W6·D1) · JetBrains student license · IntelliJ vulnerable-dependency scan · `webhook_events` cleanup job (W8) · consume `refund.processed`/`refund.failed` webhooks (stretch) · WireMock 4.x stable re-check (W8·D1)
-- **Schedule:** **~16 days ahead** (W4·D5 done Thu Nov 19 instead of Sat Dec 5); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
-- **Top risk:** `SeatLockingStrategy` must keep the DB guard and the existing races green under both strategies (D6); WebSockets across 2 instances (W5); VM burst credits (load tests stay local)
+- **Carry-overs:** silence Mockito's dynamic-agent warning (W6·D1) · JetBrains student license · IntelliJ vulnerable-dependency scan · consume `refund.processed`/`refund.failed` webhooks (stretch) · WireMock 4.x stable re-check (W8·D1) · prod log check after #12 deploys (strategy, gateway, no I/O errors)
+- **Schedule:** **~18 days ahead** (W4·D6 done Thu Nov 19 instead of Mon Dec 7); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
+- **Top risk:** WebSockets across 2 instances (Redis Pub/Sub relay, Nginx upgrade, VM RAM for 2 app containers) (W5); VM burst credits (load tests stay local)
 
 ## Decisions Log (ADR summary)
 | # | Date | Decision | Why |
@@ -162,6 +162,9 @@
 | 144 | 2026-11-19 | **Razorpay client pinned to HTTP/1.1** (ADR-010 item 7) | JDK default HTTP/2 tried an h2c upgrade on plain http (WireMock reset the streams) and shares one multiplexed connection a provider-side close breaks (likely the live `I/O error … null`) |
 | 145 | 2026-11-19 | Webhook scenario suite: out-of-order events, late `payment.failed`, 10 concurrent identical deliveries, redelivery after our 500; sweeper race alternates 0 / 60 ms start so both outcomes run | Proves the at-least-once handling against what Razorpay actually does; closes the W4·D3 race carry-over |
 | 146 | 2026-11-19 | `infra/scripts/razorpay-webhook-tunnel.ps1`: cloudflared quick tunnel + one signed synthetic event (200 = tunnel + secret OK, 400 = secret mismatch) | Local webhook setup in one command; catches the secret mismatch seen in prod on W4·D3 before any payment |
+| 147 | 2026-11-19 | **ADR-013 `SeatLockingStrategy`:** `redis-hold` (default, Lua + TTL) or `optimistic` (V11 `seat_holds` + `seat_hold_claims`; advisory lock per user/show, multi-row `INSERT … ON CONFLICT … DO UPDATE … WHERE expires_at <= now`, sorted seats, all-or-nothing rollback), chosen by `seatlock.holds.strategy`; `HoldService` and the seat-map overlay (`LiveHoldLookup`) depend only on the interface | One contract, two implementations, measured on W6·D4; `@Version` on `show_seats` and `FOR UPDATE` rejected |
+| 148 | 2026-11-19 | Races A/B run on both strategies via subclasses with `@TestPropertySource`; `testsupport.HoldInspector` reads Redis or `seat_hold_claims`; warm-up once per strategy context | The same proof for both, no copy-paste of race logic |
+| 149 | 2026-11-19 | `webhook_events` deleted after **30 days** (`WebhookEventCleanupJob`, daily); expired optimistic holds deleted hourly | Razorpay retries end within about a day; tables stay small |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -203,6 +206,9 @@
 | Webhook dedupe under concurrency | 10 identical deliveries at once → **1 row, confirmed once, 10 × 200** | `RazorpayWebhookScenariosIntegrationTest` | 2026-11-19 |
 | Confirm vs sweeper | 6 runs: sweeper won 3 (immediate start), payments won 3 (60 ms later); always consistent | `PaymentConfirmRaceIntegrationTest` | 2026-11-19 |
 | Tests | 440 (427 + 13 new incl. repetitions) | `mvnw verify` / CI | 2026-11-19 |
+| Race A, both strategies (informal) | redis-hold p50 0.87–0.97 s / p99 1.84–2.13 s; optimistic p50 1.15–1.48 s / p99 1.94–2.51 s; both exactly 1 winner of 200, 3/3 | race logs in one `mvnw verify` run (not a benchmark; W6·D4) | 2026-11-19 |
+| Optimistic claims | 20 concurrent claims of one seat → **1 winner**; race B on optimistic → 0 double-sold, 3/3 | `OptimisticHoldStoreIntegrationTest`, `OverlappingHoldsRaceOptimisticIntegrationTest` | 2026-11-19 |
+| Tests | 453 (440 + 13 new incl. repetitions) | `mvnw verify` / CI | 2026-11-19 |
 
 ## Accounts & Config (no secrets here, only where they live)
 | Item | Status | Where stored |
@@ -1100,3 +1106,35 @@
 - Designing races to cover every branch; asserting invariants rather than a single winner
 - Developer tooling for webhooks: tunnels, synthetic signed events, secret mismatch detection
 **Commit:** `test(payment): Razorpay over real HTTP, webhook scenarios and tunnel check (W4·D5)` (squashed into one commit on `main`)
+
+### Week 4 · Day 6: `SeatLockingStrategy` + Week 4 review (planned Mon, Dec 7; done Thu, Nov 19, 2026)
+**Status:** ✅ Done
+**Built:**
+- A: `SeatLockingStrategy` interface; `RedisHoldStore` implements it (default `redis-hold`); new `OptimisticHoldStore` (V11) for `optimistic`; `LiveHoldLookup` (seat-map port via the active strategy); `HoldService` on the interface; `seatlock.holds.strategy` + `.env.example`; `HoldInspector`; races A/B refactored and re-run on optimistic; `OptimisticHoldStoreIntegrationTest`
+- B: `WebhookEventCleanupJob` (30 days) + test; ADR-013, ADR index (`docs/decisions/README.md`), FAILURES summary table, CORRECTNESS section 1m, benchmarks section 3 preview, README "What works today"
+- Tests: **453** (13 new incl. repetitions), 0 failures
+**Files created/changed:**
+- `db\migration\V11__optimistic_seat_holds.sql`; `booking\hold\{SeatLockingStrategy, OptimisticHoldStore, LiveHoldLookup, RedisHoldStore, SeatHoldReader, HoldService}.java`; `payment\application\WebhookEventCleanupJob.java`; `application.yml`; `.env.example`
+- Tests: `booking\hold\OptimisticHoldStoreIntegrationTest`, `booking\api\{HoldRace200IntegrationTest, OverlappingHoldsRaceIntegrationTest, HoldRace200OptimisticIntegrationTest, OverlappingHoldsRaceOptimisticIntegrationTest}`, `testsupport\HoldInspector`, `payment\application\WebhookEventCleanupJobTest`
+- `docs\decisions\{ADR-013-seat-locking-strategy.md, README.md}`, `docs\{FAILURES.md, CORRECTNESS.md, benchmarks.md}`, `README.md`, `progress.md`
+**Decisions:**
+- See Decisions Log #147–#149
+**Metrics recorded:**
+- Race A both strategies (informal); 20 concurrent optimistic claims → 1 winner; 453 tests
+**Problems & fixes:**
+- None blocking. Static `warmedUp` flag in race A would have been shared with the subclass → per-strategy set
+**Carry-over:**
+- Prod log check after #12 deploys; refund status webhooks (stretch); WireMock 4.x re-check (W8·D1); Mockito agent warning (W6·D1); JetBrains license; IntelliJ dependency scan
+**Week 4 review:**
+- All 6 plan days delivered, ~18 days ahead: payment port + mock, Razorpay Orders on RestClient, Checkout.js, signed checkout verification, HMAC webhooks with dedupe, one-transaction confirm (payment → booking lock order), automatic refunds (outbox, receipt idempotency, backoff), cancellation policy, paid cancellation, WireMock contract tests, `SeatLockingStrategy` with both strategies proven by the 200-user races
+- Workflow changed twice (3 combined tasks per day from D1, 2 from D5); every day still ended with green CI, a squash-merged PR and docs
+- Live on prod: real test-mode payments confirm by callback and by webhook (`payment.captured: CONFIRMED`, `order.paid: ALREADY_DONE`)
+- ADRs this week: 010 payment gateway · 011 payment confirmation · 012 refunds · 013 seat locking strategy (index in `docs/decisions/README.md`)
+- Lessons: concurrency tests find bugs single requests can't (F5 conflicting-version 500s); real-HTTP tests find transport issues mocks can't (HTTP/2 h2c); ops details break payments as often as code (`$` in env files, secret mismatch); git: push docs before merging, branch from `origin/main`
+- Risks for Week 5: (1) WebSocket auth on STOMP CONNECT with our stateless JWTs; (2) Redis Pub/Sub relay + event ordering across 2 instances; (3) prod RAM for 2 app containers on the B2als_v2 (4 GB) VM and Nginx WebSocket upgrade
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- Strategy pattern for interchangeable concurrency control; keeping one contract for two implementations
+- Optimistic concurrency with conditional upserts (`ON CONFLICT … DO UPDATE … WHERE`) vs `@Version` vs pessimistic locks; deadlock avoidance by lock ordering; advisory locks
+- Reusing a test suite across implementations (inheritance + property overrides), and why informal numbers aren't benchmarks
+- Data retention for dedupe tables; documentation as part of done (ADRs, failure drills, correctness tables)
+**Commit:** `feat(booking): SeatLockingStrategy with optimistic claims; Week 4 review (W4·D6)` (squashed into one commit on `main`)
