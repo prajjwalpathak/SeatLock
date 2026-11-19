@@ -3,6 +3,16 @@
 What I broke on purpose (or found broken), what happened, the fix, and before/after numbers.
 Each drill can be repeated with the commands shown.
 
+| # | What broke | Found by | Lesson |
+|---|---|---|---|
+| F1 | Redis down → every seat map waited 512 ms | failure drill | fail fast (`REJECT_COMMANDS`), degrade, measure before/after |
+| F2 | Cache writes not visible right after "put" | CI-only flake | async defaults in libraries; diagnose the mechanism, not the symptom |
+| F3 | Merge silently disabled rate limiting | CI test + startup log | never "accept incoming"; features that can be off must say so |
+| F4 | Squash merge reverted a day's docs | stash conflict | diff the branch head against the merged result after every merge |
+| F5 | Locked re-read clashed with an unlocked copy (500s) | 20-request race test | first read of a row in a locking transaction must be the locked one |
+| (W4·D3) | Webhook secret with `$` cut by Compose interpolation | prod delivery logs | no `$` in env files; hex secrets; check compose warnings |
+| (W4·D5) | HTTP/2 h2c upgrade / stream resets to the provider | WireMock over real HTTP | pin provider clients to HTTP/1.1 |
+
 ## F1. Redis down while users load the seat map (W3·D1, 2026-11-16)
 
 **Drill (local stack):**

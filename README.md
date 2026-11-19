@@ -12,6 +12,18 @@ and **nobody ever gets the same seat twice**. Includes an AI Seat Finder and Ref
 **Live demo:** https://seatlock-nu.vercel.app · API: https://seatlock-prajjwal.duckdns.org/swagger-ui.html
 (deployment runbook: [docs/deploy.md](docs/deploy.md))
 
+## What works today (Weeks 1–4)
+
+- **Catalog**: events, shows, live seat map (Redis hold overlay), full-text search, measured caching
+- **Seat holds**: atomic multi-seat holds (Redis Lua, or optimistic Postgres claims behind `SeatLockingStrategy`),
+  idempotency keys, rate limits; a DB partial unique index makes overselling impossible (200-user races, 0 double-sold)
+- **Bookings**: State-pattern lifecycle, hold → booking, expiry sweeper
+- **Payments (Razorpay test mode)**: server-side amounts, Checkout.js, signed checkout verification, deduplicated
+  HMAC webhooks, one-transaction confirm proven under callback/webhook/sweeper races, automatic refunds via an outbox,
+  cancellation policy (≥ 48 h 100 %, ≥ 24 h 50 %)
+- Decisions: [docs/decisions](docs/decisions/README.md) · correctness proofs: [docs/CORRECTNESS.md](docs/CORRECTNESS.md) ·
+  failure drills: [docs/FAILURES.md](docs/FAILURES.md)
+
 ## Stack
 
 Java 25 · Spring Boot 4.1 · PostgreSQL 16 (pgvector) · Redis 7 · Spring Security (JWT + Google OAuth2) ·

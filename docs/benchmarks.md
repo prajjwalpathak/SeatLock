@@ -112,6 +112,10 @@ p50 / p95 / p99 in ms, median of the runs in that session (number of runs in bra
 
 ## 3. Hold contention: 200 users at once (W3·D6)
 
+> W4·D6 preview: races A/B now also run with `seatlock.holds.strategy=optimistic`. Same laptop, same `mvnw verify`
+> run (not a benchmark, single runs): race A p50 0.87–0.97 s / p99 1.84–2.13 s (redis-hold) vs p50 1.15–1.48 s /
+> p99 1.94–2.51 s (optimistic). The controlled comparison (throughput, conflicts, p99, repeated sessions) is W6·D4.
+
 From the concurrency tests (`docs/CORRECTNESS.md` section 1h). Real HTTP to a real Tomcat port, Testcontainers
 Postgres + Redis, Windows laptop. Correctness runs, not load tests: numbers are indicative only.
 
