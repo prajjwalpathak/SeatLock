@@ -63,6 +63,11 @@ public final class PaymentFixtures {
         return showId;
     }
 
+    /** Registers a seat a test took itself, so {@link #cleanUp()} frees it too. */
+    public void track(long seatId) {
+        seatIds.add(seatId);
+    }
+
     /** Seats handed out by this fixture so far (for assertions on show_seats). */
     public List<Long> seatIds() {
         return List.copyOf(seatIds);

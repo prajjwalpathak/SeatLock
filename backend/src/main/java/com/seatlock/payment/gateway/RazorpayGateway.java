@@ -32,7 +32,12 @@ public class RazorpayGateway implements PaymentGateway {
 
     /** Builder with base URL, Basic auth and timeouts. Tests bind a mock server to it before {@code build()}. */
     static RestClient.Builder clientBuilder(RazorpayProperties p) {
-        HttpClient jdk = HttpClient.newBuilder().connectTimeout(p.connectTimeout()).build();
+        // HTTP/1.1, not the JDK default HTTP/2: no h2c upgrade on plain http (WireMock in tests reset those streams)
+        // and no single shared multiplexed connection that a provider-side close breaks for the next call (W4·D5).
+        HttpClient jdk = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
+                .connectTimeout(p.connectTimeout())
+                .build();
         JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(jdk);
         factory.setReadTimeout(p.readTimeout());
         return RestClient.builder()
