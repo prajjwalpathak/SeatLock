@@ -1,7 +1,8 @@
 <#
 .SYNOPSIS
-  W6.D4 benchmark matrix: SeatLockingStrategy (redis-hold | optimistic) x request threads (platform | virtual),
-  each measured with the hold-throughput loop (strategies.js) and the flash sale (flash-sale.js).
+  Benchmark matrix: SeatLockingStrategy (redis-hold | optimistic) x request threads (platform | virtual) [W6.D4]
+  x Hikari pool size per instance [W6.D6], each measured with the hold-throughput loop (strategies.js) and the
+  flash sale (flash-sale.js). A config is 'strategy/threads' or 'strategy/threads/pool' (pool defaults to 10).
 .DESCRIPTION
   Per config: recreate app-1/app-2 with the bench overlay, verify the config is really live (strategy tag on the hold
   counters in Prometheus; thread dump: no http-nio-8080-exec-* threads = virtual threads), one discarded warm-up of
@@ -10,6 +11,7 @@
 .EXAMPLE
   .\load-tests\bench-strategies.ps1                      # full matrix, 3 runs each (~35-40 min)
   .\load-tests\bench-strategies.ps1 -Runs 1 -Configs 'redis-hold/platform'   # quick smoke
+  .\load-tests\bench-strategies.ps1 -Configs 'redis-hold/platform/10', 'redis-hold/platform/20'   # pool size (W6.D6)
 .NOTES
   Local only (decision #69). Rate limiting is off in the bench overlay (same for every config).
 #>
@@ -34,14 +36,15 @@ function Invoke-Prom([string]$query) {
     (Invoke-RestMethod "http://localhost:9090/api/v1/query?query=$([uri]::EscapeDataString($query))").data.result
 }
 
-function Set-Config([string]$strategy, [string]$threads) {
+function Set-Config([string]$strategy, [string]$threads, [string]$pool) {
     $env:BENCH_STRATEGY = $strategy
     $env:BENCH_VIRTUAL_THREADS = if ($threads -eq 'virtual') { 'true' } else { 'false' }
-    Write-Host "`n########## $strategy / $threads ##########" -ForegroundColor Cyan
+    $env:BENCH_POOL_SIZE = $pool
+    Write-Host "`n########## $strategy / $threads / pool $pool ##########" -ForegroundColor Cyan
     docker @bench up -d --force-recreate app-1 app-2 | Out-Null
 }
 
-function Confirm-Config([string]$strategy, [string]$threads) {
+function Confirm-Config([string]$strategy, [string]$threads, [string]$pool) {
     # Health first (run-k6.ps1 also waits), then one Prometheus scrape after startup.
     $deadline = (Get-Date).AddMinutes(3)
     do {
@@ -55,6 +58,10 @@ function Confirm-Config([string]$strategy, [string]$threads) {
         ForEach-Object { "$($_.metric.instance)=$($_.metric.strategy)" })
     $wrong = @($seen | Where-Object { $_ -notmatch "=$strategy$" })
     if ($seen.Count -lt 2 -or $wrong.Count -gt 0) { throw "Strategy check failed: expected $strategy on both, Prometheus says: $($seen -join ', ')" }
+    $pools = @(Invoke-Prom 'max by (instance) (hikaricp_connections_max{instance=~"app-.*"})' |
+        ForEach-Object { "$($_.metric.instance)=$([int][double]$_.value[1])" })
+    $wrongPool = @($pools | Where-Object { $_ -notmatch "=$pool$" })
+    if ($pools.Count -lt 2 -or $wrongPool.Count -gt 0) { throw "Pool check failed: expected $pool on both, Prometheus says: $($pools -join ', ')" }
     $ErrorActionPreference = 'Continue'   # docker logs passes container stderr through; not an error here
     $limiter = @(docker logs seatlock-app-1 2>&1 | Select-String 'Rate limiting DISABLED').Count
     if ($limiter -eq 0) { throw 'Rate limiting is not DISABLED on app-1: is infra/docker-compose.bench.yml applied?' }
@@ -64,7 +71,7 @@ function Confirm-Config([string]$strategy, [string]$threads) {
     $execThreads = @(docker logs --since $since seatlock-app-1 2>&1 | Select-String '"http-nio-8080-exec-').Count
     $isVirtual = ($execThreads -eq 0)
     if (($threads -eq 'virtual') -ne $isVirtual) { throw "Thread check failed: wanted $threads, thread dump shows $execThreads platform request threads" }
-    Write-Host "Verified: strategy $strategy on app-1 + app-2; request threads $threads ($execThreads http-nio-8080-exec threads); rate limiting off" -ForegroundColor Green
+    Write-Host "Verified: strategy $strategy on app-1 + app-2; request threads $threads ($execThreads http-nio-8080-exec threads); pool $pool; rate limiting off" -ForegroundColor Green
 }
 
 function Invoke-K6([string]$script, [string[]]$k6Args, [string]$summary) {
@@ -117,9 +124,11 @@ function Get-Median([double[]]$values) {
 
 try {
     foreach ($config in $Configs) {
-        $strategy, $threads = $config -split '/'
-        Set-Config $strategy $threads
-        Confirm-Config $strategy $threads
+        $parts = $config -split '/'
+        $strategy = $parts[0]; $threads = $parts[1]
+        $pool = if ($parts.Count -ge 3) { $parts[2] } else { '10' }
+        Set-Config $strategy $threads $pool
+        Confirm-Config $strategy $threads $pool
         $tp = @('-e', "VUS=$Vus", '-e', "DURATION=$Duration")
         $sale = @('-e', "USERS=$SaleUsers", '-e', "SEATS=$SaleSeats")
         # Warm-up as long as a measured run: with 20 s, run 1 of every config was ~30 % slower than runs 2-3 (W6.D4).
@@ -127,12 +136,12 @@ try {
         Invoke-K6 'strategies' $tp "load-tests\results\warmup-$stamp.json" | Out-Null
         Invoke-K6 'flash-sale' $sale "load-tests\results\warmup-$stamp.json" | Out-Null
         foreach ($r in 1..$Runs) {
-            Add-Row $config 'throughput' $r (Invoke-K6 'strategies' $tp "load-tests\results\bench-$stamp-$($strategy)-$threads-tp-$r.json")
-            Add-Row $config 'sale' $r (Invoke-K6 'flash-sale' $sale "load-tests\results\bench-$stamp-$($strategy)-$threads-sale-$r.json")
+            Add-Row $config 'throughput' $r (Invoke-K6 'strategies' $tp "load-tests\results\bench-$stamp-$($strategy)-$threads-$pool-tp-$r.json")
+            Add-Row $config 'sale' $r (Invoke-K6 'flash-sale' $sale "load-tests\results\bench-$stamp-$($strategy)-$threads-$pool-sale-$r.json")
         }
     }
 } finally {
-    Remove-Item Env:BENCH_STRATEGY, Env:BENCH_VIRTUAL_THREADS -ErrorAction SilentlyContinue
+    Remove-Item Env:BENCH_STRATEGY, Env:BENCH_VIRTUAL_THREADS, Env:BENCH_POOL_SIZE -ErrorAction SilentlyContinue
     Write-Host "`nRestoring the normal stack (no bench overlay, rate limiting back on)..."
     docker @base up -d --force-recreate app-1 app-2 | Out-Null
 }

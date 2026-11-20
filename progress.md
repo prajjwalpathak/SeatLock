@@ -3,15 +3,15 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 6 · Day 6 (not started, planned Mon Dec 21): buffer + Week 6 review (candidates: Hikari pool size measured with the bench harness, prod check of G1 / 2 s timeout / V12 in Grafana), as one task. Branch `w6-d6` (create with `git switch -c w6-d6 origin/main` after the W6·D5 PR is squash-merged)
-- **Last completed:** Week 6 · Day 5: write-path plans at volume (205k bookings, rolled-back script): V12 `ix_bookings_unpaid_expires` (sweeper 34.5 → 0.14 ms) + `ix_bookings_user_created` (My bookings 5.2 → 0.08 ms) replacing `ix_bookings_user`; isolation levels documented and pinned by `IsolationIntegrationTest` (planned Sat Dec 19, done Fri Nov 20)
+- **Current day:** Week 7 · Day 1 (not started, planned Tue Dec 22): Spring AI 2.0 setup (Gemini/Groq), ChatClient, Resilience4j circuit breaker + timeout, Bucket4j AI quota + global cap, `ai_requests` audit table, as one task. Branch `w7-d1` (create with `git switch -c w7-d1 origin/main` after the W6·D6 PR is squash-merged). **Needs a Gemini or Groq API key** in `.env` (not in chat)
+- **Last completed:** Week 6 · Day 6: pool size 10 vs 20 measured (kept 10 for prod's 2 vCPUs, now explicit); prod found 3 deploys behind and fixed (F13: lost exec bit, `/bin/bash` forced command, one-request smoke test, daily prod check); Week 6 review (planned Mon Dec 21, done Fri Nov 20)
 - **Live URLs:** Frontend https://seatlock-nu.vercel.app · Backend https://seatlock-prajjwal.duckdns.org · Swagger https://seatlock-prajjwal.duckdns.org/swagger-ui.html · Version https://seatlock-prajjwal.duckdns.org/api/v1/system/version · Grafana https://seatlock-prajjwal.duckdns.org/grafana/ (admin login)
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public) · CI + Deploy badges in README · `main` protected (ruleset `protect-main`)
 - **Hosting:** Azure VM `seatlock-vm` (India South Central, B2als_v2 x64) + Vercel; images from GHCR (ADR-005, #62, #71–#74, #167); **2 app instances** since W5·D5 + Prometheus/Grafana since W6·D2; decommission after ~2–3 months
-- **Git workflow (from W6·D2):** **one task per day** = all 6 plan tasks → one verify/test block → one one-line commit + push on the daily branch → PR on GitHub → squash-merge when CI is green; next branch with `git switch -c wN-dM origin/main`; never push to a branch after its PR is merged; **never use GitHub's "Update branch" / web conflict editor** (#9, #75, #116, #141, #142, #176, #181)
+- **Git workflow (from W6·D2):** **one task per day** = all plan tasks → one verify/test block → one one-line commit + push on the daily branch → PR on GitHub → squash-merge when CI is green; next branch with `git switch -c wN-dM origin/main`; never push to a branch after its PR is merged; **never use GitHub's "Update branch" / web conflict editor**; **start each day by checking prod is on `main`** (deploy.md section 3d) (#9, #75, #116, #141, #142, #176, #181, #202)
 - **Carry-overs:** duplicate `Strict-Transport-Security` (Spring + Nginx) → W8·D1 · same-site frontend/API for privacy blockers (F7) → W8 stretch · JetBrains license · IntelliJ dependency scan · refund status webhooks (stretch) · WireMock 4.x re-check (W8·D1)
-- **Schedule:** **~29 days ahead** (W6·D5 done Fri Nov 20 instead of Sat Dec 19); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
-- **Top risk:** Week 7 AI (Gemini/Groq free-tier keys and quotas, Spring AI 2.0 APIs vs older tutorials, ONNX model size in the image vs the 900 MB app limit); get the API key before W7·D1
+- **Schedule:** **~31 days ahead** (W6·D6 done Fri Nov 20 instead of Mon Dec 21); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
+- **Top risk:** Week 7 AI: free-tier key/quotas, Spring AI 2.0 APIs (newer than most tutorials), ONNX embedding model in the image vs the 900 MB app limit; and keep checking prod is on `main` each morning (deploy.md section 3d, F13)
 
 ## Decisions Log (ADR summary)
 | # | Date | Decision | Why |
@@ -215,6 +215,9 @@
 | 197 | 2026-11-20 | Plans for write paths measured **at volume in a rolled-back transaction** (`docs/explain/write-paths.sql`: 205k bookings + candidate indexes, then `ROLLBACK`; refuses to run once V12 exists) | Realistic plans without polluting the dev DB or adding seed data to migrations; the before/after pair is reproducible |
 | 198 | 2026-11-20 | **V12:** partial `ix_bookings_unpaid_expires (expires_at, id) WHERE status IN (HELD, PAYMENT_PENDING)`; `ix_bookings_user_created (user_id, created_at DESC, id DESC)` replaces `ix_bookings_user` | Sweeper 34.5 → 0.14 ms (no longer grows with history, 80 kB); My bookings page 1 5.2 → 0.08 ms; deep offsets and the count unchanged (documented); closes #102's deferred sweeper index |
 | 199 | 2026-11-20 | Isolation: **READ COMMITTED everywhere**, guards are constraints / row locks / compare-and-set; REPEATABLE READ and SERIALIZABLE rejected (40001 retries under contention). Pinned by `IsolationIntegrationTest` (RC default, CAS waits then 0 rows, RR → 40001, SKIP LOCKED) | No guard depends on a snapshot; write-skew candidates are single-row decisions or constraints (CORRECTNESS section 3) |
+| 200 | 2026-11-20 | Hikari **`maximum-pool-size: 10` kept and made explicit** (env-overridable); bench harness accepts `strategy/threads/pool` and verifies `hikaricp_connections_max` | 20 was faster on the laptop (rush p99 −26 %, +8 % throughput) but prod Postgres has 2 shared vCPUs; 2 × 10 already exceeds (cores × 2) + 1 |
+| 201 | 2026-11-20 | CI deploy key's forced command runs **`/bin/bash …/deploy.sh`**; every infra copy ends with `chmod +x infra/scripts/*.sh` | A Windows `tar` copy dropped the exec bit and blocked 3 deploys (F13) |
+| 202 | 2026-11-20 | Smoke test: **one request per iteration** (version), then 4 readiness requests; **daily "is prod on `main`?" check** (deploy.md section 3d) | Two requests per iteration aliased with strict round robin and only ever saw one instance; red deploys went unnoticed for 18 h (F13) |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -291,6 +294,8 @@
 | **Expiry sweeper query at volume** (205k bookings) | **34.5 → 0.14 ms**, buffers 3,913 → 202 (seq scan → partial index, 80 kB) | `EXPLAIN (ANALYZE, BUFFERS)`, `docs/explain/03-write-paths.txt` | 2026-11-20 |
 | **My bookings page 1** (5,000-booking user) | **5.18 → 0.08 ms**, buffers 881 → 46 (sort of 5,000 rows → 10-row index scan) | same | 2026-11-20 |
 | Tests | 523 (519 + 4 `IsolationIntegrationTest`) | `mvnw verify` | 2026-11-20 |
+| Pool size 10 vs 20 per instance (same session) | throughput 256 vs 276 holds/s (+8 %); rush hold p95/p99 1.88/2.05 vs 1.38/1.52 s (−26 %); kept 10 for prod | `bench-strategies.ps1` (`docs/benchmarks.md` section 6) | 2026-11-20 |
+| Prod after the F13 fix | both instances on `f697b6a`, G1, hold counters at startup, Flyway 12; app-1 405.9 MiB, app-2 372.2 MiB (900 MiB limit); VM available 2.0 GiB | `/system/version`, Prometheus, `docker stats`, `free -h` | 2026-11-20 |
 | **Prod rolling deploy, new revision (#18 merge)** | **2198/2198 requests 200, 0 failures**; app-1 switched at 03:01:53, app-2 at 03:02:11 (18 s later, after app-1 was healthy); slowest request 742 ms | `deploy-watch.ps1 -Minutes 12` during the CI deploy | 2026-11-20 |
 | Prod job threads after #18 | thread dump of app-1: `scheduling-1`, `scheduling-2` present; `MessageBroker-N` lines only from `WebSocketMessageBrokerStats` | `docker kill -s QUIT` + logs | 2026-11-20 |
 
@@ -1551,4 +1556,38 @@
 - READ COMMITTED semantics: EvalPlanQual re-check, lost updates, SKIP LOCKED; REPEATABLE READ serialization failures; SERIALIZABLE (SSI) and when constraints make it unnecessary; write skew
 - Measuring safely: rolled-back transactions, lock impact of CREATE/DROP INDEX, CONCURRENTLY for live tables
 **Commit:** `perf(booking): measured write-path indexes, isolation tests (W6·D5)`
+
+### Week 6 · Day 6: Pool size, prod deploy fix, Week 6 review (planned Mon, Dec 21; done Fri, Nov 20, 2026)
+**Status:** ✅ Done
+**Built:**
+- Bench harness: pool size as a third config dimension (`BENCH_POOL_SIZE`, verified via `hikaricp_connections_max`); 10 vs 20 measured; `maximum-pool-size: 10` explicit in `application.yml`
+- Prod check found prod on W6·D2: VM `chmod +x`, CI forced command via `/bin/bash`, Deploy re-run → prod on `f697b6a` (G1, 2 s timeout, V12, re-check live); smoke test rewritten (one request per iteration + readiness ×4)
+- Docs: benchmarks section 6, FAILURES F13, deploy.md section 3d + troubleshooting rows + forced command, README "What works today (Weeks 1–6)"
+- Tests: 523 (no new tests; workflow + config + docs)
+**Files created/changed:**
+- `.github\workflows\deploy.yml`; `backend\src\main\resources\application.yml`; `infra\docker-compose.bench.yml`; `load-tests\bench-strategies.ps1`
+- `docs\{benchmarks.md, FAILURES.md, deploy.md}`, `README.md`, `progress.md`
+- On the VM (not in Git): `infra/scripts/*.sh` executable, `~/.ssh/authorized_keys` forced command `/bin/bash …` (backup `~/authorized_keys.bak-w6d6`)
+**Decisions:**
+- See Decisions Log #200–#202
+**Metrics recorded:**
+- Pool 10 vs 20; prod after the fix (see Metrics table)
+**Problems & fixes:**
+- Deploys #29–#31: `deploy.sh: Permission denied` after the F10 infra copy without `chmod` (my runbook step) → fixed at the root (F13)
+- Deploy #28 and the #31 re-run: smoke test saw only one instance (round-robin aliasing) → one request per iteration (F13)
+**Carry-over:**
+- First deploy with the new smoke test happens on this PR's merge: watch it go green
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- Connection pool sizing (cores, spindles, queueing theory), why a bigger pool can be slower on few cores
+- Deployment verification: smoke tests that prove every instance, aliasing with round robin, alerting on failed pipelines
+- File permissions across Windows → Linux transfers; SSH forced commands and least privilege
+
+**Week 6 review:**
+- All 6 plan days delivered, ~31 days ahead: unit-test push + JaCoCo gate (D1), Micrometer + Prometheus + Grafana with business meters, local and prod (D2), k6 browse + flash sale with oversell thresholds (D3), strategy and virtual-thread benchmarks (D4), write-path indexes at volume + isolation levels (D5), pool sizing + deploy fix (D6)
+- Headline numbers: oversells = 0 in every k6 sale (up to 500 users → 10 seats); browse p95 6–11 ms at 50 VUs; redis-hold 336 holds/s vs optimistic 233; sweeper 34.5 → 0.14 ms at 205k bookings; coverage gate 85 % lines / 80 % branches; 523 tests
+- Load tests found three production-relevant defects tests hadn't: Serial GC + tight Redis timeout → 503s (F11), a hold granted on a just-booked seat (F12), and the starved Grafana (F10); the prod check found F13
+- ADRs: 015 monitoring; updates to 006 (post-claim re-check) and 013 (measured strategy costs). FAILURES F9–F13
+- Lessons: measure before tuning (pool 20 "won" on the wrong hardware); verify each variant is actually live before trusting a benchmark; check prod's revision instead of assuming a merge deployed; every runbook step that copies files must restore permissions
+- Risks for Week 7: free-tier LLM key and quotas; Spring AI 2.0 API details; ONNX model size and memory in a 900 MB container; keeping the "AI interprets, code decides" rule testable
+**Commit:** `ci: fix deploy smoke test and exec bit; pool size measured (W6·D6)`
 

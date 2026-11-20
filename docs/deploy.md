@@ -104,7 +104,7 @@ curl.exe -s https://seatlock-prajjwal.duckdns.org/api/v1/system/version
 |---|---|
 | NSG | SSH 22 from **Any** (GitHub runners have random IPs); 80/443 Any |
 | sshd | key-only (`PasswordAuthentication no`); **fail2ban** `sshd` jail |
-| CI key | ed25519, generated on the VM; private half only in GitHub secret `DEPLOY_SSH_KEY`; public half in `~/.ssh/authorized_keys` as `command="/home/ubuntu/seatlock/infra/scripts/deploy.sh",restrict ssh-ed25519 …`, so no shell, no forwarding, only `deploy <tag>` |
+| CI key | ed25519, generated on the VM; private half only in GitHub secret `DEPLOY_SSH_KEY`; public half in `~/.ssh/authorized_keys` as `command="/bin/bash /home/ubuntu/seatlock/infra/scripts/deploy.sh",restrict ssh-ed25519 …`, so no shell, no forwarding, only `deploy <tag>` | (`/bin/bash` since W6·D6: a lost executable bit can't block deploys, F13)
 | Host key | GitHub secret `DEPLOY_KNOWN_HOSTS` = `seatlock-prajjwal.duckdns.org ssh-ed25519 …` (from `/etc/ssh/ssh_host_ed25519_key.pub`); job uses `StrictHostKeyChecking=yes` |
 | Other secrets | `DEPLOY_HOST=seatlock-prajjwal.duckdns.org` |
 | GHCR package | **public** (VM pulls without credentials); repo has *Write* under Manage Actions access |
@@ -162,6 +162,16 @@ curl -s -o /dev/null -w '%{http_code}\n' https://seatlock-prajjwal.duckdns.org/g
 ```
 Then sign in at `https://seatlock-prajjwal.duckdns.org/grafana/` (admin) and check the SeatLock overview dashboard.
 Rollback: `dc stop grafana prometheus`, restore `~/infra.bak-w6d2`, recreate nginx.
+
+## 3d. Is prod on `main`? (start of every day, W6·D6)
+
+A red Deploy run doesn't stop anything else, so prod can fall behind silently (F13: three deploys failed in 18 h).
+```powershell
+cd D:\Prajjwal\Code\SeatLock
+git fetch -q; git log -1 --format=%h origin/main
+1..2 | ForEach-Object { curl.exe -s https://seatlock-prajjwal.duckdns.org/api/v1/system/version; "" }   # both = that hash
+```
+Different hash → GitHub **Actions → Deploy**, open the latest red run, fix, then **Re-run all jobs** (or Run workflow).
 
 ## 4. Change configuration / secrets
 
@@ -225,6 +235,8 @@ The static IP survives, so DNS and the certificate keep working.
 | certbot `Timeout during connect` | port 80 blocked / DNS wrong | NSG rule for 80 = Any; DuckDNS IP = VM IP |
 | Google: `redirect_uri_mismatch` | prod URI not in Google Console | Section 1.6 |
 | Deploy job: `Host key verification failed` | `DEPLOY_KNOWN_HOSTS` wrong/stale (VM recreated) | Regenerate the line (section 3) |
+| Deploy job: `deploy.sh: Permission denied`, exit 126 | executable bit lost: infra copied with a Windows `tar` and unpacked without `chmod` (F13) | `chmod +x infra/scripts/*.sh`; the forced command runs `/bin/bash …/deploy.sh` since W6·D6. **Every** infra copy ends with `chmod +x infra/scripts/*.sh` |
+| Smoke test: `not both instances … (seen: app-1)` but `deploy.sh` succeeded | (before W6·D6) two requests per loop + strict round robin = the version check always hit one instance (F13) | fixed in `deploy.yml` (one request per iteration); if it returns, check Nginx with `curl` ×4 on `/api/v1/system/version` |
 | Deploy job: `Permission denied (publickey)` | `DEPLOY_SSH_KEY` incomplete, or `authorized_keys` line missing | Paste the whole key incl. BEGIN/END lines; check the `command=` line |
 | Deploy job: `refused: expected 'deploy sha-…'` | bad manual `tag` input | Use `sha-` + 12 hex chars, or empty |
 | Deploy job: `manifest unknown` | tag doesn't exist in GHCR | Pick a tag from the package page; site keeps the old version |
