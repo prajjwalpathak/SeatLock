@@ -14,6 +14,9 @@ Each drill can be repeated with the commands shown.
 | F7 | Prod 502s after the 2-instance cutover; then "WebSocket failed" in one browser | `curl` loop on the VM; Nginx access log; clean built-in browser | changed bind-mounted config needs `--force-recreate`; reproduce in a clean browser before changing the server |
 | F8 | Drills on 2 instances; Postgres outage made requests hang 30 s | `load-tests/failure-drills.ps1` | fail fast on missing dependencies (3 s pool wait, 503 + Retry-After), like F1 for Redis |
 | F9 | Squash of #19 shipped code without the day's docs | `git diff origin/main w5-d6` before the next branch | never use GitHub's "Update branch"/merge-main on a daily PR; rebase instead (#110 again) |
+| F10 | Grafana never started on prod (502 at `/grafana/`) | `docker stats` during the W6·D2 rollout | a memory limit below the working set doesn't OOM-kill, it thrashes: watch block I/O, size limits from measured startup, not idle use |
+| F11 | 25–50 × 503 `HOLDS_UNAVAILABLE` in a 500-user flash sale | k6 `unexpected_responses` threshold + app logs | a fail-fast timeout must leave headroom for a saturated CPU; under 2 GB the JVM silently picks Serial GC |
+| F12 | Redis granted a hold on a seat booked a moment earlier (2 winners per slot, 409 at checkout) | k6 per-slot threshold `seat_wins{slot} <= 1` | a pre-check is a snapshot: re-check after a claim whenever the other side releases its claim after committing |
 | (W4·D3) | Webhook secret with `$` cut by Compose interpolation | prod delivery logs | no `$` in env files; hex secrets; check compose warnings |
 | (W4·D5) | HTTP/2 h2c upgrade / stream resets to the provider | WireMock over real HTTP | pin provider clients to HTTP/1.1 |
 
@@ -209,3 +212,49 @@ map through the LB every 200 ms.
 - **Rule (extends #110):** never click GitHub's "Update branch" or resolve a daily PR's conflicts in the web editor. Stop and
   rebase locally: `git rebase --onto origin/main <last commit already merged>`, then `git push --force-with-lease`.
   Day-end docs go into the branch **before** its PR is merged, never into a separate PR from the same branch.
+
+## F10. Grafana starved by its memory limit (W6·D2 rollout, 2026-11-20)
+- **What happened:** after `dc up -d prometheus grafana`, `/grafana/login` returned **502** for 7+ minutes. The container
+  was `running`, `OOMKilled=false`, 0 restarts, at **171.3 / 192 MiB** with **17.6 GB of block reads**: the kernel kept
+  evicting Grafana's binary/page cache under the cgroup limit and reading it back, so first-start migrations crawled and
+  port 3000 never opened.
+- **Found by:** `docker inspect` (not OOM-killed) + `docker stats` (memory at the limit, huge block I/O) + logs still in
+  API registration.
+- **Fix:** limit **192 → 384 MB** and `GF_UNIFIED_ALERTING_ENABLED=false` (no alert rules; skips Alertmanager and the rule
+  engine). After recreation: 200 at `/grafana/login`, Grafana **126.8 MiB**, VM 2.1 GiB available.
+- **Lesson:** a limit below the working set doesn't always kill a process; it can thrash instead. Size limits from a
+  measured *startup*, and treat high block I/O on a capped container as memory pressure.
+
+## F11. 503s during a 500-user flash sale (W6·D3, local 2-instance stack)
+- **What happened:** `flash-sale.js` with 500 users / 10 seats got 20 × `503 HOLDS_UNAVAILABLE` (holds and one
+  booking); 300 users / 20 seats had none. Nothing was written and nothing was oversold, but users who could have had
+  a seat got an error.
+- **Found by:** k6 `unexpected_responses: count==0`; app logs: `QueryTimeoutException: Redis command timed out`
+  (500 ms), on **one** instance only, even for a single-key `GET` (seat-event version), within ~1.5 s.
+- **Investigation:**
+  1. One instance, tiny commands too → the client side stalled, not Redis. The container JVM ran **Serial GC**
+     (`-XX:+UseSerialGC`: the JVM's choice under 2 GB, our limits are 900/1200 MB). Prometheus: young 0.2 s, full
+     GC **1.245 s**. Switching to G1 (`-XX:+UseG1GC` in the Dockerfile) cut pauses to 0.15 s; warm runs were clean.
+  2. But the **first sale after a (re)start** still failed on both collectors (G1: 50 × 503, Serial: 25 × 503).
+     The browse warm-up warms only reads; the hold path (JIT, first Lua `SCRIPT LOAD`, rate limiter, idempotency)
+     was cold, and 500 simultaneous requests saturate the laptop's CPU (2 JVMs + Postgres + Redis + k6).
+- **Fix:** G1 explicitly (pauses) + Redis command timeout **500 ms → 2 s** (a *down* Redis still fails at once via
+  `REJECT_COMMANDS`, F1; the timeout only bounds a slow/hung one). Result: cold first sale **0 × 503** (hold p99
+  7.3 s instead of errors), warm sale 0 × 503. Also: hold counters registered at startup (they were invisible to
+  `increase()` on their first scrape).
+- **Lesson:** a fail-fast timeout set on an idle machine turns load into errors; size it for a saturated CPU and
+  keep fast failure for the *down* case separately. Check which GC the container actually runs.
+
+## F12. A hold granted on a seat that had just been booked (W6·D3)
+- **What happened:** in one Serial-GC run, k6 counted `seats_won: 12` for 10 seats; slots 0 and 3 were won twice. One
+  winner's booking then failed `409 SEATS_UNAVAILABLE [938, 935]`. The DB invariant stayed 0: no oversell.
+- **Cause:** `HoldService` checks Postgres (AVAILABLE) **before** the Redis claim. User A's hold → booking commits
+  (seats HELD in Postgres) and only then drops A's Redis keys; B's pre-check ran before A's commit and B's Lua claim
+  after A's keys were gone, so Redis said yes. A 1.2 s GC pause between B's two steps stretched a microsecond window.
+- **Fix:** re-check Postgres **after** a successful claim; if a seat is no longer AVAILABLE, release the new hold and
+  answer the normal 409 (`seatlock.holds{outcome=booked_during_claim}`). Complete, not probabilistic: A's keys
+  disappear only after A's commit, so a claim that succeeded because they were gone sees that commit. Cost: one
+  indexed query per **winning** hold. Tests: `HoldServiceTest` (seat booked during the claim, show no longer
+  bookable). Later runs: 0 double wins, 0 `booked_during_claim`.
+- **Lesson:** the per-slot k6 threshold caught what status codes and the DB invariant alone would have hidden (the DB
+  guard absorbed it); assert the invariant at every layer, not only the last one.

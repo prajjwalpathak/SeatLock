@@ -48,8 +48,10 @@ USER spring:spring
 ARG GIT_SHA=local
 ENV SEATLOCK_REVISION=${GIT_SHA}
 
+# G1 explicitly: under 2 GB (our 900/1200 MB limits) the JVM picks the single-threaded Serial collector, whose
+# stop-the-world pauses are the suspected cause of Redis timeouts (503s) in the 500-user k6 flash sale (FAILURES F11).
 ENV SPRING_PROFILES_ACTIVE=prod \
-    JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=70 -XX:+ExitOnOutOfMemoryError -Duser.timezone=UTC"
+    JAVA_TOOL_OPTIONS="-XX:+UseG1GC -XX:MaxRAMPercentage=70 -XX:+ExitOnOutOfMemoryError -Duser.timezone=UTC"
 
 EXPOSE 8080
 

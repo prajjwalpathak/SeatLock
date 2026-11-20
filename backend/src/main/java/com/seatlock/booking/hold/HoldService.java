@@ -53,6 +53,8 @@ public class HoldService {
     /** Lost the claim to a concurrent hold (Lua / upsert said taken): the contention we care about. */
     static final String OUTCOME_SEATS_TAKEN = "seats_taken";
     static final String OUTCOME_HOLD_EXISTS = "hold_exists";
+    /** Claim succeeded but Postgres no longer says AVAILABLE (booked between the pre-check and the claim, F12). */
+    static final String OUTCOME_BOOKED_DURING_CLAIM = "booked_during_claim";
 
     private static final Pattern HOLD_ID =
             Pattern.compile("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
@@ -72,6 +74,12 @@ public class HoldService {
         this.clock = clock;
         this.events = events;
         this.meters = meters;
+        // Registered up front (at 0): a counter created on first use is invisible to rate()/increase() for its first
+        // scrape, so the first sale after a start showed "0 held" in Grafana (W6·D3).
+        for (String outcome : List.of(OUTCOME_HELD, OUTCOME_SEATS_UNAVAILABLE, OUTCOME_SEATS_TAKEN, OUTCOME_HOLD_EXISTS,
+                OUTCOME_BOOKED_DURING_CLAIM)) {
+            counter(outcome);
+        }
     }
 
     public Hold createHold(long userId, long showId, List<Long> seatIds) {
@@ -103,6 +111,16 @@ public class HoldService {
         HoldAttempt attempt = withRedis(() -> store.tryHold(holdId, userId, showId, seatIds, props.ttl(), expiresAt));
         return switch (attempt) {
             case Held held -> {
+                // Re-check after the claim (F12): the pre-check above can be stale. A converted hold drops its Redis keys
+                // only AFTER its booking commits, so if our claim succeeded because those keys were gone, that commit is
+                // visible now. Release at once: the caller gets a normal 409 instead of a hold that fails at checkout.
+                List<Long> lost = bookedSinceCheck(showId, seatIds);
+                if (!lost.isEmpty()) {
+                    withRedis(() -> store.release(new HoldRecord(held.holdId(), userId, showId, seatIds, expiresAt)));
+                    count(OUTCOME_BOOKED_DURING_CLAIM);
+                    log.info("Hold {} released: seats {} were booked between check and claim", held.holdId(), lost);
+                    throw new SeatsUnavailableException(lost);
+                }
                 count(OUTCOME_HELD);
                 events.publishEvent(new SeatsChangedEvent(showId, seatIds, ShowSeatStatus.HELD, expiresAt));
                 yield toHold(held.holdId(), showId, seatIds, byId, expiresAt);
@@ -149,14 +167,27 @@ public class HoldService {
 
     // ------------------------------------------------------------------ helpers
 
-    /** Two low-cardinality tags only (2 strategies × 4 outcomes): never a show, seat or user id. */
+    /** Seats of {@code seatIds} that are no longer AVAILABLE in Postgres (all of them if the show stopped being bookable). */
+    private List<Long> bookedSinceCheck(long showId, List<Long> seatIds) {
+        return catalog.findHoldableSeats(showId, seatIds)
+                .map(show -> show.seats().stream()
+                        .filter(seat -> seat.status() != ShowSeatStatus.AVAILABLE)
+                        .map(HoldableShow.Seat::seatId)
+                        .toList())
+                .orElse(seatIds);
+    }
+
+    /** Two low-cardinality tags only (2 strategies × 5 outcomes): never a show, seat or user id. */
     private void count(String outcome) {
-        Counter.builder(METER_HOLDS)
+        counter(outcome).increment();
+    }
+
+    private Counter counter(String outcome) {
+        return Counter.builder(METER_HOLDS)
                 .description("Hold attempts by outcome; anything but 'held' is a conflict")
                 .tag("strategy", store.name())
                 .tag("outcome", outcome)
-                .register(meters)
-                .increment();
+                .register(meters);
     }
 
     private void checkSeatList(List<Long> seatIds) {

@@ -3,15 +3,15 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 6 · Day 3 (not started, planned Thu Dec 17): k6 scripts (browse + flash-sale: many users → limited seats), p95/p99 and oversells = 0 recorded, as **one task** (all 6 plan tasks). Branch `w6-d3` (create with `git switch -c w6-d3 origin/main` after the W6·D2 PR is squash-merged)
-- **Last completed:** Week 6 · Day 2: Micrometer business meters (holds by outcome, oversells blocked, double-sold gauge, payment captures, STOMP sessions), `/actuator/prometheus`, Prometheus + Grafana locally and in prod (Grafana at `/grafana/`), dashboard JSON provisioned from Git, ADR-015 (planned Wed Dec 16, done Fri Nov 20)
-- **Live URLs:** Frontend https://seatlock-nu.vercel.app · Backend https://seatlock-prajjwal.duckdns.org · Swagger https://seatlock-prajjwal.duckdns.org/swagger-ui.html · Version https://seatlock-prajjwal.duckdns.org/api/v1/system/version · Grafana https://seatlock-prajjwal.duckdns.org/grafana/ (after the deploy.md section 3c rollout)
+- **Current day:** Week 6 · Day 4 (not started, planned Fri Dec 18): benchmarks optimistic vs Redis hold, virtual threads on vs off → `benchmarks.md`, as one task. Branch `w6-d4` (create with `git switch -c w6-d4 origin/main` after the W6·D3 PR is squash-merged)
+- **Last completed:** Week 6 · Day 3: k6 browse + flash-sale scripts with oversell thresholds, `run-k6.ps1` (DB invariant check); oversells = 0 in 15 sales; two defects found and fixed: Serial GC + 500 ms Redis timeout → 503s (F11), hold granted on a just-booked seat (F12, post-claim re-check); prod Grafana 384 MB (F10) (planned Thu Dec 17, done Fri Nov 20)
+- **Live URLs:** Frontend https://seatlock-nu.vercel.app · Backend https://seatlock-prajjwal.duckdns.org · Swagger https://seatlock-prajjwal.duckdns.org/swagger-ui.html · Version https://seatlock-prajjwal.duckdns.org/api/v1/system/version · Grafana https://seatlock-prajjwal.duckdns.org/grafana/ (admin login)
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public) · CI + Deploy badges in README · `main` protected (ruleset `protect-main`)
 - **Hosting:** Azure VM `seatlock-vm` (India South Central, B2als_v2 x64) + Vercel; images from GHCR (ADR-005, #62, #71–#74, #167); **2 app instances** since W5·D5 + Prometheus/Grafana since W6·D2; decommission after ~2–3 months
 - **Git workflow (from W6·D2):** **one task per day** = all 6 plan tasks → one verify/test block → one one-line commit + push on the daily branch → PR on GitHub → squash-merge when CI is green; next branch with `git switch -c wN-dM origin/main`; never push to a branch after its PR is merged; **never use GitHub's "Update branch" / web conflict editor** (#9, #75, #116, #141, #142, #176, #181)
-- **Carry-overs:** prod monitoring rollout + memory check (deploy.md section 3c) after the W6·D2 merge · duplicate `Strict-Transport-Security` (Spring + Nginx) → W8·D1 · same-site frontend/API for privacy blockers (F7) → W8 stretch · JetBrains license · IntelliJ dependency scan · refund status webhooks (stretch) · WireMock 4.x re-check (W8·D1)
-- **Schedule:** **~26 days ahead** (W6·D2 done Fri Nov 20 instead of Wed Dec 16); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
-- **Top risk:** k6 numbers are laptop-relative (W6·D3); prod RAM with Prometheus + Grafana (limits ~3.3 of 3.8 GB) to be confirmed by `docker stats` after the rollout
+- **Carry-overs:** duplicate `Strict-Transport-Security` (Spring + Nginx) → W8·D1 · same-site frontend/API for privacy blockers (F7) → W8 stretch · JetBrains license · IntelliJ dependency scan · refund status webhooks (stretch) · WireMock 4.x re-check (W8·D1)
+- **Schedule:** **~27 days ahead** (W6·D3 done Fri Nov 20 instead of Thu Dec 17); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
+- **Top risk:** W6·D4 benchmarks on the laptop are noisy (repeat runs, medians, warm both JVMs, cold vs warm reported separately: F11 showed the cold hold path is ~2× slower); prod picks up G1 + 2 s Redis timeout with the W6·D3 deploy (watch the deploy and Grafana)
 
 ## Decisions Log (ADR summary)
 | # | Date | Decision | Why |
@@ -202,6 +202,13 @@
 | 184 | 2026-11-20 | **Oversells measured from the data:** gauge `seatlock.seats.double_sold` = the race tests' invariant SQL, run by `SeatInvariantMonitor` every minute (not per scrape), `-1` before the first count, last value kept on DB errors | Proves "0 oversells" independently of the code paths; scrapes stay cheap and never wait on Postgres |
 | 185 | 2026-11-20 | Prometheus **3.13.5 (LTS)**, 15 s scrapes, 7 d / 1 GB, 256 MB; Grafana **13.2.4**, 192 MB; data source (fixed uid) + dashboard provisioned from `infra/grafana/`, UI edits not kept | Reproducible dashboards in Git; fits the VM (limits ~3.3 of 3.8 GB, idle use far lower, 2 GB swap) |
 | 186 | 2026-11-20 | Prod Grafana behind Nginx at **`/grafana/`** (sub-path, `proxy_pass` via a variable), own admin login (`GRAFANA_ADMIN_PASSWORD` generated on the VM), sign-up/anonymous off; Prometheus never public | One domain/certificate; Nginx starts even if Grafana is down; secrets stay on the VM (#66) |
+| 187 | 2026-11-20 | Prod Grafana limit **192 → 384 MB** + unified alerting off (supersedes the 192 MB in #185) | 192 MB thrashed on first start (171/192 MiB, 17.6 GB re-reads, 502 for 7+ min, FAILURES F10); measured 127 MiB after the fix |
+| 188 | 2026-11-20 | **k6 load tests** (`load-tests/browse.js`, `flash-sale.js`, `lib/common.js`, `run-k6.ps1`) run on the laptop against the local 2-instance stack (LB 8088), mock gateway; flash-sale users get distinct `X-Forwarded-For` from 198.18.0.0/15 | Local only (#69); per-IP hold limits apply per user as on the internet (Tomcat trusts the Docker hop; prod Nginx appends the real IP, so spoofing changes nothing there) |
+| 189 | 2026-11-20 | Flash sale **gates correctness, reports latency**: thresholds `seat_wins{slot:N} <= 1`, `seats_won <= SEATS`, 0 unexpected / failed bookings / 429s, then the DB invariant SQL; latency entries only for p95/p99 output. Browse keeps latency gates (p95 < 250/300 ms) | A laptop burst measures queueing, not capacity; per-slot rules caught F12 that status codes would have hidden |
+| 190 | 2026-11-20 | **`-XX:+UseG1GC`** in the image (prod + local) | Under 2 GB the JVM picks Serial: full GC 1.245 s, 503s in the burst (F11); G1 pauses ≤ 0.15 s |
+| 191 | 2026-11-20 | Redis command timeout **500 ms → 2 s** | Cold first sale still got 25–50 × 503 on both collectors (CPU saturated); a down Redis still fails at once (`REJECT_COMMANDS`, #80); after: 0 × 503 cold and warm (F11) |
+| 192 | 2026-11-20 | **Post-claim re-check** in `HoldService`: after a successful claim, Postgres must still say AVAILABLE, else release + 409 (`booked_during_claim`); hold counters registered at 0 on startup | Pre-check is a snapshot; a converted hold drops its keys after commit, so the re-check closes the window completely (F12, ADR-006 update); lazily created counters were invisible to `increase()` |
+| 193 | 2026-11-20 | `SEATLOCK_JVM_OPTS` override in `docker-compose.scale.yml` (default = Dockerfile options) | JVM experiments (GC now, virtual threads on W6·D4) without rebuilding or touching the image |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -266,6 +273,12 @@
 | Test coverage (JaCoCo) | **94.0 % lines** (2580/2744), **81.2 % branches** (607/748, was 77.1 %), 94.2 % instructions | `mvnw verify` (`jacoco.csv`) | 2026-11-20 |
 | Tests | 513 (493 + 20 new) | `mvnw verify` / CI | 2026-11-20 |
 | Tests | 516 (513 + 3 new; hold-meter assertions added to 4 existing tests) | `mvnw verify` / CI | 2026-11-20 |
+| Prod with monitoring (idle) | app-1 366.8 MiB, app-2 363.9 MiB (limit 900), Prometheus 61.5 / 256 MiB, Grafana 126.8 / 384 MiB, Postgres 75.9, Redis 12.1, Nginx 4.7 MiB; VM used 1.6 GiB, **available 2.1 GiB** of 3.8 GiB; both targets `up` = 1; `/actuator/prometheus` 404 from outside | `docker stats`, `free -h`, Prometheus `up` query, `curl` on the VM | 2026-11-20 |
+| k6 browse, 50 VUs, 2.5 min (2 instances, laptop) | p95: list **9.9 ms**, detail **6.4 ms**, seat map **11.1 ms** (p99 ≤ 15.5 ms); **0 % errors** | `load-tests/browse.js` via `run-k6.ps1` (`docs/benchmarks.md` section 4) | 2026-11-20 |
+| **k6 flash sale: oversells** | **0 in all 15 sales** (300 users → 20 seats, 500 → 10; Serial/G1, cold/warm): no slot won twice (final code), DB invariant 0 | `flash-sale.js` thresholds + `run-k6.ps1` SQL | 2026-11-20 |
+| k6 flash sale, 500 users → 10 seats (final code) | cold: 7 winners, 493 × 409, **0 × 503**, hold p95 6.56 s / p99 7.33 s; warm: 6 winners, **0 × 503**, hold p95 2.43 s / p99 2.76 s; ~70 req/s | same | 2026-11-20 |
+| Serial vs G1 (F11) | Serial: 503s in 3 of 6 runs, full GC **1.245 s**; G1: pauses ≤ **0.15 s**, 503s only cold (fixed by the 2 s timeout) | k6 + Prometheus `jvm_gc_pause_seconds_max` | 2026-11-20 |
+| Tests | 519 (516 + 3 new: 2 post-claim re-check, 1 counters at startup) | `mvnw verify` | 2026-11-20 |
 | **Prod rolling deploy, new revision (#18 merge)** | **2198/2198 requests 200, 0 failures**; app-1 switched at 03:01:53, app-2 at 03:02:11 (18 s later, after app-1 was healthy); slowest request 742 ms | `deploy-watch.ps1 -Minutes 12` during the CI deploy | 2026-11-20 |
 | Prod job threads after #18 | thread dump of app-1: `scheduling-1`, `scheduling-2` present; `MessageBroker-N` lines only from `WebSocketMessageBrokerStats` | `docker kill -s QUIT` + logs | 2026-11-20 |
 
@@ -1434,3 +1447,39 @@
 - Measuring invariants from data vs counting events in code; counting after commit
 - Securing metrics endpoints (network isolation, edge rules); provisioning dashboards as code
 **Commit:** `feat(infra): business metrics, Prometheus and Grafana with a provisioned dashboard (W6·D2)`
+
+### Week 6 · Day 3: k6 load tests: browse + flash sale (planned Thu, Dec 17; done Fri, Nov 20, 2026)
+**Status:** ✅ Done
+**Built:**
+- `load-tests/lib/common.js` (show discovery, batched user creation, per-user fake client IP, idempotency keys, compact p50/p95/p99 summary without jslib), `browse.js` (ramping 50 VUs, think time, latency gates), `flash-sale.js` (USERS at once → SEATS, up to 3 tries, hold → booking, per-slot oversell thresholds), `run-k6.ps1` (waits for a healthy stack, runs k6, JSON to `load-tests/results/`, DB invariant SQL)
+- Fixes found by the load tests: G1 in the image + Redis timeout 2 s (F11), post-claim re-check in `HoldService` (F12), hold counters registered at startup
+- Prod: Grafana memory 384 MB + unified alerting off (F10, from the W6·D2 rollout); prod memory recorded
+- `SEATLOCK_JVM_OPTS` override in the scale overlay
+- Docs: benchmarks section 4 (method, results, Serial vs G1), CORRECTNESS section 1o, FAILURES F10–F12, ADR-006/ADR-015 updates, monitoring.md, local-scale.md
+- Tests: **519** (3 new)
+**Files created/changed:**
+- `load-tests\{browse.js, flash-sale.js, run-k6.ps1, lib\common.js}`
+- `backend\Dockerfile`; `application.yml`; `booking\hold\HoldService.java`; test `booking\hold\HoldServiceTest`
+- `infra\{docker-compose.prod.yml, docker-compose.scale.yml}`
+- `docs\{benchmarks.md, CORRECTNESS.md, FAILURES.md, monitoring.md, local-scale.md}`, `docs\decisions\{ADR-006-seat-holds.md, ADR-015-monitoring.md}`, `progress.md`
+**Decisions:**
+- See Decisions Log #187–#193
+**Metrics recorded:**
+- Browse p95 6–11 ms at 50 VUs; flash sale oversells = 0 in 15 sales; 0 × 503 cold and warm after the fixes; Serial vs G1; prod memory with monitoring (see Metrics table)
+**Problems & fixes:**
+- Prod Grafana 502 for 7+ min: starved at 171/192 MiB with 17.6 GB of re-reads, not OOM-killed → 384 MB, alerting off (F10)
+- 500-user sale: 503s from Redis timeouts on one instance → Serial GC (1.2 s full GC) and a 500 ms timeout too tight for a CPU-saturated cold burst → G1 + 2 s (F11)
+- Two winners for one seat in Redis, caught by the per-slot threshold, absorbed by the DB → post-claim re-check (F12)
+- `run-k6.ps1`: PowerShell 5.1 turned k6's stderr into errors under `Stop` (and with `2>&1`) → `Continue` around k6; pre-flight now waits up to 2 min for recreated containers
+- First latency gates (p99 < 3 s) were guesses → flash sale reports latency, gates correctness (#189)
+**Carry-over:**
+- Watch the W6·D3 deploy (G1 + 2 s timeout reach prod) in Grafana
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- Load-test design: open vs closed models, think time, ramping vs per-VU iterations, warm-up, cold vs warm results
+- Thresholds as assertions (correctness) vs SLOs (latency); tagged sub-metrics; reporting percentiles honestly
+- JVM ergonomics in containers (Serial below 2 GB/2 CPUs), GC pauses vs client timeouts, reading GC metrics
+- Timeouts under saturation; fail fast for "down" vs bounded wait for "slow"
+- Check-then-act windows across two stores; re-validation after claim; defence in depth caught by layered assertions
+- Client IP behind proxies (`X-Forwarded-For`, trusted hops) and why spoofing is harmless with a correct proxy chain
+**Commit:** `perf: k6 load tests, G1 + Redis timeout + post-claim re-check (W6·D3)`
+

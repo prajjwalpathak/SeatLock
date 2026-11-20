@@ -13,6 +13,9 @@ x-app: &app
   env_file: ../.env                     # JWT keys, admin, Google, Razorpay (same values as the IDE run)
   environment: &app-env
     SPRING_PROFILES_ACTIVE: prod
+    # Same JVM options as the image (backend/Dockerfile); override for experiments only, e.g. Serial vs G1 (F11):
+    #   $env:SEATLOCK_JVM_OPTS="-XX:+UseSerialGC -XX:MaxRAMPercentage=70 -XX:+ExitOnOutOfMemoryError -Duser.timezone=UTC"
+    JAVA_TOOL_OPTIONS: ${SEATLOCK_JVM_OPTS:--XX:+UseG1GC -XX:MaxRAMPercentage=70 -XX:+ExitOnOutOfMemoryError -Duser.timezone=UTC}
     POSTGRES_HOST: postgres             # Compose network names, not the host ports in .env
     POSTGRES_PORT: "5432"
     REDIS_HOST: redis

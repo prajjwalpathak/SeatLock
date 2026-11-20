@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -45,11 +46,22 @@ class HoldServiceTest {
     private final RedisHoldStore store = mock(RedisHoldStore.class);
     private final ApplicationEventPublisher events = mock(ApplicationEventPublisher.class);
     private final SimpleMeterRegistry meters = new SimpleMeterRegistry();
+
+    {
+        when(store.name()).thenReturn("redis-hold");   // tag on seatlock.holds (read by the constructor)
+    }
+
     private final HoldService service = new HoldService(catalog, store, new HoldProperties(TTL, 6),
             Clock.fixed(NOW, ZoneOffset.UTC), events, meters);
 
     {
-        when(store.name()).thenReturn("redis-hold");   // tag on seatlock.holds
+        clearInvocations(store);   // the constructor's name() calls aren't part of any test
+    }
+
+    @Test
+    void holdCountersExistAtZeroBeforeTheFirstHold() {
+        assertThat(meters.find(HoldService.METER_HOLDS).counters()).hasSize(5)
+                .allSatisfy(c -> assertThat(c.count()).isZero());
     }
 
     // ------------------------------------------------------------------ create
@@ -139,6 +151,39 @@ class HoldServiceTest {
                 .isInstanceOfSatisfying(SeatsUnavailableException.class, e -> assertThat(e.getSeatIds()).containsExactly(2L));
         assertThat(holds(HoldService.OUTCOME_SEATS_TAKEN)).isEqualTo(1.0);
         assertThat(holds(HoldService.OUTCOME_HELD)).isZero();
+    }
+
+    @Test
+    void aSeatBookedBetweenThePreCheckAndTheClaimReleasesTheHold() {
+        // F12: pre-check says AVAILABLE, the claim succeeds (the converted hold's keys were just dropped), but by now
+        // Postgres says HELD. The new hold must be released and the caller must get the normal 409.
+        HoldableShow before = new HoldableShow(SHOW, NOW.plus(Duration.ofDays(1)),
+                List.of(seat(1, 100, ShowSeatStatus.AVAILABLE), seat(2, 100, ShowSeatStatus.AVAILABLE)));
+        HoldableShow after = new HoldableShow(SHOW, NOW.plus(Duration.ofDays(1)),
+                List.of(seat(1, 100, ShowSeatStatus.AVAILABLE), seat(2, 100, ShowSeatStatus.HELD)));
+        when(catalog.findHoldableSeats(eq(SHOW), anyList())).thenReturn(Optional.of(before), Optional.of(after));
+        when(store.tryHold(anyString(), anyLong(), anyLong(), anyList(), any(), any()))
+                .thenAnswer(inv -> new HoldAttempt.Held(inv.getArgument(0)));
+
+        assertThatThrownBy(() -> service.createHold(USER, SHOW, List.of(1L, 2L)))
+                .isInstanceOfSatisfying(SeatsUnavailableException.class, e -> assertThat(e.getSeatIds()).containsExactly(2L));
+        verify(store).release(org.mockito.ArgumentMatchers.argThat(r -> r.userId() == USER && r.showId() == SHOW
+                && r.seatIds().equals(List.of(1L, 2L))));
+        verifyNoInteractions(events);   // nothing announced: the seats never became ours
+        assertThat(holds(HoldService.OUTCOME_BOOKED_DURING_CLAIM)).isEqualTo(1.0);
+        assertThat(holds(HoldService.OUTCOME_HELD)).isZero();
+    }
+
+    @Test
+    void aShowThatStopsBeingBookableDuringTheClaimReleasesTheHold() {
+        HoldableShow before = new HoldableShow(SHOW, NOW.plus(Duration.ofDays(1)), List.of(seat(1, 100, ShowSeatStatus.AVAILABLE)));
+        when(catalog.findHoldableSeats(eq(SHOW), anyList())).thenReturn(Optional.of(before), Optional.empty());
+        when(store.tryHold(anyString(), anyLong(), anyLong(), anyList(), any(), any()))
+                .thenAnswer(inv -> new HoldAttempt.Held(inv.getArgument(0)));
+
+        assertThatThrownBy(() -> service.createHold(USER, SHOW, List.of(1L)))
+                .isInstanceOfSatisfying(SeatsUnavailableException.class, e -> assertThat(e.getSeatIds()).containsExactly(1L));
+        verify(store).release(any());
     }
 
     @Test

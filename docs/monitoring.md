@@ -21,7 +21,7 @@ docker compose --env-file .env -f infra/docker-compose.local.yml up -d          
 |---|---|---|
 | `seatlock_seats_double_sold` | gauge | Seats with > 1 live booking, counted from the DB every minute. **Must be 0** (`-1` = not counted yet) |
 | `seatlock_oversell_blocked_total{guard}` | counter | Bookings the live-seat unique index rejected (Redis/DB disagreed): oversells the DB stopped |
-| `seatlock_holds_total{strategy,outcome}` | counter | Hold attempts: `held`, `seats_taken`, `seats_unavailable`, `hold_exists` |
+| `seatlock_holds_total{strategy,outcome}` | counter | Hold attempts: `held`, `seats_taken`, `seats_unavailable`, `hold_exists`, `booked_during_claim` (F12); all registered at 0 on startup |
 | `seatlock_payments_captures_total{outcome}` | counter | Captures after commit: `confirmed`, `already_done`, `captured_booking_lost`, `needs_review` |
 | `seatlock_websocket_sessions` | gauge | Open STOMP sessions per instance |
 | `cache_gets_total{cache,result}` | counter | Spring Cache hits / misses (eventDetail, eventSearch) |

@@ -209,6 +209,17 @@ their after-commit hooks can run in the opposite order, so the later state could
 Each message is still a true state at its commit; the client's resync (W5·D2/D3) repairs the view. A
 commit-ordered version (column on `shows`) was rejected: it would serialize every hold/booking of a show on one row.
 
+## 1o. Under load: k6 flash sales (W6·D3)
+
+| Check | How | Result |
+|---|---|---|
+| No sale seat won twice | k6 threshold `seat_wins{slot:N} <= 1` for every seat of the block | ✅ final code (one violation before the F12 fix, absorbed by the DB guard) |
+| Seats won ≤ seats on sale | k6 threshold `seats_won <= SEATS` | ✅ |
+| No seat with two live bookings | `run-k6.ps1` → invariant SQL on Postgres after each run | ✅ **0 in all 15 sales** (300 → 20 and 500 → 10 seats) |
+| Hold granted on a just-booked seat | post-claim re-check in `HoldService` (F12) | ✅ released + 409 (`booked_during_claim`) |
+
+Method and numbers: `docs/benchmarks.md` section 4; failures F11/F12 in `docs/FAILURES.md`.
+
 ## 2. Query plans (catalog reads)
 
 **Method:** `docs/explain/catalog-queries.sql` on the seeded local DB (30 events, 90 shows,

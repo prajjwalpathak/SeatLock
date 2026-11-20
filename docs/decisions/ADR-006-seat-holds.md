@@ -43,6 +43,9 @@ at the same moment (flash sales), and the API runs as two instances (W5), so in-
   is still needed for DB rows that started payment (W3·D4).
 - Redis has **no persistence** in prod (#64): a Redis restart drops all live holds. Users lose their
   selection, but nothing is oversold because of point 7. Acceptable for a demo; documented in FAILURES.md later.
+- **W6·D3 update (F12):** the Postgres pre-check can be stale by the time the Lua claim runs (a converted hold
+  drops its keys after its booking commits). `HoldService` re-checks Postgres after every successful claim and
+  releases the hold if a seat stopped being AVAILABLE (409 as usual, outcome `booked_during_claim`).
 - Multi-key Lua needs all keys in one slot on Redis Cluster (`hold:{show:42}:…` hash tags); single node now.
 - Tested: `RedisHoldStoreIntegrationTest` (script rules), `HoldServiceTest` (validation), `HoldApiIntegrationTest`
   (HTTP), `HoldRaceIntegrationTest` (20 threads: one winner; overlapping multi-seat holds never share a seat;

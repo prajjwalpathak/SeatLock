@@ -40,7 +40,9 @@ spring:
         enabled: false           # Redis is cache + keys only; stops repository-scan noise at startup
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
-      timeout: 500ms             # fail fast: a slow Redis must not stall every request (cache falls back to DB)
+      # Bounds a slow/hung Redis only: a DOWN Redis already fails at once (REJECT_COMMANDS, F1). 500 ms was too tight
+      # for a CPU-saturated burst (k6 flash sale, first sale after a start: 25–50 × 503, F11); 2 s still caps the wait.
+      timeout: 2s
 
 management:
   endpoints:
