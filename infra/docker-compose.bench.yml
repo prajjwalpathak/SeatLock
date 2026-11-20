@@ -4,12 +4,14 @@
 # Driven by load-tests/bench-strategies.ps1 through these shell variables:
 #   BENCH_STRATEGY         redis-hold (default) | optimistic          → seatlock.holds.strategy
 #   BENCH_VIRTUAL_THREADS  false (default) | true                     → spring.threads.virtual.enabled
+#   BENCH_POOL_SIZE        10 (default, Hikari's) | any                → spring.datasource.hikari.maximum-pool-size
 # Rate limiting is OFF here: it's the same code for every variant and would only cap the measured numbers.
 # Recreate without this file afterwards to get the normal stack back.
 
 x-bench-env: &bench-env
   SEATLOCK_HOLDS_STRATEGY: ${BENCH_STRATEGY:-redis-hold}
   SPRING_THREADS_VIRTUAL_ENABLED: ${BENCH_VIRTUAL_THREADS:-false}
+  SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE: ${BENCH_POOL_SIZE:-10}
   SEATLOCK_RATELIMIT_ENABLED: "false"
 
 services:

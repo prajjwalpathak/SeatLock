@@ -12,7 +12,7 @@ and **nobody ever gets the same seat twice**. Includes an AI Seat Finder and Ref
 **Live demo:** https://seatlock-nu.vercel.app · API: https://seatlock-prajjwal.duckdns.org/swagger-ui.html
 (deployment runbook: [docs/deploy.md](docs/deploy.md))
 
-## What works today (Weeks 1–5)
+## What works today (Weeks 1–6)
 
 - **Catalog**: events, shows, live seat map (Redis hold overlay), full-text search, measured caching
 - **Seat holds**: atomic multi-seat holds (Redis Lua, or optimistic Postgres claims behind `SeatLockingStrategy`),
@@ -26,7 +26,14 @@ and **nobody ever gets the same seat twice**. Includes an AI Seat Finder and Ref
 - **Two instances in production** behind Nginx (round robin, WebSocket upgrade), zero-downtime rolling deploys with
   automatic rollback; failure drills (instance loss, crash mid-booking, Redis/Postgres restarts) measured in FAILURES F8
 - **My bookings** page for signed-in users
-- **Tests**: 513 (unit, Testcontainers integration, 200-user races over real HTTP, WireMock contract tests);
+- **Load-tested (k6, local 2-instance stack)**: 500 users rushing 10 seats → **oversells = 0 in every sale** (k6 per-seat
+  thresholds + DB invariant); browse p95 6–11 ms at 50 VUs; Redis holds **336 holds/s** vs 233 optimistic (p99 188 vs
+  310 ms); virtual threads measured and left off ([docs/benchmarks.md](docs/benchmarks.md))
+- **Observability**: Micrometer business metrics (holds by outcome, oversells blocked, double-sold seats counted from the
+  data) → Prometheus → Grafana dashboard provisioned from Git, live on prod at `/grafana/`
+- **Tuned from measurements**: G1 instead of the JVM's Serial default in small containers, Redis timeout sized for a
+  saturated CPU, partial index for the expiry sweeper (34.5 → 0.14 ms at 205k bookings); isolation levels pinned by tests
+- **Tests**: 523 (unit, Testcontainers integration, 200-user races over real HTTP, WireMock contract tests);
   coverage **94 % lines / 81 % branches**, enforced in CI by a JaCoCo gate (≥ 85 % lines, ≥ 80 % branches)
 - Decisions: [docs/decisions](docs/decisions/README.md) · correctness proofs: [docs/CORRECTNESS.md](docs/CORRECTNESS.md) ·
   failure drills: [docs/FAILURES.md](docs/FAILURES.md)

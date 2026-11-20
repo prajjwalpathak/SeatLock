@@ -17,6 +17,7 @@ Each drill can be repeated with the commands shown.
 | F10 | Grafana never started on prod (502 at `/grafana/`) | `docker stats` during the W6·D2 rollout | a memory limit below the working set doesn't OOM-kill, it thrashes: watch block I/O, size limits from measured startup, not idle use |
 | F11 | 25–50 × 503 `HOLDS_UNAVAILABLE` in a 500-user flash sale | k6 `unexpected_responses` threshold + app logs | a fail-fast timeout must leave headroom for a saturated CPU; under 2 GB the JVM silently picks Serial GC |
 | F12 | Redis granted a hold on a seat booked a moment earlier (2 winners per slot, 409 at checkout) | k6 per-slot threshold `seat_wins{slot} <= 1` | a pre-check is a snapshot: re-check after a claim whenever the other side releases its claim after committing |
+| F13 | Prod stuck on W6·D2 for 18 h: 3 deploys failed (`deploy.sh: Permission denied`) + a smoke test that could only see one instance | prod check on W6·D6 (`/system/version` ≠ `main`) | red Deploy runs need an alarm or a daily check; every copy to Linux must restore exec bits; a check whose two requests alias with round robin tests nothing |
 | (W4·D3) | Webhook secret with `$` cut by Compose interpolation | prod delivery logs | no `$` in env files; hex secrets; check compose warnings |
 | (W4·D5) | HTTP/2 h2c upgrade / stream resets to the provider | WireMock over real HTTP | pin provider clients to HTTP/1.1 |
 
@@ -258,3 +259,22 @@ map through the LB every 200 ms.
   bookable). Later runs: 0 double wins, 0 `booked_during_claim`.
 - **Lesson:** the per-slot k6 threshold caught what status codes and the DB invariant alone would have hidden (the DB
   guard absorbed it); assert the invariant at every layer, not only the last one.
+
+## F13. Three deploys failed silently; the smoke test could only see one instance (W6·D2 → W6·D6, 2026-11-20)
+- **What happened:** prod stayed on `d0ab161` (W6·D2) while #22–#24 merged: no G1, 500 ms Redis timeout, no V12.
+  GitHub: every Deploy run since #20 red, every CI run green.
+- **Cause 1 (#29–#31):** `deploy.sh: Permission denied` (exit 126). The W6·D3 Grafana fix (F10) re-copied `infra/`
+  with a Windows `tar` and unpacked it without `chmod +x`; Windows archives don't carry the executable bit, and the CI
+  key's forced command executed the file directly. Deploys stopped before touching the containers (up 18 h).
+- **Cause 2 (#28, and the #31 re-run):** the deploys succeeded but the smoke test failed: `seen: app-1` (later
+  `seen: app-2`) only. Each loop iteration made two requests (readiness, then version); on a quiet site Nginx's round
+  robin alternates strictly, so the version request always landed on the same instance. It passed on W5·D5 only
+  because other traffic broke the alternation.
+- **Found by:** the W6·D6 prod check: `/api/v1/system/version` showed `d0ab161` while `main` was `f697b6a`; the
+  failing steps' logs; `ls -l` on the VM.
+- **Fix:** `chmod +x infra/scripts/*.sh` on the VM; forced command now `/bin/bash …/deploy.sh` (permissions can't block
+  it again); smoke test makes one request per iteration, then 4 readiness requests (each instance twice); deploy.md
+  section 3d "is prod on `main`?" at the start of every day; every infra copy ends with `chmod`.
+- **Lesson:** a red deploy that blocks nothing is invisible: check prod's revision, don't assume. And a check built
+  from two interleaved requests against a strict round robin can't see half the system.
+

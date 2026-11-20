@@ -19,6 +19,10 @@ spring:
       # Fail fast when Postgres is unreachable (F8): Hikari's default waits 30 s for a connection, so every request
       # hung and held a Tomcat thread during an outage. Normal waits are far below 1 s; 3 s → quick 503 instead.
       connection-timeout: 3000
+      # Explicit (= Hikari's default). W6·D6: 20 was faster on the laptop (rush p99 −26 %, throughput +8 %), but prod
+      # Postgres has 2 vCPUs shared with the VM: 2 instances × 10 already exceed Hikari's (cores × 2) + 1 guidance.
+      # Override per environment with SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE (docs/benchmarks.md section 6).
+      maximum-pool-size: 10
 
   jpa:
     open-in-view: false          # no lazy-loading during view rendering (antipattern)

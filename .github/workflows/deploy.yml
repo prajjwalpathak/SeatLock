@@ -114,22 +114,30 @@ jobs:
         run: |
           base=https://seatlock-prajjwal.duckdns.org
           want="${TAG#sha-}"                       # 12-char commit prefix ("latest" -> any revision)
+          # ONE request per iteration. Round robin alternates strictly on a quiet site, so two requests per iteration
+          # (readiness, then version) always sent the version check to the same instance (F13: "seen: app-1" only).
           seen=""
-          for i in $(seq 1 30); do                 # round robin: ~half the requests reach each instance
-            if curl -fsS "$base/actuator/health/readiness" | grep -q '"UP"'; then
-              body=$(curl -fsS "$base/api/v1/system/version")
+          for i in $(seq 1 30); do
+            if body=$(curl -fsS "$base/api/v1/system/version"); then
               rev=$(echo "$body" | sed -E 's/.*"revision":"([^"]*)".*/\1/')
               inst=$(echo "$body" | sed -E 's/.*"instance":"([^"]*)".*/\1/')
               echo "live: $inst at $rev"
               if [ "$TAG" = latest ] || [ "${rev:0:12}" = "$want" ]; then
                 case " $seen " in *" $inst "*) ;; *) seen="$seen $inst" ;; esac
               fi
-              if [[ " $seen " == *" app-1 "* && " $seen " == *" app-2 "* ]]; then echo "both instances on $TAG"; exit 0; fi
+              if [[ " $seen " == *" app-1 "* && " $seen " == *" app-2 "* ]]; then break; fi
             fi
             sleep 2
           done
-          echo "::error::not both instances healthy and running $TAG (seen:$seen)"
-          exit 1
+          if [[ " $seen " != *" app-1 "* || " $seen " != *" app-2 "* ]]; then
+            echo "::error::not both instances running $TAG (seen:$seen)"
+            exit 1
+          fi
+          # Readiness (DB + Redis) through the LB: 4 requests = each instance twice.
+          for i in 1 2 3 4; do
+            curl -fsS "$base/actuator/health/readiness" | grep -q '"UP"' || { echo "::error::readiness not UP (request $i)"; exit 1; }
+          done
+          echo "both instances on $TAG and ready"
 
       - name: Remove key
         if: always()

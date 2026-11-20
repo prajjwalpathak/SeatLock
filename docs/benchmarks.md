@@ -247,3 +247,23 @@ warm-up didn't fully warm the JVMs (the script now warms up for a full run). Run
   platform threads cap in-flight requests and Tomcat queues the rest cheaply; with virtual threads all 500 rush
   requests run at once and contend for the pool and Redis together. **Virtual threads stay off.**
 - Numbers are laptop-relative (k6 on the same CPU); the comparison is valid within the session, not as prod capacity.
+
+## 6. DB connection pool size: 10 vs 20 per instance (W6·D6)
+
+Same harness as section 5 (`bench-strategies.ps1 -Configs 'redis-hold/platform/10', 'redis-hold/platform/20'`, pool
+size via `BENCH_POOL_SIZE`, verified live on both instances through `hikaricp_connections_max`), one session, medians of 3.
+
+| Pool per instance | Throughput (holds/s) | Hold p50 / p95 / p99 | Rush hold p50 / p95 / p99 | Unexpected |
+|---|---|---|---|---|
+| 10 (default) | 256 | 89 / 187 / 245 ms | 1.24 / 1.88 / 2.05 s | 0 |
+| 20 | 276 (+8 %) | 88 / 176 / 233 ms | 1.01 / 1.38 / 1.52 s (−26 % p95/p99) | 0 |
+
+This session ran slower overall than section 5 (256 vs 336 holds/s for the same config): only same-session numbers
+are compared (#61).
+
+**Decision: keep 10.** The gain comes from the laptop's many cores. Prod Postgres runs on 2 vCPUs shared with
+everything else on the VM; Hikari's sizing guidance is about (cores × 2) + 1 connections in total, and 2 instances × 10
+already exceed it. On 2 cores more connections mean more context switching, not more work done. The value is now
+explicit in `application.yml` and can be raised per environment (`SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE`) on bigger
+hardware.
+
