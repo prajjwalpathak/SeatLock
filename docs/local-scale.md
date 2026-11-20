@@ -48,3 +48,9 @@ Google sign-in doesn't work through 8088 (the OAuth client only allows `localhos
 | Nginx / Postgres / Redis idle | ~8 MiB / ~100 MiB / ~13 MiB |
 | Cross-instance HELD / AVAILABLE latency | *(from check 3)* |
 | Reconnect after killing the viewer's instance | *(from check 5)* |
+
+## Load tests and JVM experiments (W6·D3)
+- k6: `.\load-tests\run-k6.ps1 -Script browse` / `-Script flash-sale` against this stack (`docs/benchmarks.md` section 4).
+- `SEATLOCK_JVM_OPTS` overrides the JVM options of `app-1`/`app-2` for experiments only (default = the Dockerfile's):
+  `$env:SEATLOCK_JVM_OPTS="-XX:+UseSerialGC -XX:MaxRAMPercentage=70 -XX:+ExitOnOutOfMemoryError -Duser.timezone=UTC"`,
+  then `docker compose ... up -d app-1 app-2`; `Remove-Item Env:SEATLOCK_JVM_OPTS` and recreate to go back.

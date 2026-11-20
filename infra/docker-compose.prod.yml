@@ -53,8 +53,8 @@ services:
     restart: unless-stopped
 
   # Two instances of one image (W5·D5): Nginx balances between them, seat events cross via Redis Pub/Sub,
-  # deploy.sh replaces them one at a time. Limits: 2 × 900 + PG 768 + Redis 256 + Prometheus 256 + Grafana 192
-  # + nginx/certbot ≈ 3.3 GB of 3.8 GB (limits, not usage: measured idle ≈ 1.5 GiB before W6·D2); 2 GB swap.
+  # deploy.sh replaces them one at a time. Limits: 2 × 900 + PG 768 + Redis 256 + Prometheus 256 + Grafana 384
+  # + nginx/certbot ≈ 3.5 GB of 3.8 GB (limits, not usage: measured idle ≈ 1.5 GiB before W6·D2); 2 GB swap.
   app-1: &app
     # CI-built image from GHCR (public). deploy.sh writes the exact tag to APP_IMAGE in .env.prod.
     image: ${APP_IMAGE:-ghcr.io/prajjwalpathak/seatlock-backend:latest}
@@ -114,6 +114,8 @@ services:
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
       GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/seatlock.json
+      GF_UNIFIED_ALERTING_ENABLED: "false"      # no alert rules here; saves the Alertmanager + rule engine memory
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
     volumes:
       - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
       - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
@@ -124,7 +126,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 192m
+          # 192m starved Grafana 13 (171/192 MiB, 17.6 GB of re-reads, not listening after 7 min: W6·D2 rollout)
+          memory: 384m
     logging: *default-logging
     restart: unless-stopped
 

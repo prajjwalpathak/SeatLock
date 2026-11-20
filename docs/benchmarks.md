@@ -136,3 +136,68 @@ Race B run 1 (cold context, no warm-up) took p50 9.4 s for holds and 530 ms for 
 - Under a 200-request burst, each hold waits on DB connections (pool of 10) and Tomcat threads; that's queuing,
   not lock contention (Redis decides in microseconds). Pool sizing is revisited with k6 in W6.
 
+
+## 4. k6 load tests: browse + flash sale (W6·D3)
+
+**Setup.** Windows laptop, local 2-instance stack (`docs/local-scale.md`: app-1 + app-2, prod profile, 1200 MB limits,
+Nginx LB on `localhost:8088`), local Postgres 16 + Redis 7 in Docker, mock payment gateway, `redis-hold` strategy.
+k6 runs on the same laptop (it competes for CPU, so absolute numbers are conservative and laptop-relative; they are
+not prod capacity). Grafana (`docs/monitoring.md`) watched during each run.
+
+**Scripts** (`load-tests/`, run with `.\load-tests\run-k6.ps1 -Script <name>`):
+- `browse.js`: anonymous visitors, ramping to `VUS` (default 50) for 2.5 min: event list (1 in 3 filtered by city),
+  event detail, seat map, 1–5 s think time between steps. Gates: errors < 1 %, p95 < 250 ms (list, detail),
+  p95 < 300 ms (seat map).
+- `flash-sale.js`: `USERS` (default 300) fresh accounts start at the same moment for a block of `SEATS` (default 20)
+  seats of one show. Each user reads the seat map, holds 1–2 free block seats, re-reads and retries on 409 (up to 3
+  tries), and converts a won hold into a booking. Every user gets a distinct `X-Forwarded-For` from 198.18.0.0/15, so
+  the per-IP hold limit applies per user as it would on the internet (Tomcat trusts the Docker hop; in prod Nginx
+  appends the real client IP, so a spoofed header changes nothing there).
+- **Oversell checks:** k6 thresholds `seat_wins{slot:N} <= 1` for every sale seat and `seats_won <= SEATS`; then
+  `run-k6.ps1` runs the invariant SQL (`booking_seats` live claims per seat > 1) against Postgres: must be 0.
+
+**Latency is reported, not gated** in the flash sale: a 300–500-user burst on one laptop measures queueing (k6 on
+the same CPU, 10 DB connections per instance), not a capacity target. Correctness rules fail a run; browse keeps its
+latency gates (50 VUs is a normal load).
+
+### Results (2026-11-20)
+
+**Browse, 50 VUs, 2.5 min steady state** (final code: G1, 2 s Redis timeout)
+
+| Request | p50 | p95 | p99 | max |
+|---|---|---|---|---|
+| `GET /events` (1/3 filtered by city) | 5.3 ms | 9.9 ms | 14.7 ms | 51.5 ms |
+| `GET /events/{id}` | 4.2 ms | 6.4 ms | 8.1 ms | 25.6 ms |
+| `GET /shows/{id}/seats` (live hold overlay) | 6.8 ms | 11.1 ms | 15.5 ms | 38.4 ms |
+
+0.00 % errors, all thresholds passed (first run, Serial GC: 3603 requests at 17.4/s, p95 6.7–12.4 ms: same picture).
+
+**Flash sale: correctness in every run.** 15 sales (300 users / 20 seats and 500 users / 10 seats, Serial and G1,
+cold and warm): **oversells = 0** every time (k6 `seat_wins{slot} <= 1`, `seats_won <= SEATS`, DB invariant SQL 0).
+Two runs exposed real defects (FAILURES F11, F12), both fixed below.
+
+**Flash sale, final code** (G1 + post-claim re-check + 2 s Redis timeout), 500 users → 10 seats, up to 3 tries each
+
+| Run | Winners / bookings | Conflicts (409) | Sold out | 503s | Hold p50 / p95 / p99 | Seat map p95 | Booking p95 |
+|---|---|---|---|---|---|---|---|
+| 1st sale after a restart (cold hold path) | 7 / 7 | 493 | 493 | **0** | 4.04 / 6.56 / 7.33 s | 3.96 s | 3.58 s |
+| 2nd sale (warm) | 6 / 6 | 375 | 494 | **0** | 1.73 / 2.43 / 2.76 s | 2.13 s | 2.83 s |
+
+~2.3–2.5k requests in ~30 s per sale (≈70 req/s, all users arriving within ~1 s). Hold outcomes from Prometheus
+(`seatlock_holds_total`) match k6: e.g. warm run 404 → 786 `seats_taken`, 0 `booked_during_claim`.
+
+**Serial vs G1 (F11), 500 users / 10 seats, 2 s timeout not yet applied (500 ms)**
+
+| Collector | Runs | 503s per run | Longest pause |
+|---|---|---|---|
+| Serial (JVM default under 2 GB) | 6 | 20, 8, 0, 0*, 25 (first after a restart), 0 | young 0.235 s, **full 1.245 s** |
+| G1 | 6 | 0, 0, 0, **50** (first after a rebuild), 0, 0 | young 0.15 s |
+
+\* the run that exposed F12. G1 removed the long pauses but not the cold-start 503s; the 2 s timeout did.
+
+**Takeaways**
+- The guarantee held under every burst: Redis decides holds, the post-claim re-check catches a just-booked seat,
+  and the partial unique index is the final word.
+- Contention costs latency, not errors: losers get a clean 409 (or "sold out" on their next look) within seconds.
+- A cold hold path is ~2× slower than a warm one (JIT, first Lua load, pools): prod warm-up matters (W8·D2: CDS).
+- Fail-fast timeouts must leave room for a saturated CPU: 500 ms turned queueing into 503s.
