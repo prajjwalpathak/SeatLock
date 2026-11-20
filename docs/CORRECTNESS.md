@@ -265,6 +265,60 @@ execution times vary run to run.
 - `show_seats.status` is deliberately unindexed, so seat status updates during holds/bookings stay
   HOT (no index writes).
 
-## 3. Locking & isolation levels
+### 2.3 Booking write paths at volume (W6·D5, `V12`), `03-write-paths.txt`
 
-_From W3._
+`docs/explain/write-paths.sql`: one transaction, **rolled back**, adds 205,303 bookings (0.2 % unpaid and due, 0.8 %
+unpaid, 12 % confirmed, 4 % cancelled, rest expired; one user with 5,000) and as many `booking_seats`, then plans the
+queries before and after the candidate indexes. Warm cache, `max_parallel_workers_per_gather = 0`.
+
+| Query | Before | After | Buffers | Index |
+|---|---|---|---|---|
+| W1 expiry sweeper (`lockExpiredIds`, 100 rows, `FOR UPDATE SKIP LOCKED`) | 34.47 ms: Seq Scan, 204,893 rows filtered, sort | **0.14 ms**: Index Scan, no sort | 3,913 → 202 | `ix_bookings_unpaid_expires (expires_at, id) WHERE status IN (HELD, PAYMENT_PENDING)`: **80 kB** |
+| W2 My bookings page 1, 5,000-booking user | 5.18 ms: Bitmap scan of 5,000 rows + top-N sort | **0.08 ms**: Index Scan, 10 rows | 881 → 46 | `ix_bookings_user_created (user_id, created_at DESC, id DESC)`: 8.1 MB |
+| W3 same, page 50 (`OFFSET 490`) | 4.55 ms | 1.52 ms | | offset still walks 500 entries (offset paging by design, #170) |
+| W4 My bookings page 1, ~100-booking user | 0.26 ms | 0.16 ms | | |
+| W5 `count(*)` for the 5,000-booking user | 2.07 ms | 2.67 ms (no gain) | 840 → 863 | rows inserted in this transaction aren't all-visible, so no index-only count here; after `VACUUM` it can be |
+| W6 seats by id (hold pre/post check) | 0.08 ms | (unchanged) | | `uq_show_seats_show_seat` |
+| W7 compare-and-set `UPDATE show_seats` | 0.83 ms | (unchanged) | | same |
+| W8 double-sold invariant | 0.04 ms | (unchanged) | | partial unique index (live rows only) |
+
+- **Sweeper:** the biggest win. Its cost no longer grows with booking history: the partial index holds only unpaid
+  rows (80 kB for ~2,050 of 205k bookings), and `LIMIT 100` stops after 100 index entries. A booking leaves the index when it
+  becomes CONFIRMED / EXPIRED / CANCELLED (that status write is no longer a HOT update; bookings change a few times in
+  their life, unlike `show_seats`, which stays unindexed on `status`, #29).
+- **My bookings:** the index delivers rows in the page's order, so page 1 reads 10 rows instead of all of the user's.
+  It replaces `ix_bookings_user` (its `user_id` prefix serves the count and the users FK). Deep pages still pay for the
+  offset; keyset paging would fix that if users ever have thousands of bookings (not needed now).
+- Not indexed: `refunds` (partial `ix_refunds_due` since W4·D4), `webhook_events` cleanup (daily, 30-day table),
+  `idempotency_keys` (indexed since W3·D3).
+
+## 3. Locking & isolation levels (W6·D5)
+
+Every transaction runs at Postgres' default **READ COMMITTED** (pinned by `IsolationIntegrationTest`). No guard relies
+on a snapshot: each one is either a **constraint** (checked against all committed and in-flight rows, whatever the
+isolation level) or a **row lock / conditional write** whose behaviour under READ COMMITTED is exactly what we want.
+
+| Guard | Mechanism | Why READ COMMITTED is enough |
+|---|---|---|
+| One live claim per seat | partial unique index `ux_booking_seats_live_seat` | Uniqueness is checked in the index, not the snapshot: a second insert waits for the first transaction, then fails 23505 (or succeeds if it rolled back). Race C: 1 commit, 199 × 23505 |
+| Seat status AVAILABLE → HELD → BOOKED | compare-and-set `UPDATE … WHERE status = 'AVAILABLE'` | A writer that waits on a locked row **re-evaluates its WHERE against the newly committed row** (EvalPlanQual) and updates 0 rows instead of overwriting. Test: second CAS waits, then 0 rows |
+| Venue double-booking | exclusion constraint `ex_shows_venue_no_overlap` | Like unique: enforced in the GiST index across transactions |
+| Booking lifecycle (sweeper vs cancel vs payment confirm) | `SELECT … FOR UPDATE` on the booking row; lock order payment → booking | Whoever locks second waits and then reads the committed state (state machine refuses invalid moves) |
+| Sweeper / refund worker on 2 instances | `FOR UPDATE SKIP LOCKED` | Locked rows are skipped immediately, never processed twice. Test: locked row skipped, < 1 s |
+| Idempotency keys, webhook dedupe | `INSERT … ON CONFLICT DO NOTHING` on a unique key | The conflict check is index-level; the loser sees "0 rows" at once |
+| One optimistic hold per user and show | `pg_advisory_xact_lock(user, show)` + conditional upsert | Serializes the user's own attempts explicitly |
+
+**Why not REPEATABLE READ or SERIALIZABLE.** The same compare-and-set at REPEATABLE READ fails with **40001**
+(`could not serialize access due to concurrent update`) when the row changed after the snapshot (pinned by
+`IsolationIntegrationTest`). Every contended write path would then need a retry loop, and a flash sale is exactly the
+case where hundreds of transactions touch the same rows: retries multiply load at the worst moment. SERIALIZABLE adds
+predicate-lock tracking and more 40001s for no extra safety, because our invariants are already enforced by
+constraints and explicit row locks.
+
+**Write skew check.** The classic READ COMMITTED gap is "two transactions read, both decide, both write different
+rows". Where that pattern exists we made the decision a single row or a constraint: seat claims (unique index),
+venue overlap (exclusion constraint), one live payment per booking (partial unique `ux_payments_live_booking`), one
+hold per user/show (Lua user key, or the advisory lock), payment creation (serialized on the booking row lock).
+Reads that are allowed to be slightly stale are pre-checks only, and are re-validated where it matters (F12:
+re-check after the claim).
+
