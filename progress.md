@@ -3,15 +3,15 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 6 · Day 4 (not started, planned Fri Dec 18): benchmarks optimistic vs Redis hold, virtual threads on vs off → `benchmarks.md`, as one task. Branch `w6-d4` (create with `git switch -c w6-d4 origin/main` after the W6·D3 PR is squash-merged)
-- **Last completed:** Week 6 · Day 3: k6 browse + flash-sale scripts with oversell thresholds, `run-k6.ps1` (DB invariant check); oversells = 0 in 15 sales; two defects found and fixed: Serial GC + 500 ms Redis timeout → 503s (F11), hold granted on a just-booked seat (F12, post-claim re-check); prod Grafana 384 MB (F10) (planned Thu Dec 17, done Fri Nov 20)
+- **Current day:** Week 6 · Day 5 (not started, planned Sat Dec 19): SQL tuning: `EXPLAIN ANALYZE` before/after, indexes (incl. the expiry sweeper's, #102), isolation levels → `CORRECTNESS.md`, as one task. Branch `w6-d5` (create with `git switch -c w6-d5 origin/main` after the W6·D4 PR is squash-merged)
+- **Last completed:** Week 6 · Day 4: benchmark matrix {redis-hold, optimistic} × {platform, virtual threads} (`strategies.js` throughput loop + flash sale, `bench-strategies.ps1`, bench overlay): redis-hold +44 % throughput / −39 % p99 vs optimistic; virtual threads no gain, worse tails → defaults unchanged (planned Fri Dec 18, done Fri Nov 20)
 - **Live URLs:** Frontend https://seatlock-nu.vercel.app · Backend https://seatlock-prajjwal.duckdns.org · Swagger https://seatlock-prajjwal.duckdns.org/swagger-ui.html · Version https://seatlock-prajjwal.duckdns.org/api/v1/system/version · Grafana https://seatlock-prajjwal.duckdns.org/grafana/ (admin login)
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public) · CI + Deploy badges in README · `main` protected (ruleset `protect-main`)
 - **Hosting:** Azure VM `seatlock-vm` (India South Central, B2als_v2 x64) + Vercel; images from GHCR (ADR-005, #62, #71–#74, #167); **2 app instances** since W5·D5 + Prometheus/Grafana since W6·D2; decommission after ~2–3 months
 - **Git workflow (from W6·D2):** **one task per day** = all 6 plan tasks → one verify/test block → one one-line commit + push on the daily branch → PR on GitHub → squash-merge when CI is green; next branch with `git switch -c wN-dM origin/main`; never push to a branch after its PR is merged; **never use GitHub's "Update branch" / web conflict editor** (#9, #75, #116, #141, #142, #176, #181)
 - **Carry-overs:** duplicate `Strict-Transport-Security` (Spring + Nginx) → W8·D1 · same-site frontend/API for privacy blockers (F7) → W8 stretch · JetBrains license · IntelliJ dependency scan · refund status webhooks (stretch) · WireMock 4.x re-check (W8·D1)
-- **Schedule:** **~27 days ahead** (W6·D3 done Fri Nov 20 instead of Thu Dec 17); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
-- **Top risk:** W6·D4 benchmarks on the laptop are noisy (repeat runs, medians, warm both JVMs, cold vs warm reported separately: F11 showed the cold hold path is ~2× slower); prod picks up G1 + 2 s Redis timeout with the W6·D3 deploy (watch the deploy and Grafana)
+- **Schedule:** **~28 days ahead** (W6·D4 done Fri Nov 20 instead of Fri Dec 18); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
+- **Top risk:** W6·D5 EXPLAIN on a small seeded DB can hide plans that change at volume (seed more rows for the measurement, never in a migration); isolation-level experiments must not weaken the guards (run the race suite after any change)
 
 ## Decisions Log (ADR summary)
 | # | Date | Decision | Why |
@@ -209,6 +209,9 @@
 | 191 | 2026-11-20 | Redis command timeout **500 ms → 2 s** | Cold first sale still got 25–50 × 503 on both collectors (CPU saturated); a down Redis still fails at once (`REJECT_COMMANDS`, #80); after: 0 × 503 cold and warm (F11) |
 | 192 | 2026-11-20 | **Post-claim re-check** in `HoldService`: after a successful claim, Postgres must still say AVAILABLE, else release + 409 (`booked_during_claim`); hold counters registered at 0 on startup | Pre-check is a snapshot; a converted hold drops its keys after commit, so the re-check closes the window completely (F12, ADR-006 update); lazily created counters were invisible to `increase()` |
 | 193 | 2026-11-20 | `SEATLOCK_JVM_OPTS` override in `docker-compose.scale.yml` (default = Dockerfile options) | JVM experiments (GC now, virtual threads on W6·D4) without rebuilding or touching the image |
+| 194 | 2026-11-20 | **`redis-hold` stays the default** strategy (measured, ADR-013 update) | 336 vs 233 holds/s (+44 %), p99 188 vs 310 ms, rush p99 0.97 vs 1.99 s; optimistic exhausted the DB pool on a cold rush (503s) |
+| 195 | 2026-11-20 | **Virtual threads stay off** (`spring.threads.virtual.enabled` unset) | No throughput gain (−3 % / −18 %), worse tails (rush p99 0.97 → 1.57 s); the hold path is bounded by 10 DB connections + one Redis connection, not threads; platform threads also cap in-flight work (hypothesis) |
+| 196 | 2026-11-20 | Benchmark harness: `infra/docker-compose.bench.yml` (strategy, virtual threads, rate limiting off) + `bench-strategies.ps1` (recreate → verify the config is live via Prometheus tag, thread dump and log → warm-up as long as a run → 3 runs → medians + CSV → restore) | A switch that silently didn't apply would make the numbers meaningless (F3 lesson); run 1 after a 20 s warm-up was ~30 % slow |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -279,6 +282,9 @@
 | k6 flash sale, 500 users → 10 seats (final code) | cold: 7 winners, 493 × 409, **0 × 503**, hold p95 6.56 s / p99 7.33 s; warm: 6 winners, **0 × 503**, hold p95 2.43 s / p99 2.76 s; ~70 req/s | same | 2026-11-20 |
 | Serial vs G1 (F11) | Serial: 503s in 3 of 6 runs, full GC **1.245 s**; G1: pauses ≤ **0.15 s**, 503s only cold (fixed by the 2 s timeout) | k6 + Prometheus `jvm_gc_pause_seconds_max` | 2026-11-20 |
 | Tests | 519 (516 + 3 new: 2 post-claim re-check, 1 counters at startup) | `mvnw verify` | 2026-11-20 |
+| **Strategy benchmark: throughput** (50 VUs hold+release, 60 s, median of 3) | **redis-hold 336 holds/s, p99 188 ms** vs optimistic 233 holds/s, p99 310 ms (**+44 % / −39 %**) | `bench-strategies.ps1` → `docs/benchmarks.md` section 5 | 2026-11-20 |
+| Strategy benchmark: rush (500 users → 10 seats) | hold p99 **0.97 s** (redis-hold) vs 1.99 s (optimistic); 0 × 503 warm; oversells 0 in all 24 runs | same | 2026-11-20 |
+| Virtual threads on vs off | redis-hold 326 vs 336 holds/s, rush p99 1.57 vs 0.97 s; optimistic 192 vs 233 holds/s, p99 455 vs 310 ms: **no gain, worse tails** | same | 2026-11-20 |
 | **Prod rolling deploy, new revision (#18 merge)** | **2198/2198 requests 200, 0 failures**; app-1 switched at 03:01:53, app-2 at 03:02:11 (18 s later, after app-1 was healthy); slowest request 742 ms | `deploy-watch.ps1 -Minutes 12` during the CI deploy | 2026-11-20 |
 | Prod job threads after #18 | thread dump of app-1: `scheduling-1`, `scheduling-2` present; `MessageBroker-N` lines only from `WebSocketMessageBrokerStats` | `docker kill -s QUIT` + logs | 2026-11-20 |
 
@@ -1482,4 +1488,33 @@
 - Check-then-act windows across two stores; re-validation after claim; defence in depth caught by layered assertions
 - Client IP behind proxies (`X-Forwarded-For`, trusted hops) and why spoofing is harmless with a correct proxy chain
 **Commit:** `perf: k6 load tests, G1 + Redis timeout + post-claim re-check (W6·D3)`
+
+### Week 6 · Day 4: Benchmarks: optimistic vs Redis hold, virtual threads on vs off (planned Fri, Dec 18; done Fri, Nov 20, 2026)
+**Status:** ✅ Done
+**Built:**
+- `load-tests/strategies.js`: closed-loop hold → release throughput test (50 VUs, own user each, 60 s)
+- `infra/docker-compose.bench.yml`: `BENCH_STRATEGY`, `BENCH_VIRTUAL_THREADS`, rate limiting off
+- `load-tests/bench-strategies.ps1`: 4-config matrix, live-config verification (Prometheus strategy tag, thread dump, `Rate limiting DISABLED`), warm-up, 3 runs per workload, medians + CSV, normal stack restored at the end
+- `flash-sale.js` / `run-k6.ps1`: `SUMMARY_FILE`, `strategies` script
+- Docs: benchmarks section 5 (method, results, spread, takeaways), ADR-013 measured consequence
+- Tests: 519 (no backend code changes)
+**Files created/changed:**
+- `load-tests\{strategies.js, bench-strategies.ps1, flash-sale.js, run-k6.ps1}`; `infra\docker-compose.bench.yml`
+- `docs\benchmarks.md`, `docs\decisions\ADR-013-seat-locking-strategy.md`, `progress.md`
+**Decisions:**
+- See Decisions Log #194–#196
+**Metrics recorded:**
+- Strategy and virtual-thread matrix (see Metrics table)
+**Problems & fixes:**
+- Run 1 of every throughput set ~30 % slower (20 s warm-up too short) → warm-up now as long as a measured run; medians and runs 2–3 agree
+- Cold `optimistic` rush: 12 × 503 `SERVICE_UNAVAILABLE` (Hikari wait > 3 s) in a discarded warm-up → recorded as a strategy cost, not fixed (optimistic is the benchmark strategy)
+- "Low contention" throughput loop actually had ~17–22 % 409s (other VUs' live holds) → documented as moderate, same for all configs
+**Carry-over:**
+- None
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- Benchmark design: controlled variables, verifying the variant is live, warm-up, medians, spread, same-session comparison
+- Redis Lua claims vs optimistic DB claims (upserts + advisory locks): cost per operation, pool pressure, cold behaviour
+- Virtual threads: when they help (many threads blocked on I/O) and when they don't (bounded by a pool); pinning (fixed in JDK 24+, JEP 491); thread pools as implicit bulkheads / admission control
+- Closed vs open workload models; throughput vs tail latency
+**Commit:** `perf: benchmark locking strategies and virtual threads (W6·D4)`
 

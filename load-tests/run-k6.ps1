@@ -6,11 +6,12 @@
   .\load-tests\run-k6.ps1 -Script browse
   .\load-tests\run-k6.ps1 -Script flash-sale
   .\load-tests\run-k6.ps1 -Script flash-sale -K6Args '-e','USERS=500','-e','SEATS=10'
+  .\load-tests\run-k6.ps1 -Script strategies -K6Args '-e','VUS=50','-e','DURATION=60s'   (W6.D4)
 .NOTES
   Local only, never the VM (burst credits, decision #69). Results (JSON) go to load-tests\results (git-ignored).
 #>
 param(
-    [Parameter(Mandatory = $true)][ValidateSet('browse', 'flash-sale')][string]$Script,
+    [Parameter(Mandatory = $true)][ValidateSet('browse', 'flash-sale', 'strategies')][string]$Script,
     [string]$BaseUrl = 'http://localhost:8088',
     [string[]]$K6Args = @(),
     [string]$EnvFile = (Join-Path $PSScriptRoot '..\.env')
