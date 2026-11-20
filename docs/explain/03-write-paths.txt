@@ -1,0 +1,288 @@
+﻿==================== volume (rolled back at the end) ====================
+ bookings | due | heavy_user_bookings 
+----------+-----+---------------------
+   205303 | 410 |                5000
+(1 row)
+
+==================== BEFORE (V1 indexes: ix_bookings_user only) ====================
+---------- W1: expiry sweeper batch (BookingRepository.lockExpiredIds) ----------
+                                                    QUERY PLAN                                                     
+-------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=34.267..34.403 rows=100 loops=1)
+   Buffers: shared hit=3913
+   ->  LockRows (actual time=34.266..34.393 rows=100 loops=1)
+         Buffers: shared hit=3913
+         ->  Sort (actual time=34.257..34.264 rows=100 loops=1)
+               Sort Key: expires_at, id
+               Sort Method: quicksort  Memory: 44kB
+               Buffers: shared hit=3813
+               ->  Seq Scan on bookings (actual time=0.074..34.092 rows=410 loops=1)
+                     Filter: (((status)::text = ANY ('{HELD,PAYMENT_PENDING}'::text[])) AND (expires_at <= now()))
+                     Rows Removed by Filter: 204893
+                     Buffers: shared hit=3813
+ Planning Time: 0.146 ms
+ Execution Time: 34.465 ms
+(14 rows)
+
+---------- W2: My bookings, first page, power user (5,000 bookings) ----------
+                                                            QUERY PLAN                                                             
+-----------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=5.073..5.128 rows=10 loops=1)
+   Buffers: shared hit=881
+   ->  Result (actual time=5.072..5.125 rows=10 loops=1)
+         Buffers: shared hit=881
+         ->  Sort (actual time=5.015..5.017 rows=10 loops=1)
+               Sort Key: b.created_at DESC, b.id DESC
+               Sort Method: top-N heapsort  Memory: 26kB
+               Buffers: shared hit=840
+               ->  Bitmap Heap Scan on bookings b (actual time=0.440..3.308 rows=5000 loops=1)
+                     Recheck Cond: (user_id = 22230)
+                     Heap Blocks: exact=835
+                     Buffers: shared hit=840
+                     ->  Bitmap Index Scan on ix_bookings_user (actual time=0.293..0.294 rows=5000 loops=1)
+                           Index Cond: (user_id = 22230)
+                           Buffers: shared hit=5
+         SubPlan 1
+           ->  Aggregate (actual time=0.009..0.009 rows=1 loops=10)
+                 Buffers: shared hit=41
+                 ->  Index Only Scan using ix_booking_seats_booking on booking_seats bs (actual time=0.007..0.008 rows=1 loops=10)
+                       Index Cond: (booking_id = b.id)
+                       Heap Fetches: 10
+                       Buffers: shared hit=41
+ Planning:
+   Buffers: shared hit=37
+ Planning Time: 0.358 ms
+ Execution Time: 5.184 ms
+(26 rows)
+
+---------- W3: My bookings, page 50 (OFFSET 490), power user ----------
+                                                             QUERY PLAN                                                             
+------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=4.501..4.520 rows=10 loops=1)
+   Buffers: shared hit=2841
+   ->  Result (actual time=3.459..4.504 rows=500 loops=1)
+         Buffers: shared hit=2841
+         ->  Sort (actual time=3.441..3.460 rows=500 loops=1)
+               Sort Key: b.created_at DESC, b.id DESC
+               Sort Method: top-N heapsort  Memory: 91kB
+               Buffers: shared hit=840
+               ->  Bitmap Heap Scan on bookings b (actual time=0.258..2.317 rows=5000 loops=1)
+                     Recheck Cond: (user_id = 22230)
+                     Heap Blocks: exact=835
+                     Buffers: shared hit=840
+                     ->  Bitmap Index Scan on ix_bookings_user (actual time=0.177..0.177 rows=5000 loops=1)
+                           Index Cond: (user_id = 22230)
+                           Buffers: shared hit=5
+         SubPlan 1
+           ->  Aggregate (actual time=0.002..0.002 rows=1 loops=500)
+                 Buffers: shared hit=2001
+                 ->  Index Only Scan using ix_booking_seats_booking on booking_seats bs (actual time=0.001..0.001 rows=1 loops=500)
+                       Index Cond: (booking_id = b.id)
+                       Heap Fetches: 500
+                       Buffers: shared hit=2001
+ Planning Time: 0.100 ms
+ Execution Time: 4.549 ms
+(24 rows)
+
+---------- W4: My bookings, first page, regular user (~100 bookings) ----------
+                                                            QUERY PLAN                                                             
+-----------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.200..0.238 rows=10 loops=1)
+   Buffers: shared hit=143
+   ->  Result (actual time=0.200..0.236 rows=10 loops=1)
+         Buffers: shared hit=143
+         ->  Sort (actual time=0.189..0.190 rows=10 loops=1)
+               Sort Key: b.created_at DESC, b.id DESC
+               Sort Method: top-N heapsort  Memory: 27kB
+               Buffers: shared hit=102
+               ->  Bitmap Heap Scan on bookings b (actual time=0.022..0.166 rows=100 loops=1)
+                     Recheck Cond: (user_id = 20231)
+                     Heap Blocks: exact=100
+                     Buffers: shared hit=102
+                     ->  Bitmap Index Scan on ix_bookings_user (actual time=0.011..0.011 rows=100 loops=1)
+                           Index Cond: (user_id = 20231)
+                           Buffers: shared hit=2
+         SubPlan 1
+           ->  Aggregate (actual time=0.004..0.004 rows=1 loops=10)
+                 Buffers: shared hit=41
+                 ->  Index Only Scan using ix_booking_seats_booking on booking_seats bs (actual time=0.003..0.004 rows=1 loops=10)
+                       Index Cond: (booking_id = b.id)
+                       Heap Fetches: 10
+                       Buffers: shared hit=41
+ Planning Time: 0.091 ms
+ Execution Time: 0.262 ms
+(24 rows)
+
+---------- W5: My bookings total, power user ----------
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
+ Aggregate (actual time=2.040..2.041 rows=1 loops=1)
+   Buffers: shared hit=840
+   ->  Bitmap Heap Scan on bookings (actual time=0.300..1.750 rows=5000 loops=1)
+         Recheck Cond: (user_id = 22230)
+         Heap Blocks: exact=835
+         Buffers: shared hit=840
+         ->  Bitmap Index Scan on ix_bookings_user (actual time=0.189..0.190 rows=5000 loops=1)
+               Index Cond: (user_id = 22230)
+               Buffers: shared hit=5
+ Planning Time: 0.082 ms
+ Execution Time: 2.065 ms
+(11 rows)
+
+---------- W6: hold pre/post check, seats by id (ShowQueryRepository.seatsById) ----------
+                                                   QUERY PLAN                                                    
+-----------------------------------------------------------------------------------------------------------------
+ Sort (actual time=0.056..0.056 rows=2 loops=1)
+   Sort Key: st.grid_row, st.grid_col
+   Sort Method: quicksort  Memory: 25kB
+   Buffers: shared hit=14
+   ->  Nested Loop (actual time=0.044..0.049 rows=2 loops=1)
+         Buffers: shared hit=14
+         ->  Index Scan using uq_show_seats_show_seat on show_seats ss (actual time=0.037..0.039 rows=2 loops=1)
+               Index Cond: ((show_id = 5) AND (seat_id = ANY ('{5,6}'::bigint[])))
+               Buffers: shared hit=8
+         ->  Index Scan using seats_pkey on seats st (actual time=0.002..0.002 rows=1 loops=2)
+               Index Cond: (id = ss.seat_id)
+               Buffers: shared hit=6
+ Planning:
+   Buffers: shared hit=98 read=5
+ Planning Time: 1.855 ms
+ Execution Time: 0.081 ms
+(16 rows)
+
+---------- W7: seat status compare-and-set (ShowSeatStatusService), rolled back ----------
+                                               QUERY PLAN                                               
+--------------------------------------------------------------------------------------------------------
+ Update on show_seats (actual time=0.738..0.758 rows=2 loops=1)
+   Buffers: shared hit=33 read=4 dirtied=4
+   ->  Index Scan using uq_show_seats_show_seat on show_seats (actual time=0.011..0.015 rows=2 loops=1)
+         Index Cond: ((show_id = 5) AND (seat_id = ANY ('{5,6}'::bigint[])))
+         Filter: ((status)::text = 'AVAILABLE'::text)
+         Buffers: shared hit=5
+ Planning Time: 0.078 ms
+ Execution Time: 0.830 ms
+(8 rows)
+
+---------- W8: double-sold invariant (SeatInvariantMonitor, every minute) ----------
+                                                       QUERY PLAN                                                        
+-------------------------------------------------------------------------------------------------------------------------
+ Aggregate (actual time=0.021..0.022 rows=1 loops=1)
+   Buffers: shared hit=32 dirtied=1
+   ->  GroupAggregate (actual time=0.021..0.021 rows=0 loops=1)
+         Group Key: booking_seats.show_id, booking_seats.seat_id
+         Filter: (count(*) > 1)
+         Rows Removed by Filter: 2
+         Buffers: shared hit=32 dirtied=1
+         ->  Index Only Scan using ux_booking_seats_live_seat on booking_seats (actual time=0.007..0.017 rows=2 loops=1)
+               Heap Fetches: 62
+               Buffers: shared hit=32 dirtied=1
+ Planning:
+   Buffers: shared hit=12
+ Planning Time: 0.131 ms
+ Execution Time: 0.038 ms
+(14 rows)
+
+==================== candidate indexes (= V12) ====================
+==================== AFTER ====================
+---------- W1 after ----------
+                                                   QUERY PLAN                                                    
+-----------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.013..0.120 rows=100 loops=1)
+   Buffers: shared hit=202
+   ->  LockRows (actual time=0.013..0.113 rows=100 loops=1)
+         Buffers: shared hit=202
+         ->  Index Scan using ix_bookings_unpaid_expires on bookings (actual time=0.012..0.088 rows=100 loops=1)
+               Index Cond: (expires_at <= now())
+               Filter: ((status)::text = ANY ('{HELD,PAYMENT_PENDING}'::text[]))
+               Buffers: shared hit=102
+ Planning Time: 0.075 ms
+ Execution Time: 0.136 ms
+(10 rows)
+
+---------- W2 after ----------
+                                                            QUERY PLAN                                                             
+-----------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.025..0.049 rows=10 loops=1)
+   Buffers: shared hit=46
+   ->  Index Scan using ix_bookings_user_created on bookings b (actual time=0.024..0.047 rows=10 loops=1)
+         Index Cond: (user_id = 22230)
+         Buffers: shared hit=46
+         SubPlan 1
+           ->  Aggregate (actual time=0.003..0.003 rows=1 loops=10)
+                 Buffers: shared hit=41
+                 ->  Index Only Scan using ix_booking_seats_booking on booking_seats bs (actual time=0.002..0.002 rows=1 loops=10)
+                       Index Cond: (booking_id = b.id)
+                       Heap Fetches: 10
+                       Buffers: shared hit=41
+ Planning:
+   Buffers: shared hit=9
+ Planning Time: 0.183 ms
+ Execution Time: 0.079 ms
+(16 rows)
+
+---------- W3 after ----------
+                                                             QUERY PLAN                                                             
+------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=1.464..1.486 rows=10 loops=1)
+   Buffers: shared hit=2088 read=3
+   ->  Index Scan using ix_bookings_user_created on bookings b (actual time=0.025..1.468 rows=500 loops=1)
+         Index Cond: (user_id = 22230)
+         Buffers: shared hit=2088 read=3
+         SubPlan 1
+           ->  Aggregate (actual time=0.002..0.002 rows=1 loops=500)
+                 Buffers: shared hit=2001
+                 ->  Index Only Scan using ix_booking_seats_booking on booking_seats bs (actual time=0.001..0.002 rows=1 loops=500)
+                       Index Cond: (booking_id = b.id)
+                       Heap Fetches: 500
+                       Buffers: shared hit=2001
+ Planning Time: 0.141 ms
+ Execution Time: 1.520 ms
+(14 rows)
+
+---------- W4 after ----------
+                                                            QUERY PLAN                                                             
+-----------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual time=0.043..0.105 rows=10 loops=1)
+   Buffers: shared hit=52 read=3
+   ->  Index Scan using ix_bookings_user_created on bookings b (actual time=0.042..0.103 rows=10 loops=1)
+         Index Cond: (user_id = 20231)
+         Buffers: shared hit=52 read=3
+         SubPlan 1
+           ->  Aggregate (actual time=0.005..0.005 rows=1 loops=10)
+                 Buffers: shared hit=41
+                 ->  Index Only Scan using ix_booking_seats_booking on booking_seats bs (actual time=0.004..0.004 rows=1 loops=10)
+                       Index Cond: (booking_id = b.id)
+                       Heap Fetches: 10
+                       Buffers: shared hit=41
+ Planning Time: 0.113 ms
+ Execution Time: 0.157 ms
+(14 rows)
+
+---------- W5 after ----------
+                                               QUERY PLAN                                               
+--------------------------------------------------------------------------------------------------------
+ Aggregate (actual time=2.646..2.647 rows=1 loops=1)
+   Buffers: shared hit=841 read=22
+   ->  Bitmap Heap Scan on bookings (actual time=0.757..2.345 rows=5000 loops=1)
+         Recheck Cond: (user_id = 22230)
+         Heap Blocks: exact=835
+         Buffers: shared hit=841 read=22
+         ->  Bitmap Index Scan on ix_bookings_user_created (actual time=0.641..0.641 rows=5000 loops=1)
+               Index Cond: (user_id = 22230)
+               Buffers: shared hit=6 read=22
+ Planning Time: 0.063 ms
+ Execution Time: 2.671 ms
+(11 rows)
+
+---------- index sizes ----------
+           index            |  size   
+----------------------------+---------
+ bookings_pkey              | 4520 kB
+ ix_bookings_show           | 1616 kB
+ ix_bookings_unpaid_expires | 80 kB
+ ix_bookings_user_created   | 8152 kB
+ uq_bookings_hold_id        | 8576 kB
+ uq_bookings_public_id      | 8824 kB
+(6 rows)
+
+Rolled back: no volume data or candidate index was kept.

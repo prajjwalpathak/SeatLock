@@ -3,15 +3,15 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 6 · Day 5 (not started, planned Sat Dec 19): SQL tuning: `EXPLAIN ANALYZE` before/after, indexes (incl. the expiry sweeper's, #102), isolation levels → `CORRECTNESS.md`, as one task. Branch `w6-d5` (create with `git switch -c w6-d5 origin/main` after the W6·D4 PR is squash-merged)
-- **Last completed:** Week 6 · Day 4: benchmark matrix {redis-hold, optimistic} × {platform, virtual threads} (`strategies.js` throughput loop + flash sale, `bench-strategies.ps1`, bench overlay): redis-hold +44 % throughput / −39 % p99 vs optimistic; virtual threads no gain, worse tails → defaults unchanged (planned Fri Dec 18, done Fri Nov 20)
+- **Current day:** Week 6 · Day 6 (not started, planned Mon Dec 21): buffer + Week 6 review (candidates: Hikari pool size measured with the bench harness, prod check of G1 / 2 s timeout / V12 in Grafana), as one task. Branch `w6-d6` (create with `git switch -c w6-d6 origin/main` after the W6·D5 PR is squash-merged)
+- **Last completed:** Week 6 · Day 5: write-path plans at volume (205k bookings, rolled-back script): V12 `ix_bookings_unpaid_expires` (sweeper 34.5 → 0.14 ms) + `ix_bookings_user_created` (My bookings 5.2 → 0.08 ms) replacing `ix_bookings_user`; isolation levels documented and pinned by `IsolationIntegrationTest` (planned Sat Dec 19, done Fri Nov 20)
 - **Live URLs:** Frontend https://seatlock-nu.vercel.app · Backend https://seatlock-prajjwal.duckdns.org · Swagger https://seatlock-prajjwal.duckdns.org/swagger-ui.html · Version https://seatlock-prajjwal.duckdns.org/api/v1/system/version · Grafana https://seatlock-prajjwal.duckdns.org/grafana/ (admin login)
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public) · CI + Deploy badges in README · `main` protected (ruleset `protect-main`)
 - **Hosting:** Azure VM `seatlock-vm` (India South Central, B2als_v2 x64) + Vercel; images from GHCR (ADR-005, #62, #71–#74, #167); **2 app instances** since W5·D5 + Prometheus/Grafana since W6·D2; decommission after ~2–3 months
 - **Git workflow (from W6·D2):** **one task per day** = all 6 plan tasks → one verify/test block → one one-line commit + push on the daily branch → PR on GitHub → squash-merge when CI is green; next branch with `git switch -c wN-dM origin/main`; never push to a branch after its PR is merged; **never use GitHub's "Update branch" / web conflict editor** (#9, #75, #116, #141, #142, #176, #181)
 - **Carry-overs:** duplicate `Strict-Transport-Security` (Spring + Nginx) → W8·D1 · same-site frontend/API for privacy blockers (F7) → W8 stretch · JetBrains license · IntelliJ dependency scan · refund status webhooks (stretch) · WireMock 4.x re-check (W8·D1)
-- **Schedule:** **~28 days ahead** (W6·D4 done Fri Nov 20 instead of Fri Dec 18); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
-- **Top risk:** W6·D5 EXPLAIN on a small seeded DB can hide plans that change at volume (seed more rows for the measurement, never in a migration); isolation-level experiments must not weaken the guards (run the race suite after any change)
+- **Schedule:** **~29 days ahead** (W6·D5 done Fri Nov 20 instead of Sat Dec 19); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
+- **Top risk:** Week 7 AI (Gemini/Groq free-tier keys and quotas, Spring AI 2.0 APIs vs older tutorials, ONNX model size in the image vs the 900 MB app limit); get the API key before W7·D1
 
 ## Decisions Log (ADR summary)
 | # | Date | Decision | Why |
@@ -212,6 +212,9 @@
 | 194 | 2026-11-20 | **`redis-hold` stays the default** strategy (measured, ADR-013 update) | 336 vs 233 holds/s (+44 %), p99 188 vs 310 ms, rush p99 0.97 vs 1.99 s; optimistic exhausted the DB pool on a cold rush (503s) |
 | 195 | 2026-11-20 | **Virtual threads stay off** (`spring.threads.virtual.enabled` unset) | No throughput gain (−3 % / −18 %), worse tails (rush p99 0.97 → 1.57 s); the hold path is bounded by 10 DB connections + one Redis connection, not threads; platform threads also cap in-flight work (hypothesis) |
 | 196 | 2026-11-20 | Benchmark harness: `infra/docker-compose.bench.yml` (strategy, virtual threads, rate limiting off) + `bench-strategies.ps1` (recreate → verify the config is live via Prometheus tag, thread dump and log → warm-up as long as a run → 3 runs → medians + CSV → restore) | A switch that silently didn't apply would make the numbers meaningless (F3 lesson); run 1 after a 20 s warm-up was ~30 % slow |
+| 197 | 2026-11-20 | Plans for write paths measured **at volume in a rolled-back transaction** (`docs/explain/write-paths.sql`: 205k bookings + candidate indexes, then `ROLLBACK`; refuses to run once V12 exists) | Realistic plans without polluting the dev DB or adding seed data to migrations; the before/after pair is reproducible |
+| 198 | 2026-11-20 | **V12:** partial `ix_bookings_unpaid_expires (expires_at, id) WHERE status IN (HELD, PAYMENT_PENDING)`; `ix_bookings_user_created (user_id, created_at DESC, id DESC)` replaces `ix_bookings_user` | Sweeper 34.5 → 0.14 ms (no longer grows with history, 80 kB); My bookings page 1 5.2 → 0.08 ms; deep offsets and the count unchanged (documented); closes #102's deferred sweeper index |
+| 199 | 2026-11-20 | Isolation: **READ COMMITTED everywhere**, guards are constraints / row locks / compare-and-set; REPEATABLE READ and SERIALIZABLE rejected (40001 retries under contention). Pinned by `IsolationIntegrationTest` (RC default, CAS waits then 0 rows, RR → 40001, SKIP LOCKED) | No guard depends on a snapshot; write-skew candidates are single-row decisions or constraints (CORRECTNESS section 3) |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -285,6 +288,9 @@
 | **Strategy benchmark: throughput** (50 VUs hold+release, 60 s, median of 3) | **redis-hold 336 holds/s, p99 188 ms** vs optimistic 233 holds/s, p99 310 ms (**+44 % / −39 %**) | `bench-strategies.ps1` → `docs/benchmarks.md` section 5 | 2026-11-20 |
 | Strategy benchmark: rush (500 users → 10 seats) | hold p99 **0.97 s** (redis-hold) vs 1.99 s (optimistic); 0 × 503 warm; oversells 0 in all 24 runs | same | 2026-11-20 |
 | Virtual threads on vs off | redis-hold 326 vs 336 holds/s, rush p99 1.57 vs 0.97 s; optimistic 192 vs 233 holds/s, p99 455 vs 310 ms: **no gain, worse tails** | same | 2026-11-20 |
+| **Expiry sweeper query at volume** (205k bookings) | **34.5 → 0.14 ms**, buffers 3,913 → 202 (seq scan → partial index, 80 kB) | `EXPLAIN (ANALYZE, BUFFERS)`, `docs/explain/03-write-paths.txt` | 2026-11-20 |
+| **My bookings page 1** (5,000-booking user) | **5.18 → 0.08 ms**, buffers 881 → 46 (sort of 5,000 rows → 10-row index scan) | same | 2026-11-20 |
+| Tests | 523 (519 + 4 `IsolationIntegrationTest`) | `mvnw verify` | 2026-11-20 |
 | **Prod rolling deploy, new revision (#18 merge)** | **2198/2198 requests 200, 0 failures**; app-1 switched at 03:01:53, app-2 at 03:02:11 (18 s later, after app-1 was healthy); slowest request 742 ms | `deploy-watch.ps1 -Minutes 12` during the CI deploy | 2026-11-20 |
 | Prod job threads after #18 | thread dump of app-1: `scheduling-1`, `scheduling-2` present; `MessageBroker-N` lines only from `WebSocketMessageBrokerStats` | `docker kill -s QUIT` + logs | 2026-11-20 |
 
@@ -1517,4 +1523,32 @@
 - Virtual threads: when they help (many threads blocked on I/O) and when they don't (bounded by a pool); pinning (fixed in JDK 24+, JEP 491); thread pools as implicit bulkheads / admission control
 - Closed vs open workload models; throughput vs tail latency
 **Commit:** `perf: benchmark locking strategies and virtual threads (W6·D4)`
+
+### Week 6 · Day 5: SQL tuning: write-path plans at volume, isolation levels (planned Sat, Dec 19; done Fri, Nov 20, 2026)
+**Status:** ✅ Done
+**Built:**
+- `docs/explain/write-paths.sql`: rolled-back volume run (205,303 bookings, one 5,000-booking user), plans W1–W8 before, candidate indexes, W1–W5 after, index sizes; guard against running after V12; output `03-write-paths.txt`
+- `V12__booking_write_path_indexes.sql`: sweeper partial index, My-bookings composite index (replaces `ix_bookings_user`)
+- `IsolationIntegrationTest` (4): READ COMMITTED default; compare-and-set waits then updates 0 rows; REPEATABLE READ → 40001; SKIP LOCKED skips without waiting
+- Docs: CORRECTNESS section 2.3 (write-path plans) and section 3 (locking and isolation: guard table, why not RR/SERIALIZABLE, write-skew check)
+- Tests: **523** (4 new)
+**Files created/changed:**
+- `backend\src\main\resources\db\migration\V12__booking_write_path_indexes.sql`; test `common\persistence\IsolationIntegrationTest`
+- `docs\explain\{write-paths.sql, 03-write-paths.txt}`; `docs\CORRECTNESS.md`; `progress.md`
+**Decisions:**
+- See Decisions Log #197–#199
+**Metrics recorded:**
+- Sweeper 34.5 → 0.14 ms; My bookings page 1 5.18 → 0.08 ms; 523 tests (see Metrics table)
+**Problems & fixes:**
+- `\d bookings` right after `up -d` showed no V12: the apps were still starting (Flyway runs at startup) → re-check after the health wait
+- W5 count didn't improve: rows inserted in the measuring transaction aren't all-visible (no index-only scan without VACUUM) → documented, not "fixed"
+**Carry-over:**
+- None
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- Reading plans at volume: seq scan vs index scan, top-N sort, bitmap scans, buffers; why small dev data hides problems
+- Partial indexes for job queues; composite index column order matching ORDER BY; replacing a prefix index; HOT updates and indexed columns
+- Offset vs keyset pagination cost; index-only scans and the visibility map
+- READ COMMITTED semantics: EvalPlanQual re-check, lost updates, SKIP LOCKED; REPEATABLE READ serialization failures; SERIALIZABLE (SSI) and when constraints make it unnecessary; write skew
+- Measuring safely: rolled-back transactions, lock impact of CREATE/DROP INDEX, CONCURRENTLY for live tables
+**Commit:** `perf(booking): measured write-path indexes, isolation tests (W6·D5)`
 
