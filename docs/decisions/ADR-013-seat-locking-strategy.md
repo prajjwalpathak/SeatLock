@@ -34,6 +34,9 @@ is faster. That needs both approaches behind one interface, with identical behav
 
 ## Consequences
 
+- **Measured (W6·D4, `docs/benchmarks.md` section 5):** redis-hold 336 vs optimistic 233 holds/s, p99 188 vs 310 ms;
+  flash-sale p99 0.97 vs 1.99 s; optimistic exhausted the DB pool on a cold rush (503s). `redis-hold` stays the default.
+
 - Prod stays on `redis-hold`. `optimistic` removes Redis from the hold path (still used for caching and rate limits).
 - First, informal numbers from the race logs (laptop, same run): race A p50 ~0.9 s (redis-hold) vs ~1.3 s (optimistic);
   the proper benchmark (throughput, conflicts, p99, both strategies, same load) is W6·D4.

@@ -153,6 +153,6 @@ export function handleSummary(data) {
     stdout: textSummary(data, `flash sale: ${USERS} users, ${SEATS} seats, ${TRIES} tries`,
       ['holds_won', 'seats_won', 'bookings_created', 'hold_conflicts', 'sold_out', 'rate_limited',
         'booking_failed', 'unexpected_responses']),
-    [`load-tests/results/flash-sale-${stamp}.json`]: JSON.stringify(data, null, 2),
+    [__ENV.SUMMARY_FILE || `load-tests/results/flash-sale-${stamp}.json`]: JSON.stringify(data, null, 2),
   };
 }

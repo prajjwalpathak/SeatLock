@@ -201,3 +201,49 @@ Two runs exposed real defects (FAILURES F11, F12), both fixed below.
 - Contention costs latency, not errors: losers get a clean 409 (or "sold out" on their next look) within seconds.
 - A cold hold path is ~2× slower than a warm one (JIT, first Lua load, pools): prod warm-up matters (W8·D2: CDS).
 - Fail-fast timeouts must leave room for a saturated CPU: 500 ms turned queueing into 503s.
+
+## 5. Locking strategy and virtual threads (W6·D4)
+
+**Question.** Does `optimistic` (Postgres conditional upserts, ADR-013) cost more than `redis-hold` (Lua + TTL), and do
+virtual threads change throughput or tail latency for the hold path?
+
+**Matrix.** {`redis-hold`, `optimistic`} × {platform, virtual request threads} = 4 configs, each with:
+- **Throughput** (`load-tests/strategies.js`): closed loop, 50 VUs (each its own user) for 60 s, hold 1–2 random seats of
+  the show with the most free seats → release, no think time. Low contention: measures the cost of a hold.
+- **Contention** (`flash-sale.js`): 500 users → 10 seats at once (section 4), latency and errors under a rush.
+
+**Method** (`load-tests/bench-strategies.ps1`, #61): local 2-instance stack + `infra/docker-compose.bench.yml`
+(`BENCH_STRATEGY`, `BENCH_VIRTUAL_THREADS`; rate limiting off for every config, it's the same code and would cap the
+numbers). Per config: recreate both apps → verify the config is live (strategy tag on `seatlock_holds_total` in
+Prometheus, thread dump without `http-nio-8080-exec-*` = virtual, `Rate limiting DISABLED` in the log) → one
+discarded warm-up of each workload (cold hold path, F11) → 3 measured runs of each → **medians**. Same session, same
+laptop, G1, 2 s Redis timeout. The DB oversell invariant is checked after every sale.
+
+Conflicts in the throughput loop are ~17–22 % of attempts (409: another VU's live hold on a random pick), the same
+proportion for every config: moderate contention, not zero.
+
+### Results (2026-11-20, one session, medians of 3; 0 unexpected responses and oversells = 0 in all 24 runs)
+
+| Config | Throughput: holds/s | Hold p50 / p95 / p99 | Sale (500 → 10): hold p50 / p95 / p99 | Sale req/s |
+|---|---|---|---|---|
+| **redis-hold / platform** (default) | **336** | **76 / 139 / 188 ms** | **0.54 / 0.93 / 0.97 s** | 71 |
+| optimistic / platform | 233 | 115 / 229 / 310 ms | 0.92 / 1.79 / 1.99 s | 78 |
+| redis-hold / virtual | 326 | 84 / 157 / 202 ms | 0.82 / 1.39 / 1.57 s | 67 |
+| optimistic / virtual | 192 | 133 / 325 / 455 ms | 0.69 / 1.81 / 2.23 s | 70 |
+
+Spread (throughput holds/s, runs 1 / 2 / 3): redis-hold/platform 231 / 336 / 340, optimistic/platform 161 / 233 / 253,
+redis-hold/virtual 227 / 326 / 337, optimistic/virtual 166 / 192 / 222. **Run 1 is ~30 % slower everywhere**: the 20 s
+warm-up didn't fully warm the JVMs (the script now warms up for a full run). Runs 2–3 alone give the same ranking.
+
+**Takeaways**
+- **redis-hold vs optimistic:** +44 % throughput (336 vs 233 holds/s), −39 % p99 (188 vs 310 ms), and about half the
+  tail in the rush (0.97 vs 1.99 s). A Lua claim costs less than a Postgres transaction with an advisory lock and a
+  multi-row upsert, and it doesn't compete with bookings for the 10 connections per instance. On a **cold** rush,
+  `optimistic` exhausted the pool: 12 × 503 `SERVICE_UNAVAILABLE` (Hikari wait > 3 s, #172) in a discarded warm-up;
+  warm sales were clean. Both strategies held the guarantee in every run. **Default stays `redis-hold`** (ADR-013).
+- **Virtual threads:** no gain; worse tails. redis-hold −3 % throughput (noise) but sale p99 0.97 → 1.57 s;
+  optimistic −18 % throughput, p99 310 → 455 ms. The hold path is bounded by 10 DB connections per instance and one
+  Redis connection, not by threads, so more threads can't help. Likely mechanism (hypothesis, not isolated): 200
+  platform threads cap in-flight requests and Tomcat queues the rest cheaply; with virtual threads all 500 rush
+  requests run at once and contend for the pool and Redis together. **Virtual threads stay off.**
+- Numbers are laptop-relative (k6 on the same CPU); the comparison is valid within the session, not as prod capacity.
