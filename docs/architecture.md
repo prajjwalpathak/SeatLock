@@ -526,6 +526,23 @@ flowchart LR
 - **Ticket QR (decision #219):** CONFIRMED bookings show `TicketCard` with a QR code of the booking URL and
   "Download ticket" (PNG drawn on a canvas in the browser). Frontend only; the QR opens the owner-only page.
 
+## 2p. Refund Assistant (W7·D5, ADR-018)
+
+```mermaid
+flowchart LR
+    Q["POST /bookings/{id}/assistant {question}"] --> F[RefundFactsService<br/>booking + quote + next tier]
+    F -->|404 if not yours| X[404]
+    F --> R[PolicyRetriever top 3]
+    R --> G{AiGateway REFUND_ASSISTANT<br/>prompt = facts + excerpts}
+    G -->|answer| V{AnswerGuard<br/>₹ amounts + % only from facts}
+    V -->|ok| A[source AI]
+    V -->|wrong number| T[RefundTemplate]
+    G -->|DISABLED / QUOTA / TIMEOUT ...| T
+```
+
+UI: "Questions about cancelling?" box on every booking page (suggested questions, answer, which source,
+policy excerpts). Cancelling itself stays the Cancel button.
+
 ## 3. Conventions
 - Internal keys are `bigint` identity. Bookings expose a random `public_id` (UUID), so IDs in URLs can't be enumerated.
 - Enums are `varchar` + `CHECK`, not Postgres `ENUM` types: easier to evolve with Flyway, and mapped with `@Enumerated(EnumType.STRING)`.

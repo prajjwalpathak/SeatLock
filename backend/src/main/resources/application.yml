@@ -59,6 +59,11 @@ spring:
         chat:
           model: ${seatlock.ai.model}
           temperature: 0.2                    # parsing/explaining, not creative writing
+          # W7·D5: 7 of 9 Refund Assistant calls took > 4 s while their answered twins took ~1.6 s for the same
+          # prompt size: the model's own reasoning ("thinking") varies a lot. LOW keeps it short (Gemini 3.x).
+          # If a model rejects it (API error → ERROR fallbacks), set GEMINI_THINKING_LEVEL=THINKING_LEVEL_UNSPECIFIED.
+          thinking-level: ${GEMINI_THINKING_LEVEL:LOW}
+          max-output-tokens: 400              # seat intents ~40 tokens, refund answers ~40-150; caps a runaway answer
 
   data:
     redis:
@@ -186,5 +191,8 @@ resilience4j:
   timelimiter:
     instances:
       gemini:
-        timeout-duration: 4s
+        timeout-duration: 4s                   # Seat Finder: someone is racing for seats
+        cancel-running-future: true
+      gemini-explain:
+        timeout-duration: 8s                   # Refund Assistant: someone is reading about their booking
         cancel-running-future: true

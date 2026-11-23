@@ -38,6 +38,11 @@
    `INVALID_OUTPUT` (counted, audited with tokens; the breaker records a success: the model did answer).
    `withoutUserQuota()` exists only for the admin intent eval; global caps always apply.
 
+10. **Per-feature time limits + low thinking (W7·D5):** measured 7 of 9 Refund Assistant calls > 4 s while
+    answered ones took ~1.6 s with the same prompt size (394 tokens in, 43 out; Seat Finder 81 calls, max 2.0 s).
+    Refund Assistant gets its own limiter `gemini-explain` (8 s); Seat Finder keeps 4 s. Gemini `thinking-level: LOW`
+    (`GEMINI_THINKING_LEVEL`) and `max-output-tokens: 400`. Same breaker for both.
+
 ## Consequences
 - Every AI feature needs a non-AI fallback; that is required by the plan anyway.
 - A timed-out call may keep its pool thread until the HTTP client gives up; the bounded pool plus the breaker

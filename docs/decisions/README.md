@@ -22,3 +22,4 @@ The full decisions log (including small ones) lives in [progress.md](../../progr
 | [015](ADR-015-monitoring.md) | Micrometer → Prometheus → Grafana; business meters, edge-hidden scrape endpoint, Grafana at /grafana/ | W6 |
 | [016](ADR-016-ai-gateway.md) | AI gateway: Spring AI + Gemini behind a port, Resilience4j breaker + time limit, Bucket4j AI quotas, `ai_requests` audit | W7 |
 | [017](ADR-017-policy-retrieval.md) | Policy RAG: local ONNX all-MiniLM-L6-v2 embeddings, own pgvector tables (HNSW), hash-skipped advisory-locked ingestion | W7 |
+| [018](ADR-018-refund-assistant.md) | Refund Assistant: engine facts + retrieved policy, model only explains, amount/percent guard, template fallback | W7 |

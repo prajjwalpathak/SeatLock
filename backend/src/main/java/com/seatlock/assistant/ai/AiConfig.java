@@ -23,6 +23,8 @@ import org.springframework.context.annotation.Configuration;
 public class AiConfig {
 
     static final String RESILIENCE_NAME = "gemini";
+    /** Longer time limit for answers someone reads at leisure (Refund Assistant). */
+    static final String EXPLAIN_TIME_LIMIT = "gemini-explain";
 
     private static final Logger log = LoggerFactory.getLogger(AiConfig.class);
 
@@ -42,6 +44,8 @@ public class AiConfig {
                         CircuitBreakerRegistry circuitBreakers, TimeLimiterRegistry timeLimiters,
                         AiAuditLog audit, MeterRegistry meters) {
         return new AiGateway(llm, props, limiter, circuitBreakers.circuitBreaker(RESILIENCE_NAME),
-                timeLimiters.timeLimiter(RESILIENCE_NAME), audit, meters);
+                timeLimiters.timeLimiter(RESILIENCE_NAME),
+                java.util.Map.of(AiFeature.REFUND_ASSISTANT, timeLimiters.timeLimiter(EXPLAIN_TIME_LIMIT)),
+                audit, meters);
     }
 }
