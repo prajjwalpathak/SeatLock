@@ -18,6 +18,21 @@ permissions:
   contents: read            # least privilege: CI only reads the repo
 
 jobs:
+  # W8·D1: gitleaks over the whole history (fetch-depth 0). Not a required check (yet): a finding fails this job and
+  # shows on the PR; .gitleaks.toml allow-lists only reviewed false positives (docs/SECURITY.md).
+  secrets:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: gitleaks (full history, redacted)
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/repo" --entrypoint sh zricethezav/gitleaks:v8.30.1 -c \
+            'git config --global --add safe.directory /repo && gitleaks git /repo --config /repo/.gitleaks.toml --gitleaks-ignore-path /repo/.gitleaksignore --redact --verbose'
+
   backend:
     name: Backend (build, test, coverage)
     runs-on: ubuntu-latest

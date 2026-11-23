@@ -21,7 +21,7 @@ public class CorsConfig {
     CorsConfigurationSource corsConfigurationSource(CorsProperties properties) {
         CorsConfiguration api = new CorsConfiguration();
         api.setAllowedOrigins(properties.allowedOrigins());
-        api.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE"));
+        api.setAllowedMethods(List.of("GET", "POST", "DELETE")); // the only methods the API maps (W8·D1)
         api.setAllowedHeaders(List.of("Content-Type", "Authorization", "Idempotency-Key", "X-Request-Id"));
         api.setExposedHeaders(List.of("X-Request-Id", "Location", "Retry-After")); // readable by browser JS
         api.setAllowCredentials(false); // JWT in Authorization header, no cookies

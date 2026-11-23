@@ -1,0 +1,12 @@
+# gitleaks config (W8·D1): the default rules plus an allow-list of reviewed, intentionally public values.
+# Add a path here only after checking the finding by hand (docs/SECURITY.md, "Secret scan").
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Reviewed public test/demo values"
+paths = [
+  '''(^|/)\.env\.example$''',
+  '''(^|/)\.env\.prod\.example$''',
+  '''(^|/)frontend/\.env\.example$''',
+]

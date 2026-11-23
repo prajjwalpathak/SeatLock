@@ -75,6 +75,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                         "SeatLock is temporarily unavailable. Please try again in a moment.", "SERVICE_UNAVAILABLE"));
     }
 
+    @ExceptionHandler(PayloadTooLargeException.class)
+    ProblemDetail handlePayloadTooLarge(PayloadTooLargeException ex) {
+        return problem(HttpStatus.CONTENT_TOO_LARGE, "Content too large", ex.getMessage(), ex.getCode());
+    }
+
     @ExceptionHandler(UnauthorizedException.class)
     ProblemDetail handleUnauthorized(UnauthorizedException ex) {
         return problem(HttpStatus.UNAUTHORIZED, "Unauthorized", ex.getMessage(), ex.getCode());

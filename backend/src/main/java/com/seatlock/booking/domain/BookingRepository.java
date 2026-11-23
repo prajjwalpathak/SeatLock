@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.EntityGraph;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -20,6 +21,10 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
 
     @EntityGraph(attributePaths = "seats")
     Optional<Booking> findByHoldId(UUID holdId);
+
+    /** Demo reset (W8·D1): a user's bookings in one status, confirmed before a cut-off, oldest first. */
+    List<Booking> findByUserIdAndStatusAndConfirmedAtBeforeOrderByIdAsc(Long userId, BookingStatus status,
+                                                                        Instant confirmedBefore, Limit limit);
 
     /**
      * Locks up to {@code limit} unpaid bookings whose time is up. SKIP LOCKED: rows another transaction holds

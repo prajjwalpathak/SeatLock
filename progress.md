@@ -3,20 +3,19 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 8 · Day 1 (not started, planned Wed Dec 30): security hardening (CORS, security headers incl. the duplicate HSTS carry-over, input limits, secret scan of the repo/history, dependency scan + ADR-001 revisit, WireMock 4.x re-check), demo logins + nightly demo-data reset job. Branch `w8-d1` (create with `git switch -c w8-d1 origin/main` after the W7·D6 PR is squash-merged). Nothing to prepare
-- **Last completed:** Week 7 · Day 6: resilient embedding load (failure → RAG off, not app down), index tagged with the Spring AI version, Grafana "AI (Week 7)" row (8 panels), AI drill probe + F14 drill plan, memory measured with the model (+~130 MiB) → prod heap 60 %, AI rollout runbook (deploy.md 3e); Week 7 review (planned Tue Dec 29, done Mon Nov 23)
+- **Current day:** Week 8 · Day 2 (not started, planned Thu Dec 31): **prod rollout first** (one `infra/` copy per deploy.md 3b with `chmod +x` + forced Nginx recreate: W7·D6 compose heap 60 % + Grafana AI row, W8·D1 Nginx header split; `.env.prod` AI block per 3e; one instance at a time; live check: both instances on `main`, AI status, single HSTS, memory, Grafana), then image tuning (CDS, heap caps), healthchecks, nightly `pg_dump` backup (Azure equivalent of the plan's OCI Object Storage, Council that day). Branch `w8-d2` (`git switch -c w8-d2 origin/main` after the W8·D1 PR is squash-merged). **Prepare:** SSH access to the VM; Gemini API key ready to type on the VM (never in chat)
+- **Last completed:** Week 8 · Day 1: security headers with one owner each (Spring content headers + `/api/**` CSP, Nginx HSTS), CORS exact-origin validation + methods narrowed, 1 MB body limit (413) + DTO size caps, gitleaks over full history in CI (2 false positives fingerprinted, 0 leaks), ADR-001 revisit, nightly demo upkeep (seed show top-up + demo-account full-refund reset, ADR-019) (planned Wed Dec 30, done Mon Nov 23)
+- **Earlier:** Week 7 · Day 6: resilient embedding load (failure → RAG off, not app down), index tagged with the Spring AI version, Grafana "AI (Week 7)" row (8 panels), AI drill probe + F14 drill plan, memory measured with the model (+~130 MiB) → prod heap 60 %, AI rollout runbook (deploy.md 3e); Week 7 review (planned Tue Dec 29, done Mon Nov 23)
 - **Earlier:** Week 7 · Day 5: Refund Assistant (engine facts incl. next tier, 3 RAG excerpts, Gemini explains only, ₹/% `AnswerGuard`, template fallback, booking-page UI); per-feature time limit (8 s) + Gemini thinking LOW fixed 7/9 timeouts → 4/4 OK, avg 1.7 s (planned Mon Dec 28, done Mon Nov 23)
-- **Earlier:** Week 7 · Day 4: policy RAG (7 policy files / 40 sections, local ONNX all-MiniLM-L6-v2, V14 pgvector + HNSW, hash-skipped advisory-locked ingestion, admin search/reindex, 30-question recall eval) + ticket QR with PNG download (planned Sat Dec 26, done Mon Nov 23)
-- **Before:** Week 7 · Day 3: AI Seat Finder (`SeatIntent` JSON from Gemini, validated in code, 24 h Redis cache, code-side defaults and per-seat budget, fallback to the manual form), 40-phrase eval + script, Seat Finder UI with suggested seats ringed on the map (planned Thu Dec 24, done Mon Nov 23)
-- **Earlier:** Week 7 · Day 2: Seat Finder algorithm (runs of consecutive columns, sliding window, 45/45/10 score, top 3 non-overlapping) + public `POST /shows/{id}/seat-finder` (planned Wed Dec 23, done Mon Nov 23)
-- **Before that:** Week 7 · Day 1: AI gateway (Spring AI 2.0.2 + Gemini 3.5 Flash-Lite behind an `LlmClient` port, Resilience4j breaker + 4 s time limit, 4-thread bulkhead, Bucket4j AI quotas, `ai_requests` audit, admin status/ping); first live Gemini calls OK (planned Tue Dec 22, done Mon Nov 23)
+- **Before:** Week 7 · Day 4: policy RAG (7 policy files / 40 sections, local ONNX all-MiniLM-L6-v2, V14 pgvector + HNSW, hash-skipped advisory-locked ingestion, admin search/reindex, 30-question recall eval) + ticket QR with PNG download (planned Sat Dec 26, done Mon Nov 23)
+- **Before that:** Week 7 · Day 3: AI Seat Finder (`SeatIntent` JSON from Gemini, validated in code, 24 h Redis cache, code-side defaults and per-seat budget, fallback to the manual form), 40-phrase eval + script, Seat Finder UI with suggested seats ringed on the map (planned Thu Dec 24, done Mon Nov 23)
 - **Live URLs:** Frontend https://seatlock-nu.vercel.app · Backend https://seatlock-prajjwal.duckdns.org · Swagger https://seatlock-prajjwal.duckdns.org/swagger-ui.html · Version https://seatlock-prajjwal.duckdns.org/api/v1/system/version · Grafana https://seatlock-prajjwal.duckdns.org/grafana/ (admin login)
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public) · CI + Deploy badges in README · `main` protected (ruleset `protect-main`)
-- **Hosting:** Azure VM `seatlock-vm` (India South Central, B2als_v2 x64) + Vercel; images from GHCR (ADR-005, #62, #71–#74, #167); **2 app instances** since W5·D5 + Prometheus/Grafana since W6·D2; **AI off on prod** (`SEATLOCK_AI_PROVIDER` unset) until W7·D6; decommission after ~2–3 months
+- **Hosting:** Azure VM `seatlock-vm` (India South Central, B2als_v2 x64) + Vercel; images from GHCR (ADR-005, #62, #71–#74, #167); **2 app instances** since W5·D5 + Prometheus/Grafana since W6·D2; app image auto-deploys on every merge, but **`infra/` and `.env.prod` on the VM are still the W6 copy** (no W7·D6 compose/Grafana, no W8·D1 Nginx headers, **AI and embeddings off**) until the W8·D2 rollout; decommission after ~2–3 months
 - **Git workflow (from W6·D2):** **one task per day** = all plan tasks → one verify/test block → one one-line commit + push on the daily branch → PR on GitHub → squash-merge when CI is green; next branch with `git switch -c wN-dM origin/main`; never push to a branch after its PR is merged; **never use GitHub's "Update branch" / web conflict editor**; **start each day by checking prod is on `main`** (deploy.md section 3d) (#9, #75, #116, #141, #142, #176, #181, #202)
-- **Carry-overs:** **prod AI rollout** (merge W7·D6 → copy `infra/` per deploy.md 3b incl. `chmod +x` → `.env.prod` AI block per 3e → one instance at a time → live check + Grafana) · **F14 drill results** (at least D1 bad key, D4 model won't load) · **recall eval numbers** (recall@1/@4, MRR, misses) + **intent eval numbers** (run 1 total + run 2 after the prompt fix) → record at W7·D6 (intent eval also re-run once with thinking LOW) · local `mvnw verify` / frontend build for W7·D4 not pasted → CI is the gate · app memory with the ONNX model (local, then 2 instances on the VM) → W7·D6 · W7·D1 full `mvnw verify` result not reported locally → CI on the PR is the gate · Gemini key + `SEATLOCK_AI_PROVIDER` on the VM → W7·D6 · Gemini latency vs the 4 s limit (one call 2.9 s) → check in Grafana W7·D6 · duplicate `Strict-Transport-Security` (Spring + Nginx) → W8·D1 · same-site frontend/API for privacy blockers (F7) → W8 stretch · JetBrains license · IntelliJ dependency scan · refund status webhooks (stretch) · WireMock 4.x re-check (W8·D1)
-- **Schedule:** **~36 days ahead** (W7·D6 done Mon Nov 23 instead of Tue Dec 29); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
-- **Top risk:** prod AI rollout (shared 500/day Gemini quota between local and prod; heap 60 % untested under load); earlier Week 7 risk notes: free-tier quota (500 RPD shared by local + prod), structured output with Spring AI 2.0 + Gemini on D3, ONNX embedding model in the image vs the 900 MB app limit on D4; keep checking prod is on `main` each morning (deploy.md section 3d, F13)
+- **Carry-overs:** **prod rollout** (infra copy + `.env.prod` AI block + live check) → W8·D2 first task · **prod header check** (`curl.exe -sI`: one HSTS, CSP on `/api`) → `docs/SECURITY.md` section 6 after the W8·D2 infra copy · **F14 drill results** (at least D1 bad key, D4 model won't load) · **eval numbers** (intent x/40 run 1 + run 2 + one rerun with thinking LOW; recall@1/@4, MRR) · Gemini latency vs limits in Grafana (after the rollout) · IntelliJ "Vulnerable dependencies" re-run before v1.0.0 (ADR-001) · same-site frontend/API for privacy blockers (F7) → W8 stretch · JetBrains license · refund status webhooks (stretch)
+- **Schedule:** **~37 days ahead** (W8·D1 done Mon Nov 23 instead of Wed Dec 30); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
+- **Top risk:** the W8·D2 prod rollout (first infra copy since W6, AI on with a shared 500/day Gemini quota, heap 60 % untested under load); the demo jobs' first prod run at 03:30 IST after the W8·D1 merge (kill switch `SEATLOCK_DEMO_RESET_ENABLED=false`); keep checking prod is on `main` each morning (deploy.md section 3d, F13)
 
 ## Decisions Log (ADR summary)
 | # | Date | Decision | Why |
@@ -255,6 +254,13 @@
 | 232 | 2026-11-23 | Grafana **"AI (Week 7)" row**: requests, fallback rate (orange 20 %, red 50 %), guard rejections, Gemini circuit state, seat-intent cache hit rate, AI p95, requests by feature/outcome, p95 by feature | Fallbacks and breaker state visible at a glance; provisioned from Git like the rest |
 | 233 | 2026-11-23 | AI drills as one probe (`load-tests/ai-drill-probe.ps1`) + one injected fault per run via OS env vars (F14: bad key, 200 ms time limit, global cap 2/min, missing model file, AI off) | Repeatable, no code changes to break things; users must always get a fallback, never a 5xx |
 | 234 | 2026-11-23 | **Prod: embeddings ON, heap `MaxRAMPercentage=60`** (prod compose only; image/local stay 70 %). Measured idle with the model: app-1 507.9 MiB, app-2 531.6 MiB (≈ +130 MiB native vs W6) | 540 MiB heap + ~130 MiB model + JVM overhead stays under 900 MB; 70 % (630 MiB heap) could hit the limit under load |
+| 235 | 2026-11-23 | **Security headers, one owner each** (`SecurityHeaders`, both chains): Spring sends nosniff, `X-Frame-Options: DENY`, no-store, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy`, and `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'…` on `/api/**` only; **Spring HSTS off**. Nginx owns HSTS (+ nosniff) for the whole host with `proxy_hide_header`, adds `Referrer-Policy` only when upstream sent none (`map`) | Prod sent HSTS twice (W5·D5 carry-over); TLS ends at Nginx, which also serves Grafana; content headers must also exist locally/in tests; Swagger UI (outside `/api/`) keeps working; `no-referrer` on the Google redirect survives |
+| 236 | 2026-11-23 | CORS methods `GET, POST, DELETE` only; `CorsProperties` refuses `*`, wildcards, paths, trailing slashes at startup | The only methods the API maps; a config typo can't silently widen CORS |
+| 237 | 2026-11-23 | **Input limits:** `RequestBodyLimitFilter` refuses `Content-Length` > 1 MB with **413 `PAYLOAD_TOO_LARGE`** (ProblemDetail via the MVC resolver, before parsing); Tomcat headers 8 KB, swallow 1 MB, form 64 KB; `@Size` caps on hold seat ids (≤ 50) and show prices (≤ 10 sections); chunked bodies capped only by Nginx (accepted) | Same limit as Nginx's `client_max_body_size`, also without Nginx; DTO audit found only those two unbounded collections; business codes (TOO_MANY_SEATS) unchanged |
+| 238 | 2026-11-23 | **gitleaks v8.30.1** (Docker, pinned) over the **full history** as CI job `Secret scan (gitleaks)` (fetch-depth 0, redacted, not a required check); `.gitleaks.toml` default rules + `.env*.example`; reviewed false positives by **fingerprint** in `.gitleaksignore` | Public repo: history matters as much as the tree; fingerprints never loosen a rule for a whole file; a real finding means rotate first |
+| 239 | 2026-11-23 | **ADR-001 revisit:** stay on Boot 4.1.2 (latest 4.1.x); logback CVE-2026-19880 / -104721 still not applicable (MDCBasedDiscriminator/SiftingAppender unused, fix only in 1.6.x); jackson-databind 3.1.8 override kept; WireMock stays 3.13.2 (4.x still beta) | Policy items 3–5; nothing new in compile scope |
+| 240 | 2026-11-23 | **ADR-019 `DemoShowTopUpJob`** (catalog), 03:30 IST: every PUBLISHED event keeps **3 upcoming shows** (latest + 7 days, same venue/time/per-seat prices); `INSERT … ON CONFLICT DO NOTHING` skips taken slots (unique start, exclusion constraint) and retries the next day; one transaction under `pg_try_advisory_xact_lock`; caches evicted via `ShowScheduledEvent` | Seed shows were dated from the migration date: on prod the first events run out in early December, the catalog would be empty by the demo weeks; no truncate/re-seed (history, FKs, in-flight payments) |
+| 241 | 2026-11-23 | **ADR-019 `DemoBookingResetJob`** (payment), 03:30 IST: demo account only, CONFIRMED ≥ 12 h, **only when the refund is 100 %**, through `PaidCancellationService.cancel`; HELD/PAYMENT_PENDING never selected; kill switch `SEATLOCK_DEMO_RESET_ENABLED` for both jobs | Same locks, seat release and refund outbox as a user's Cancel; a job never makes partial-refund decisions; idempotent, safe on 2 instances |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -349,6 +355,9 @@
 | App memory with the ONNX model (local 2-instance stack, prod profile, idle, model loaded + indexed) | **app-1 507.9 MiB, app-2 531.6 MiB** (W6 without the model: ~370–405 MiB) | `docker stats --no-stream seatlock-app-1 seatlock-app-2` | 2026-11-23 |
 | Image build with Spring AI + ONNX (local, cold) | 171 s (go-offline 73 s, package 25 s, export 30 s) | `docker compose ... up -d --build` | 2026-11-23 |
 | Tests | ~617 (+1 `RagConfigTest`; count to confirm in CI) | `mvnw verify` / CI | 2026-11-23 |
+| Tests | **637**, 0 failures; JaCoCo gate met | `mvnw verify` (local) | 2026-11-23 |
+| Secret scan | gitleaks v8.30.1, full history (145 commits, 3.95 MB): 2 findings, both one false positive (test UUID) → fingerprinted; re-run **0 leaks** | `docker run zricethezav/gitleaks:v8.30.1 … gitleaks git` | 2026-11-23 |
+| Local response headers | nosniff, XFO DENY, Referrer-Policy, Permissions-Policy, API CSP present; **no HSTS from the app** | `curl.exe -D -` on `/api/v1/system/time` | 2026-11-23 |
 
 ## Accounts & Config (no secrets here, only where they live)
 | Item | Status | Where stored |
@@ -1841,3 +1850,39 @@
 - Lessons: measure per use case before setting time limits (one 4 s limit didn't fit both features); a model's reasoning time varies far more than prompt size suggests; optional features must fail closed to "off", not to "app down"; libraries can ship models inside jars (check before planning downloads); evaluate on paraphrased sets and report tuned runs as tuned
 - Open before v1.0.0: eval numbers, F14 results, prod AI rollout
 - Risks for Week 8: demo-data reset job touching live tables (must never delete real bookings mid-payment); security headers duplicated between Spring and Nginx; the final prod deploy with all features on a 4 GB VM; time for README/video
+
+### Week 8 · Day 1: Security hardening + nightly demo upkeep (planned Wed, Dec 30; done Mon, Nov 23, 2026)
+**Status:** ✅ Done locally (prod: Java part with the merge; Nginx part with the W8·D2 infra copy)
+**Built:**
+- `SecurityHeaders` for both filter chains (Spring HSTS off, Referrer-Policy, Permissions-Policy, API-only CSP); Nginx template: `proxy_hide_header` HSTS/nosniff, own HSTS + nosniff, Referrer-Policy default via `map`
+- CORS methods narrowed; `CorsProperties` exact-origin validation
+- `RequestBodyLimitFilter` + `PayloadTooLargeException` → 413 `PAYLOAD_TOO_LARGE`; Tomcat limits in `application.yml`; `@Size` on `CreateHoldRequest.seatIds` and `CreateShowRequest.sectionPricesPaise`
+- gitleaks: CI job, `.gitleaks.toml`, `.gitleaksignore` (2 fingerprints); full-history scan clean
+- ADR-001 revisit section; `docs/SECURITY.md` (headers, CORS, limits, secret scan, check log)
+- `DemoShowTopUpJob` (catalog), `DemoBookingResetJob` (payment), `BookingService.confirmedBookingIds`, `BookingRepository` finder with `Limit`, `UserService.findIdByEmail`; `seatlock.demo.*` config + `SEATLOCK_DEMO_RESET_ENABLED`; ADR-019
+- Tests: `SecurityHeadersIntegrationTest` (5), `CorsPropertiesTest` (8), `DemoShowTopUpIntegrationTest` (3), `DemoBookingResetIntegrationTest` (1), `DemoBookingResetJobTest` (3)
+**Files created/changed:**
+- `identity\security\{SecurityHeaders, SecurityConfig}.java`; `identity\oauth\OAuth2LoginConfig.java`; `identity\application\UserService.java`
+- `common\config\{CorsConfig, CorsProperties}.java`; `common\web\RequestBodyLimitFilter.java`; `common\exception\{PayloadTooLargeException, GlobalExceptionHandler}.java`
+- `booking\api\CreateHoldRequest.java`; `booking\application\BookingService.java`; `booking\domain\BookingRepository.java`; `catalog\api\CreateShowRequest.java`; `catalog\application\DemoShowTopUpJob.java`; `payment\application\DemoBookingResetJob.java`; `application.yml`
+- Tests: `common\config\{SecurityHeadersIntegrationTest, CorsPropertiesTest}`, `catalog\application\DemoShowTopUpIntegrationTest`, `payment\application\{DemoBookingResetIntegrationTest, DemoBookingResetJobTest}`
+- `infra\nginx\templates\seatlock.conf.template`; `.github\workflows\ci.yml`; `.gitleaks.toml`, `.gitleaksignore`; `.env.example`
+- `docs\SECURITY.md`, `docs\decisions\{ADR-001-dependency-vulnerability-triage.md, ADR-019-demo-upkeep.md, README.md}`, `progress.md`
+**Decisions:**
+- See Decisions Log #235–#241
+**Metrics recorded:**
+- 637 tests; gitleaks 0 leaks after triage; local headers (see Metrics table)
+**Problems & fixes:**
+- gitleaks `generic-api-key` on a made-up UUID in `IdempotencyInterceptorTest` (2 commits) → fingerprints in `.gitleaksignore`; ignore path passed explicitly in the container
+- Found while planning: seed shows run out weeks after the first prod migration → show top-up job (ADR-019)
+- Found while checking prod: `infra/` and `.env.prod` on the VM are still the W6 copy (only the image auto-deploys) → one rollout on W8·D2
+**Carry-over:**
+- Prod rollout + prod header check (W8·D2); F14 results; eval numbers; IntelliJ dependency scan before v1.0.0
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- Security headers (HSTS, CSP, frame options, referrer/permissions policy), edge vs app ownership, duplicate headers
+- CORS exact origins, methods, credentials; config validation at startup
+- Input limits at the edge and in the app; 413 vs 400; DoS by large or deeply nested bodies
+- Secret scanning of Git history; false positives; rotate-before-rewrite
+- Dependency CVE triage: reachability (applicable or not), patch vs minor upgrades
+- Scheduled jobs on several instances: advisory locks, idempotent work, `ON CONFLICT DO NOTHING` with exclusion constraints
+**Commit:** `feat(common): security headers, input limits, secret scan, nightly demo upkeep (W8·D1)`
