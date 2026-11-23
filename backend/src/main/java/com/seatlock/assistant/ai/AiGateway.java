@@ -23,6 +23,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Predicate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -97,10 +98,31 @@ public class AiGateway implements AutoCloseable {
     }
 
     /**
+     * Per-call options. {@code accept}: the caller's validation of the raw answer; a rejected answer ends as
+     * {@code INVALID_OUTPUT} (audited, counted, fallback). {@code chargeUserQuota = false} skips the per-user daily
+     * quota (admin eval runs only); the global caps always apply.
+     */
+    public record Options(Predicate<String> accept, boolean chargeUserQuota) {
+        public static final Options DEFAULT = new Options(answer -> true, true);
+
+        public static Options validatedBy(Predicate<String> accept) {
+            return new Options(accept, true);
+        }
+
+        public Options withoutUserQuota() {
+            return new Options(accept, false);
+        }
+    }
+
+    /**
      * Ask the model. Never throws for "AI unavailable" (that's a {@link AiResult.Fallback}); throws only for caller
      * errors: input too long (400) or the user's daily AI quota spent (429).
      */
     public AiResult complete(AiFeature feature, long userId, String systemPrompt, String userText) {
+        return complete(feature, userId, systemPrompt, userText, Options.DEFAULT);
+    }
+
+    public AiResult complete(AiFeature feature, long userId, String systemPrompt, String userText, Options options) {
         if (userText == null || userText.isBlank()) {
             throw new InvalidRequestException("AI_INPUT_EMPTY", "Please type a request");
         }
@@ -113,10 +135,12 @@ public class AiGateway implements AutoCloseable {
         if (!llm.enabled()) {
             return fallback(request, AiOutcome.DISABLED);
         }
-        RateLimiter.Decision daily = limiter.tryConsume("ai:user-day:" + userId, props.quota().userDaily());
-        if (!daily.allowed()) {
-            finish(request, AiOutcome.USER_QUOTA, null, null);
-            throw new RateLimitedException(daily.retryAfterSeconds());
+        if (options.chargeUserQuota()) {
+            RateLimiter.Decision daily = limiter.tryConsume("ai:user-day:" + userId, props.quota().userDaily());
+            if (!daily.allowed()) {
+                finish(request, AiOutcome.USER_QUOTA, null, null);
+                throw new RateLimitedException(daily.retryAfterSeconds());
+            }
         }
         CircuitBreaker.State state = circuitBreaker.getState();
         if (state == CircuitBreaker.State.OPEN || state == CircuitBreaker.State.FORCED_OPEN) {
@@ -126,10 +150,10 @@ public class AiGateway implements AutoCloseable {
                 || !limiter.tryConsume("ai:global:minute", props.quota().globalPerMinute()).allowed()) {
             return fallback(request, AiOutcome.QUOTA);
         }
-        return call(request, systemPrompt, userText);
+        return call(request, systemPrompt, userText, options.accept());
     }
 
-    private AiResult call(Request request, String systemPrompt, String userText) {
+    private AiResult call(Request request, String systemPrompt, String userText, Predicate<String> accept) {
         long start = System.nanoTime();
         Callable<LlmClient.LlmReply> timed = timeLimiter.decorateFutureSupplier(
                 () -> executor.submit(() -> llm.complete(systemPrompt, userText)));
@@ -140,6 +164,10 @@ public class AiGateway implements AutoCloseable {
             if (reply == null || reply.text() == null || reply.text().isBlank()) {
                 finish(request, AiOutcome.ERROR, ms, reply);
                 return new AiResult.Fallback(AiOutcome.ERROR);
+            }
+            if (!accept.test(reply.text())) {
+                finish(request, AiOutcome.INVALID_OUTPUT, ms, reply);
+                return new AiResult.Fallback(AiOutcome.INVALID_OUTPUT);
             }
             finish(request, AiOutcome.OK, ms, reply);
             return new AiResult.Answer(reply.text().strip(), llm.model(), ms);
@@ -180,7 +208,8 @@ public class AiGateway implements AutoCloseable {
 
     private record Request(AiFeature feature, long userId, int inputChars, String inputSha256) {}
 
-    static String sha256(String text) {
+    /** Lowercase hex SHA-256 of the UTF-8 text (audit rows, cache keys). */
+    public static String sha256(String text) {
         try {
             return HexFormat.of().formatHex(
                     MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8)));

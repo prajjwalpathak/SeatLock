@@ -1,7 +1,7 @@
 import type { CSSProperties } from 'react'
 import { formatPaise } from '../../lib/format'
 import type { SeatView, ShowSeatMap } from '../../types/api'
-import { groupRows, SEAT_STYLES, seatAriaLabel, sectionName } from './seats'
+import { groupRows, SEAT_STYLES, seatAriaLabel, sectionName, SUGGESTED_RING } from './seats'
 
 type Props = {
   seatMap: ShowSeatMap
@@ -11,6 +11,8 @@ type Props = {
   mine?: ReadonlySet<number>
   /** Nothing can be selected (e.g. while holding, or the show has started). */
   readOnly?: boolean
+  /** Seats the Seat Finder suggests: ringed while still available and not selected. */
+  suggested?: ReadonlySet<number>
 }
 
 /**
@@ -18,7 +20,7 @@ type Props = {
  * (a skipped column) renders as empty space. A section heading appears where the section changes.
  * Seats are native <button>s: focusable, Enter/Space work, aria-pressed announces selection.
  */
-export function SeatMap({ seatMap, selected, onToggle, mine = NONE, readOnly = false }: Props) {
+export function SeatMap({ seatMap, selected, onToggle, mine = NONE, readOnly = false, suggested = NONE }: Props) {
   const rows = groupRows(seatMap.seats)
   const priceOf = new Map(seatMap.sections.map((s) => [s.section, s.pricePaise]))
   // One column per grid column, every cell the same size (--seat changes with the breakpoint).
@@ -53,6 +55,7 @@ export function SeatMap({ seatMap, selected, onToggle, mine = NONE, readOnly = f
                       seat={seat}
                       selected={selected.has(seat.seatId)}
                       mine={mine.has(seat.seatId)}
+                      suggested={suggested.has(seat.seatId)}
                       readOnly={readOnly}
                       onToggle={onToggle}
                     />
@@ -86,11 +89,12 @@ type SeatButtonProps = {
   seat: SeatView
   selected: boolean
   mine: boolean
+  suggested: boolean
   readOnly: boolean
   onToggle: Props['onToggle']
 }
 
-function SeatButton({ seat, selected, mine, readOnly, onToggle }: SeatButtonProps) {
+function SeatButton({ seat, selected, mine, suggested, readOnly, onToggle }: SeatButtonProps) {
   const available = seat.status === 'AVAILABLE' && !mine
   const style = mine
     ? SEAT_STYLES.mine
@@ -101,12 +105,14 @@ function SeatButton({ seat, selected, mine, readOnly, onToggle }: SeatButtonProp
         : seat.status === 'BOOKED'
           ? SEAT_STYLES.booked
           : SEAT_STYLES.available
-  const label = mine ? `${seatAriaLabel({ ...seat, status: 'AVAILABLE' }).replace(/, available$/, '')}, your hold` : seatAriaLabel(seat)
+  const ringed = suggested && available && !selected
+  const baseLabel = mine ? `${seatAriaLabel({ ...seat, status: 'AVAILABLE' }).replace(/, available$/, '')}, your hold` : seatAriaLabel(seat)
+  const label = ringed ? `${baseLabel}, suggested` : baseLabel
 
   return (
     <button
       type="button"
-      className={`${BASE} ${style} disabled:cursor-not-allowed`}
+      className={`${BASE} ${style} ${ringed ? SUGGESTED_RING : ''} disabled:cursor-not-allowed`}
       style={{ gridColumnStart: seat.gridCol + 1 }}
       disabled={!available || readOnly}
       aria-pressed={available && !readOnly ? selected : undefined}

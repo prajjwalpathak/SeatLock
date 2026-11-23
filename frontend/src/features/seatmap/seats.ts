@@ -52,3 +52,6 @@ export const SEAT_STYLES = {
   mine: 'border-emerald-600 bg-emerald-600 text-white',
   booked: 'border-slate-200 bg-slate-200 text-slate-400',
 } as const
+
+/** Extra ring on available seats the Seat Finder suggests (added on top of the available style). */
+export const SUGGESTED_RING = 'ring-2 ring-emerald-500 ring-offset-1'

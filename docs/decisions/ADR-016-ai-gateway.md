@@ -34,6 +34,10 @@
    `seatlock.ai.latency{feature}` (histogram), plus Resilience4j's own breaker meters.
 8. **Admin check:** `GET /api/v1/admin/ai/status` (enabled, model, circuit state), `POST /api/v1/admin/ai/ping`.
 
+9. **Validation hook (W7·D3):** `AiGateway.Options.validatedBy(...)` rejects an answer the caller can't accept →
+   `INVALID_OUTPUT` (counted, audited with tokens; the breaker records a success: the model did answer).
+   `withoutUserQuota()` exists only for the admin intent eval; global caps always apply.
+
 ## Consequences
 - Every AI feature needs a non-AI fallback; that is required by the plan anyway.
 - A timed-out call may keep its pool thread until the HTTP client gives up; the bounded pool plus the breaker

@@ -32,6 +32,12 @@ public class SeatFinderService {
     /** {@code holdsLive = false}: Redis couldn't be read, so held seats may be suggested (holding them will fail). */
     public record Result(long showId, boolean holdsLive, List<SeatOption> options) {}
 
+    /** The show's section names (404 for unknown / unbookable shows): the only sections the AI may use. */
+    public Set<String> sectionsOf(long showId) {
+        return catalog.getSeatMap(showId).sections().stream().map(ShowSeatMapResponse.SectionPrice::section)
+                .collect(Collectors.toCollection(TreeSet::new));
+    }
+
     public Result find(long showId, SeatPreferences prefs) {
         if (prefs.count() > maxSeats) {
             throw new InvalidRequestException("TOO_MANY_SEATS", "You can hold up to " + maxSeats + " seats");

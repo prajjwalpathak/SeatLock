@@ -3,15 +3,16 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 7 · Day 3 (not started, planned Thu Dec 24): `SeatIntent` structured-output parser (Gemini) + validation + Redis cache + fallback to the manual form, 40-phrase intent eval, Seat Finder UI. Branch `w7-d3` (create with `git switch -c w7-d3 origin/main` after the W7·D2 PR is squash-merged). Nothing to prepare
-- **Last completed:** Week 7 · Day 2: Seat Finder algorithm (runs of consecutive columns, sliding window, 45/45/10 score, top 3 non-overlapping) + public `POST /shows/{id}/seat-finder` (planned Wed Dec 23, done Mon Nov 23)
+- **Current day:** Week 7 · Day 4 (not started, planned Sat Dec 26): pgvector migration + HNSW index, local ONNX embeddings (all-MiniLM-L6-v2, model baked into the image), policy docs, async ingestion with content hashing, retrieval + recall@4 eval (30 questions). Branch `w7-d4` (create with `git switch -c w7-d4 origin/main` after the W7·D3 PR is squash-merged). **Prepare:** download the ONNX model files (URLs given at the start of D4)
+- **Last completed:** Week 7 · Day 3: AI Seat Finder (`SeatIntent` JSON from Gemini, validated in code, 24 h Redis cache, code-side defaults and per-seat budget, fallback to the manual form), 40-phrase eval + script, Seat Finder UI with suggested seats ringed on the map (planned Thu Dec 24, done Mon Nov 23)
+- **Earlier:** Week 7 · Day 2: Seat Finder algorithm (runs of consecutive columns, sliding window, 45/45/10 score, top 3 non-overlapping) + public `POST /shows/{id}/seat-finder` (planned Wed Dec 23, done Mon Nov 23)
 - **Before that:** Week 7 · Day 1: AI gateway (Spring AI 2.0.2 + Gemini 3.5 Flash-Lite behind an `LlmClient` port, Resilience4j breaker + 4 s time limit, 4-thread bulkhead, Bucket4j AI quotas, `ai_requests` audit, admin status/ping); first live Gemini calls OK (planned Tue Dec 22, done Mon Nov 23)
 - **Live URLs:** Frontend https://seatlock-nu.vercel.app · Backend https://seatlock-prajjwal.duckdns.org · Swagger https://seatlock-prajjwal.duckdns.org/swagger-ui.html · Version https://seatlock-prajjwal.duckdns.org/api/v1/system/version · Grafana https://seatlock-prajjwal.duckdns.org/grafana/ (admin login)
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public) · CI + Deploy badges in README · `main` protected (ruleset `protect-main`)
 - **Hosting:** Azure VM `seatlock-vm` (India South Central, B2als_v2 x64) + Vercel; images from GHCR (ADR-005, #62, #71–#74, #167); **2 app instances** since W5·D5 + Prometheus/Grafana since W6·D2; **AI off on prod** (`SEATLOCK_AI_PROVIDER` unset) until W7·D6; decommission after ~2–3 months
 - **Git workflow (from W6·D2):** **one task per day** = all plan tasks → one verify/test block → one one-line commit + push on the daily branch → PR on GitHub → squash-merge when CI is green; next branch with `git switch -c wN-dM origin/main`; never push to a branch after its PR is merged; **never use GitHub's "Update branch" / web conflict editor**; **start each day by checking prod is on `main`** (deploy.md section 3d) (#9, #75, #116, #141, #142, #176, #181, #202)
-- **Carry-overs:** W7·D1 full `mvnw verify` result not reported locally → CI on the PR is the gate · Gemini key + `SEATLOCK_AI_PROVIDER` on the VM → W7·D6 · Gemini latency vs the 4 s limit (one call 2.9 s) → check in Grafana W7·D6 · duplicate `Strict-Transport-Security` (Spring + Nginx) → W8·D1 · same-site frontend/API for privacy blockers (F7) → W8 stretch · JetBrains license · IntelliJ dependency scan · refund status webhooks (stretch) · WireMock 4.x re-check (W8·D1)
-- **Schedule:** **~30 days ahead** (W7·D2 done Mon Nov 23 instead of Wed Dec 23); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
+- **Carry-overs:** **intent eval numbers** (run 1 total + run 2 after the prompt fix: correct/40, fallbacks, p50/p95) → record at the start of W7·D4 · W7·D1 full `mvnw verify` result not reported locally → CI on the PR is the gate · Gemini key + `SEATLOCK_AI_PROVIDER` on the VM → W7·D6 · Gemini latency vs the 4 s limit (one call 2.9 s) → check in Grafana W7·D6 · duplicate `Strict-Transport-Security` (Spring + Nginx) → W8·D1 · same-site frontend/API for privacy blockers (F7) → W8 stretch · JetBrains license · IntelliJ dependency scan · refund status webhooks (stretch) · WireMock 4.x re-check (W8·D1)
+- **Schedule:** **~31 days ahead** (W7·D3 done Mon Nov 23 instead of Thu Dec 24); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
 - **Top risk:** Week 7 AI: free-tier quota (500 RPD shared by local + prod), structured output with Spring AI 2.0 + Gemini on D3, ONNX embedding model in the image vs the 900 MB app limit on D4; keep checking prod is on `main` each morning (deploy.md section 3d, F13)
 
 ## Decisions Log (ADR summary)
@@ -229,6 +230,12 @@
 | 210 | 2026-11-23 | **Seat Finder algorithm** (`assistant.seatfinder.SeatFinder`, pure Java): filter (available, per-seat budget, sections) → per-row runs of consecutive `gridCol` (aisle/taken seat breaks a run) → sliding window of `count` → score 0–100 = **45 % row centre + 45 % row depth** (FRONT/MIDDLE/BACK; ANY peaks at 40 % back) **+ 10 % under budget**; `aisle` is a hard filter; top 3 **non-overlapping**, ties front row then leftmost | O(seats), deterministic, testable to the exact score; "together" is the point of the feature, so groups are always adjacent |
 | 211 | 2026-11-23 | `POST /api/v1/shows/{id}/seat-finder` **public** (like the seat map; suggests only, holding still needs sign-in), rate-limit policy `seat-finder` 60/min per IP, `no-store`; reads the live map via catalog's public `ShowCatalogService` (Redis holds excluded); `count` ≤ hold limit (400 `TOO_MANY_SEATS`), unknown section → 400 `UNKNOWN_SECTION` + the venue's `sections` | Module rule (#16); the AI parser (D3) and the manual form share one path; 400 bodies now carry `getProperties()` |
 | 212 | 2026-11-23 | Algorithm works on its own `SeatLayout` / `SeatPreferences` records, not catalog DTOs | Unit tests build halls directly; the D3 `SeatIntent` maps to the same `SeatPreferences` |
+| 213 | 2026-11-23 | **AI Seat Finder** `POST /shows/{id}/seat-finder/ask` (signed in, `ai` rate limit): the model returns `SeatIntent` JSON `{count, budgetRupees, budgetIsTotal, sections, aisle, rows}`; **validated in code** (ranges, venue sections only, known row values) via the gateway's validation hook → else `INVALID_OUTPUT` + manual form | AI interprets, code decides; a bad answer can't reach the finder |
+| 214 | 2026-11-23 | **Decisions in code, shown as `assumptions`:** no count → 2 seats; a total budget is split per seat in paise, rounded down (the model only says the number and whether it's a total) | The model never computes money; the user sees what was assumed |
+| 215 | 2026-11-23 | Parsed intents cached in Redis 24 h: key `ai:seat-intent:v{n}:` + SHA-256(normalized text + venue sections), re-validated on read, errors ignored; **version bumped on every prompt change** (now v2) | Repeated phrases cost no quota; a prompt change never reuses old interpretations |
+| 216 | 2026-11-23 | Intent eval: 40 phrases with expected **final** filters (`backend/src/test/resources/ai-eval/seat-intents.json`), run by `load-tests/ai-intent-eval.ps1` through admin-only `POST /admin/ai/seat-intent` (no cache, **no per-user quota**, global caps apply, paced 5.5 s); not in `mvnw verify` | Measurable accuracy for the resume; CI never calls the model; 40 calls > the 30/day user quota |
+| 217 | 2026-11-23 | Prompt rule after eval run 1 (phrase 18 "best seats in the house for two" → PLATINUM/FRONT): vague quality words map to no section and row ANY; both runs recorded, run 2 marked as tuned on the same set | The finder already ranks the best view; a guessed section hides cheaper good seats; honest numbers |
+| 218 | 2026-11-23 | Seat Finder UI: text box (signed in) + manual filters (everyone) in `SeatFinderPanel`; options ringed on the map (legend "Suggested"), "Select these seats" fills the selection; understood filters pre-fill the form | Hold stays the only claiming step; the fallback is always one click away |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -313,6 +320,8 @@
 | Tests | ~552 (523 + 13 `AiGatewayTest` + 5 audit + 3 admin AI + 8 matrix rows; count to confirm in CI) | `mvnw verify` / CI | 2026-11-23 |
 | Seat Finder on the seed (show 5, workshop) | `{count 2, aisle, FRONT}` → A11–A12 / A13–A14 (score 84), B11–B12 (80); ₹800 budget → 0 options (cheapest ₹1,200); `BALCONY` → 400 with the venue's sections | local API | 2026-11-23 |
 | Tests | ~570 (+13 `SeatFinderTest`, +5 `SeatFinderApiIntegrationTest`; count to confirm in CI) | `mvnw verify` / CI | 2026-11-23 |
+| Seat intent eval (40 phrases) | run 1: phrase 18 failed (guessed PLATINUM/FRONT for "best seats"); totals + run 2 to be recorded W7·D4 | `load-tests/ai-intent-eval.ps1` | 2026-11-23 |
+| Tests | ~590 (+14 `SeatIntentParserTest`, +2 `AiGatewayTest`, +4 `SeatIntentApiIntegrationTest`; count to confirm in CI) | `mvnw verify` / CI | 2026-11-23 |
 
 ## Accounts & Config (no secrets here, only where they live)
 | Item | Status | Where stored |
@@ -1669,3 +1678,36 @@
 - Suggest vs commit: why a finder never holds (atomic hold stays the only write)
 - Module boundaries: consuming another module's public read service; own domain records for the algorithm
 **Commit:** `feat(assistant): Seat Finder sliding-window algorithm and manual-filter API (W7·D2)`
+
+### Week 7 · Day 3: AI Seat Finder: intent parser, cache, eval, UI (planned Thu, Dec 24; done Mon, Nov 23, 2026)
+**Status:** ⚠️ Done; eval totals not yet recorded (carried to W7·D4)
+**Built:**
+- `AiGateway.Options` (`validatedBy` → `INVALID_OUTPUT`; `withoutUserQuota` for the eval); `sha256` public
+- `assistant.seatfinder`: `SeatIntent`, `SeatIntentParser` (prompt with venue sections + injection guard, JSON extraction, validation, code-side defaults/per-seat budget, Redis cache, cache hit/miss meter `seatlock.ai.cache`); `SeatFinderService.sectionsOf`
+- `assistant.api`: `POST /api/v1/shows/{id}/seat-finder/ask` (`SeatAskRequest` / `SeatAskResponse`), admin `POST /api/v1/admin/ai/seat-intent`
+- Eval: `backend/src/test/resources/ai-eval/seat-intents.json` (40 cases), `load-tests/ai-intent-eval.ps1` (UTF-8 body for PowerShell 5.1, pacing, x/40, fallbacks, p50/p95, CSV)
+- Frontend: types, `api/seatFinder.ts`, `SeatFinderPanel`, `SeatMap` `suggested` ring + legend, seat page wiring (tsc + eslint clean)
+- Docs: architecture section 2n, ADR-016 item 9
+- Tests: `SeatIntentParserTest` (14), `AiGatewayTest` (+2), `SeatIntentApiIntegrationTest` (4, full text → options path through the cache with no model)
+**Files created/changed:**
+- `assistant\ai\AiGateway.java`; `assistant\seatfinder\{SeatIntent, SeatIntentParser, SeatFinderService}.java`; `assistant\api\{SeatAskRequest, SeatAskResponse, SeatFinderController, AdminAiController}.java`
+- Tests: `assistant\seatfinder\{SeatIntentParserTest, SeatIntentApiIntegrationTest}`, `assistant\ai\AiGatewayTest`; `src\test\resources\ai-eval\seat-intents.json`
+- `load-tests\ai-intent-eval.ps1`
+- Frontend: `src\types\api.ts`, `src\api\seatFinder.ts`, `src\features\seatmap\{SeatFinderPanel.tsx, SeatMap.tsx, SeatLegend.tsx, seats.ts}`, `src\pages\ShowSeatsPage.tsx`
+- `docs\architecture.md`, `docs\decisions\ADR-016-ai-gateway.md`, `progress.md`
+**Decisions:**
+- See Decisions Log #213–#218
+**Metrics recorded:**
+- Eval run 1 (partial, see Metrics table); tests ~590
+**Problems & fixes:**
+- Test compile error: Spring Data Redis 4 added `ValueOperations.set(K, V, Consumer<SetSpec>)`, so `set(anyString(), anyString(), any())` was ambiguous → `any(Duration.class)`
+- Eval phrase 18: model guessed PLATINUM/FRONT for "best seats" → prompt rule for vague quality words, cache prefix v1 → v2
+**Carry-over:**
+- Record eval run 1 totals and run 2 (after the prompt fix) at the start of W7·D4
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- Structured output from LLMs: fixed JSON shapes, validating untrusted model output, defaults decided in code
+- Prompt injection: treating user text as data, bounding the effect with validation
+- Caching LLM results: key design (normalization, context in the key, versioning), re-validation on read
+- Evaluating an LLM feature: labelled sets, scoring final outputs, overfitting the prompt to the eval, reporting honestly
+- Graceful degradation in the UI: AI path plus always-available manual path
+**Commit:** `feat(assistant): AI seat intent parser with validation, cache, eval and Seat Finder UI (W7·D3)`
