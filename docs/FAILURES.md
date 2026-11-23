@@ -18,6 +18,7 @@ Each drill can be repeated with the commands shown.
 | F11 | 25–50 × 503 `HOLDS_UNAVAILABLE` in a 500-user flash sale | k6 `unexpected_responses` threshold + app logs | a fail-fast timeout must leave headroom for a saturated CPU; under 2 GB the JVM silently picks Serial GC |
 | F12 | Redis granted a hold on a seat booked a moment earlier (2 winners per slot, 409 at checkout) | k6 per-slot threshold `seat_wins{slot} <= 1` | a pre-check is a snapshot: re-check after a claim whenever the other side releases its claim after committing |
 | F13 | Prod stuck on W6·D2 for 18 h: 3 deploys failed (`deploy.sh: Permission denied`) + a smoke test that could only see one instance | prod check on W6·D6 (`/system/version` ≠ `main`) | red Deploy runs need an alarm or a daily check; every copy to Linux must restore exec bits; a check whose two requests alias with round robin tests nothing |
+| F14 | AI failure drills: bad key, timeouts, spent quota, embedding model failing to load (+ W7·D5: 7/9 refund answers timing out) | `load-tests/ai-drill-probe.ps1` with one fault injected per run | AI is optional by design: every fault must end in a fallback the user can act on, never a 5xx; measure latency per use case before choosing time limits |
 | (W4·D3) | Webhook secret with `$` cut by Compose interpolation | prod delivery logs | no `$` in env files; hex secrets; check compose warnings |
 | (W4·D5) | HTTP/2 h2c upgrade / stream resets to the provider | WireMock over real HTTP | pin provider clients to HTTP/1.1 |
 
@@ -278,3 +279,28 @@ map through the LB every 200 ms.
 - **Lesson:** a red deploy that blocks nothing is invisible: check prod's revision, don't assume. And a check built
   from two interleaved requests against a strict round robin can't see half the system.
 
+## F14. AI failure drills (W7·D6, local app)
+
+**Setup:** backend started from PowerShell so one fault can be injected per run (OS environment variables override
+`.env`), then the probe, then stop the app (Ctrl+C) and clear the variable:
+```powershell
+cd D:\Prajjwal\Code\SeatLock\backend
+$env:<FAULT>="<value>"; .\mvnw.cmd spring-boot:run      # one fault per run, see the table
+# second window:
+cd D:\Prajjwal\Code\SeatLock
+powershell -ExecutionPolicy Bypass -File .\load-tests\ai-drill-probe.ps1 -Pings 6 -RefundBookingId <demo user's paid booking>
+# afterwards: Remove-Item Env:<FAULT>
+```
+
+| Drill | Fault (`$env:`) | Expected (what users get) | Result |
+|---|---|---|---|
+| D1 bad key | `GEMINI_API_KEY="invalid-key"` | pings ERROR ×5 then CIRCUIT_OPEN (no call for 30 s); Seat Finder → manual form; Refund Assistant → TEMPLATE with excerpts | _to record_ |
+| D2 slow model | `RESILIENCE4J_TIMELIMITER_INSTANCES_GEMINI_TIMEOUTDURATION="200ms"` | pings and Seat Finder TIMEOUT after 0.2 s, breaker opens; Refund Assistant (own 8 s limit) still answers until the shared breaker opens | _to record_ |
+| D3 global cap | `SEATLOCK_AI_QUOTA_GLOBALPERMINUTE_CAPACITY="2"`, `SEATLOCK_AI_QUOTA_GLOBALPERMINUTE_REFILLTOKENS="2"`; first `docker exec seatlock-redis redis-cli DEL ai:global:minute` (a bucket keeps its old size until it expires) | pings 1–2 OK, then QUOTA; no Gemini call beyond the cap | _to record_ |
+| D4 model won't load | `SEATLOCK_RAG_ONNX_MODELURI="file:/missing/model.onnx"` | app starts, ERROR log `RAG DISABLED: the embedding model failed to load`, status embeddings `none`; Refund Assistant answers with 0 excerpts; everything else unaffected | _to record_ |
+| D5 AI off | `SEATLOCK_AI_PROVIDER="none"` | DISABLED everywhere, no quota spent; Seat Finder filters + refund template work | _to record_ |
+
+**Found before the drills (W7·D5, live):** 7 of 9 Refund Assistant calls hit the 4 s limit while answered ones took
+~1.6 s with the same prompt size. The guardrails held (template shown, breaker opened) but the feature was useless.
+Fix: own 8 s limit for the Refund Assistant, Gemini `thinking-level: LOW`, output cap 400 tokens → 4/4 OK, avg 1.7 s,
+max 2.6 s (ADR-016 item 10).

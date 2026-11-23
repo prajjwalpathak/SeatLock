@@ -867,6 +867,506 @@
         },
         "overrides": []
       }
+    },
+    {
+      "type": "row",
+      "id": 15,
+      "title": "AI (Week 7)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 36
+      },
+      "panels": []
+    },
+    {
+      "id": 16,
+      "type": "stat",
+      "title": "AI requests",
+      "description": "All AI requests in the range (Seat Finder, Refund Assistant, admin ping).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 0,
+        "y": 37
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(seatlock_ai_requests_total{instance=~\"$instance\"}[$__range]))",
+          "legendFormat": "__auto",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "decimals": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 17,
+      "type": "stat",
+      "title": "AI fallback rate",
+      "description": "Share of AI requests that ended in a fallback (anything but OK): users got the manual form or the template.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 4,
+        "y": 37
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(seatlock_ai_requests_total{instance=~\"$instance\",outcome!=\"OK\"}[$__range])) / clamp_min(sum(increase(seatlock_ai_requests_total{instance=~\"$instance\"}[$__range])), 1)",
+          "legendFormat": "__auto",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.2
+              },
+              {
+                "color": "red",
+                "value": 0.5
+              }
+            ]
+          },
+          "mappings": [],
+          "decimals": 1
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 18,
+      "type": "stat",
+      "title": "Guard rejections",
+      "description": "Answers the model gave that failed our validation (INVALID_OUTPUT): wrong JSON for seat intents, or a ₹ amount / % the refund engine did not compute.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 8,
+        "y": 37
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(seatlock_ai_requests_total{instance=~\"$instance\",outcome=\"INVALID_OUTPUT\"}[$__range]))",
+          "legendFormat": "__auto",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "decimals": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 19,
+      "type": "stat",
+      "title": "Gemini circuit",
+      "description": "Resilience4j breaker \"gemini\": CLOSED = calls go through, HALF OPEN = trial calls, OPEN = calls skipped (fallbacks) for 30 s.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 12,
+        "y": 37
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "2 * max(resilience4j_circuitbreaker_state{instance=~\"$instance\",name=\"gemini\",state=~\"open|forced_open\"}) + max(resilience4j_circuitbreaker_state{instance=~\"$instance\",name=\"gemini\",state=\"half_open\"})",
+          "legendFormat": "__auto",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 2
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "CLOSED",
+                  "color": "green"
+                },
+                "1": {
+                  "text": "HALF OPEN",
+                  "color": "orange"
+                },
+                "2": {
+                  "text": "OPEN",
+                  "color": "red"
+                }
+              }
+            }
+          ],
+          "decimals": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 20,
+      "type": "stat",
+      "title": "Seat-intent cache hit rate",
+      "description": "Free-text seat requests answered from the Redis cache (no model call, no quota).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 16,
+        "y": 37
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(seatlock_ai_cache_total{instance=~\"$instance\",result=\"hit\"}[$__range])) / clamp_min(sum(increase(seatlock_ai_cache_total{instance=~\"$instance\"}[$__range])), 1)",
+          "legendFormat": "__auto",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "decimals": 1
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 21,
+      "type": "stat",
+      "title": "AI latency p95",
+      "description": "95th percentile of answered model calls in the range (all features).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 20,
+        "y": 37
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (increase(seatlock_ai_latency_seconds_bucket{instance=~\"$instance\"}[$__range])))",
+          "legendFormat": "__auto",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "decimals": 2
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "AI requests by feature and outcome",
+      "description": "Per minute. OK = model answered; everything else is a fallback reason.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 42
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (feature, outcome) (increase(seatlock_ai_requests_total{instance=~\"$instance\"}[1m]))",
+          "legendFormat": "{{feature}} {{outcome}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "AI latency p95 by feature",
+      "description": "Answered calls only. Time limits: Seat Finder 4 s, Refund Assistant 8 s.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 42
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, feature) (rate(seatlock_ai_latency_seconds_bucket{instance=~\"$instance\"}[$__rate_interval])))",
+          "legendFormat": "{{feature}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      }
     }
   ]
 }

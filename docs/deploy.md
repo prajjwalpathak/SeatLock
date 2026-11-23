@@ -173,6 +173,46 @@ git fetch -q; git log -1 --format=%h origin/main
 ```
 Different hash → GitHub **Actions → Deploy**, open the latest red run, fix, then **Re-run all jobs** (or Run workflow).
 
+## 3e. AI rollout (W7·D6)
+
+**1. Memory first (local 2-instance stack, prod profile, same image):** the ONNX model's native memory sits outside
+the JVM heap (`MaxRAMPercentage=70`), and prod gives each app 900 MB.
+```powershell
+cd D:\Prajjwal\Code\SeatLock          # .env has SEATLOCK_AI_PROVIDER, GEMINI_*, SEATLOCK_EMBEDDINGS=transformers
+docker compose --env-file .env -f infra/docker-compose.local.yml -f infra/docker-compose.scale.yml up -d --build
+docker stats --no-stream seatlock-app-1 seatlock-app-2     # idle, after "Policy ingestion" in the logs
+# then a few Refund Assistant questions through http://localhost:8088 and docker stats again
+```
+Enable embeddings on prod only if both apps stay well under 900 MiB (≥ 150 MiB headroom); otherwise keep
+`SEATLOCK_EMBEDDINGS=none` there (the Refund Assistant still answers, without excerpts).
+**Measured 2026-11-23 (local, prod profile, model loaded + indexed, idle):** app-1 507.9 MiB, app-2 531.6 MiB
+(was ~370–405 MiB without the model: ~+130 MiB native). Decision: embeddings ON in prod with the heap lowered to
+60 % of 900 MB in `docker-compose.prod.yml` (540 MiB heap + ~130 MiB model + metaspace/threads); watch Grafana's
+JVM heap panel and `docker stats` after the rollout.
+
+**2. Prod settings (on the VM, typed there; the key never goes through chat, Git or the laptop's history):**
+```bash
+# Run on the Azure VM (via ssh)
+cd ~/seatlock && nano infra/.env.prod
+#   SEATLOCK_AI_PROVIDER=google-genai
+#   GEMINI_API_KEY=<key from AI Studio>
+#   GEMINI_MODEL=gemini-3.5-flash-lite
+#   GEMINI_THINKING_LEVEL=LOW
+#   SEATLOCK_EMBEDDINGS=transformers        # or none, per step 1
+dc up -d --force-recreate --no-deps app-1 && sleep 60 && dc up -d --force-recreate --no-deps app-2   # one at a time
+dc logs app-1 | grep -E "AI enabled|RAG embeddings|Policy ingestion|RAG DISABLED"
+docker stats --no-stream
+```
+Expected: `AI enabled: gemini-3.5-flash-lite`, `RAG embeddings: all-MiniLM-L6-v2@...`, `Policy ingestion (...): 7 indexed
+(40 chunks)` on one instance and `7 unchanged` on the other (or 7 indexed on both if they started together; the
+advisory lock makes that safe).
+
+**3. Live check:** admin ping (Swagger or PowerShell against the domain), one Seat Finder sentence and one Refund
+Assistant question on the live site; Grafana → "AI (Week 7)" row.
+
+**Quota:** local and prod share one Google project, so one 500-requests/day budget (the app's global cap is
+per environment: 400 each). Don't run the 40-phrase eval on the day of a demo.
+
 ## 4. Change configuration / secrets
 
 ```bash

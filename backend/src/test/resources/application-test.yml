@@ -51,6 +51,7 @@ seatlock:
     enabled: false   # no background jobs during tests; they're called directly
   rag:
     ingest-on-startup: false   # tests call PolicyIngestionService directly
+    embeddings: none           # ignore SEATLOCK_EMBEDDINGS in .env: no ONNX model in tests
     fake-embeddings: true
   frontend:
     base-url: http://localhost:5173

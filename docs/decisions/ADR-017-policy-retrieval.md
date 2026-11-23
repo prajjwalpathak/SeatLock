@@ -20,6 +20,12 @@
    answers from its template. Tests use a deterministic hashing embedder (`seatlock.rag.fake-embeddings`).
 6. **Measured by** a 30-question recall@4 eval (paraphrased questions, one expected section each).
 
+7. **Robustness (W7·D6):** Spring AI's embedding auto-configuration is off (`spring.ai.model.embedding: none`);
+   `RagConfig` builds `TransformersEmbeddingModel` itself (`seatlock.rag.embeddings`, `seatlock.rag.onnx.*`) inside
+   a try/catch that also catches `LinkageError`: a model that fails to load disables RAG with an ERROR log instead
+   of failing startup (and deploy rollbacks). One warm-up embedding at startup loads the native runtime early.
+   Documents are tagged `all-MiniLM-L6-v2@<Spring AI version>` (jar manifest), so an upgrade re-indexes.
+
 ## Consequences
 - Image grows by the ONNX Runtime and model (~150–200 MB). The model's native memory sits outside the JVM heap
   (`MaxRAMPercentage=70` of 900 MB), so prod stays `none` until memory with 2 instances is measured (W7·D6).

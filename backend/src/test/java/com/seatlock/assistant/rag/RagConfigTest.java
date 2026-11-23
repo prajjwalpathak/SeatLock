@@ -8,42 +8,46 @@ import static org.mockito.Mockito.when;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.embedding.EmbeddingModel;
-import org.springframework.beans.factory.ObjectProvider;
 
-/** Embedder selection, the ONNX adapter and the background startup run, without Spring or the model. */
+/** Embedder selection (incl. a model that fails to load), the ONNX adapter and the background startup run. */
 class RagConfigTest {
 
-    @SuppressWarnings("unchecked")
-    private static ObjectProvider<EmbeddingModel> provider(EmbeddingModel model) {
-        ObjectProvider<EmbeddingModel> p = mock(ObjectProvider.class);
-        when(p.getIfAvailable()).thenReturn(model);
-        return p;
-    }
-
     @Test
-    void realModelWinsThenFakeThenDisabled() {
+    void transformersLoadsTheModelThenFakeThenDisabled() {
         EmbeddingModel model = mock(EmbeddingModel.class);
-        RagConfig config = new RagConfig();
 
-        assertThat(config.policyEmbedder(provider(model), true)).isInstanceOf(OnnxPolicyEmbedder.class);
-        assertThat(config.policyEmbedder(provider(null), true)).isInstanceOf(HashingPolicyEmbedder.class);
-        assertThat(config.policyEmbedder(provider(null), false)).isSameAs(PolicyEmbedder.DISABLED);
+        assertThat(RagConfig.choose("transformers", false, () -> model)).isInstanceOf(OnnxPolicyEmbedder.class);
+        assertThat(RagConfig.choose(" Transformers ", true, () -> model)).isInstanceOf(OnnxPolicyEmbedder.class);
+        assertThat(RagConfig.choose("none", true, () -> model)).isInstanceOf(HashingPolicyEmbedder.class);
+        assertThat(RagConfig.choose("none", false, () -> model)).isSameAs(PolicyEmbedder.DISABLED);
     }
 
     @Test
-    void onnxAdapterDelegatesToTheModel() {
+    void aModelThatFailsToLoadDisablesRagInsteadOfFailingStartup() {
+        assertThat(RagConfig.choose("transformers", false, () -> {
+            throw new IllegalStateException("model.onnx not found");
+        })).isSameAs(PolicyEmbedder.DISABLED);
+        assertThat(RagConfig.choose("transformers", false, () -> {
+            throw new UnsatisfiedLinkError("no onnxruntime in java.library.path");
+        })).isSameAs(PolicyEmbedder.DISABLED);
+    }
+
+    @Test
+    void onnxAdapterDelegatesAndTagsTheModelWithItsVersion() {
         EmbeddingModel model = mock(EmbeddingModel.class);
         float[] vector = new float[PolicyEmbedder.DIMENSIONS];
         when(model.embed("refund")).thenReturn(vector);
-        OnnxPolicyEmbedder embedder = new OnnxPolicyEmbedder(model);
 
+        assertThat(new OnnxPolicyEmbedder(model, "2.0.2").model()).isEqualTo("all-MiniLM-L6-v2@2.0.2");
+        OnnxPolicyEmbedder embedder = new OnnxPolicyEmbedder(model);
         assertThat(embedder.embed("refund")).isSameAs(vector);
-        assertThat(embedder.model()).isEqualTo("all-MiniLM-L6-v2");
+        assertThat(embedder.model()).startsWith("all-MiniLM-L6-v2@");   // "unknown" for a mock (no jar manifest)
         assertThat(embedder.enabled()).isTrue();
+        assertThat(OnnxPolicyEmbedder.versionOf(new Object())).isNotBlank();
     }
 
     @Test
-    void startupIngestionRunsInTheBackgroundAndSurvivesFailures() throws Exception {
+    void startupIngestionRunsInTheBackgroundAndSurvivesFailures() {
         PolicyIngestionService ingestion = mock(PolicyIngestionService.class);
         when(ingestion.ingestAll()).thenThrow(new IllegalStateException("db down"));
         RagConfig.StartupIngestion startup = new RagConfig().startupIngestion(ingestion);
