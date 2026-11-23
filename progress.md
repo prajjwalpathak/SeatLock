@@ -3,14 +3,15 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 7 · Day 2 (not started, planned Wed Dec 23): Seat Finder **algorithm** (sliding window + scoring, pure Java) + unit tests + manual-filter API. Branch `w7-d2` (create with `git switch -c w7-d2 origin/main` after the W7·D1 PR is squash-merged). Nothing to prepare
-- **Last completed:** Week 7 · Day 1: AI gateway (Spring AI 2.0.2 + Gemini 3.5 Flash-Lite behind an `LlmClient` port, Resilience4j breaker + 4 s time limit, 4-thread bulkhead, Bucket4j AI quotas, `ai_requests` audit, admin status/ping); first live Gemini calls OK (planned Tue Dec 22, done Mon Nov 23)
+- **Current day:** Week 7 · Day 3 (not started, planned Thu Dec 24): `SeatIntent` structured-output parser (Gemini) + validation + Redis cache + fallback to the manual form, 40-phrase intent eval, Seat Finder UI. Branch `w7-d3` (create with `git switch -c w7-d3 origin/main` after the W7·D2 PR is squash-merged). Nothing to prepare
+- **Last completed:** Week 7 · Day 2: Seat Finder algorithm (runs of consecutive columns, sliding window, 45/45/10 score, top 3 non-overlapping) + public `POST /shows/{id}/seat-finder` (planned Wed Dec 23, done Mon Nov 23)
+- **Before that:** Week 7 · Day 1: AI gateway (Spring AI 2.0.2 + Gemini 3.5 Flash-Lite behind an `LlmClient` port, Resilience4j breaker + 4 s time limit, 4-thread bulkhead, Bucket4j AI quotas, `ai_requests` audit, admin status/ping); first live Gemini calls OK (planned Tue Dec 22, done Mon Nov 23)
 - **Live URLs:** Frontend https://seatlock-nu.vercel.app · Backend https://seatlock-prajjwal.duckdns.org · Swagger https://seatlock-prajjwal.duckdns.org/swagger-ui.html · Version https://seatlock-prajjwal.duckdns.org/api/v1/system/version · Grafana https://seatlock-prajjwal.duckdns.org/grafana/ (admin login)
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public) · CI + Deploy badges in README · `main` protected (ruleset `protect-main`)
 - **Hosting:** Azure VM `seatlock-vm` (India South Central, B2als_v2 x64) + Vercel; images from GHCR (ADR-005, #62, #71–#74, #167); **2 app instances** since W5·D5 + Prometheus/Grafana since W6·D2; **AI off on prod** (`SEATLOCK_AI_PROVIDER` unset) until W7·D6; decommission after ~2–3 months
 - **Git workflow (from W6·D2):** **one task per day** = all plan tasks → one verify/test block → one one-line commit + push on the daily branch → PR on GitHub → squash-merge when CI is green; next branch with `git switch -c wN-dM origin/main`; never push to a branch after its PR is merged; **never use GitHub's "Update branch" / web conflict editor**; **start each day by checking prod is on `main`** (deploy.md section 3d) (#9, #75, #116, #141, #142, #176, #181, #202)
 - **Carry-overs:** W7·D1 full `mvnw verify` result not reported locally → CI on the PR is the gate · Gemini key + `SEATLOCK_AI_PROVIDER` on the VM → W7·D6 · Gemini latency vs the 4 s limit (one call 2.9 s) → check in Grafana W7·D6 · duplicate `Strict-Transport-Security` (Spring + Nginx) → W8·D1 · same-site frontend/API for privacy blockers (F7) → W8 stretch · JetBrains license · IntelliJ dependency scan · refund status webhooks (stretch) · WireMock 4.x re-check (W8·D1)
-- **Schedule:** **~29 days ahead** (W7·D1 done Mon Nov 23 instead of Tue Dec 22); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
+- **Schedule:** **~30 days ahead** (W7·D2 done Mon Nov 23 instead of Wed Dec 23); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
 - **Top risk:** Week 7 AI: free-tier quota (500 RPD shared by local + prod), structured output with Spring AI 2.0 + Gemini on D3, ONNX embedding model in the image vs the 900 MB app limit on D4; keep checking prod is on `main` each morning (deploy.md section 3d, F13)
 
 ## Decisions Log (ADR summary)
@@ -225,6 +226,9 @@
 | 207 | 2026-11-23 | AI quotas (Bucket4j/Redis, shared, fail-open): per user **5/min** (`@RateLimited("ai")`) + **30/day** → 429; global **12/min + 400/day** (80 % of Google's) → `QUOTA` fallback; circuit checked **before** global tokens are spent | User abuse is the user's problem; a spent global budget isn't, so it degrades instead of erroring |
 | 208 | 2026-11-23 | **V13 `ai_requests`**: feature, outcome, model, latency, tokens, input length + **SHA-256 (never the text)**; auto-committed, failures swallowed; 30-day cleanup job; `seatlock.ai.requests{feature,outcome}` registered at 0 + `seatlock.ai.latency` histogram | Free-tier prompts may train Google's models; our table must not be a second copy of user input; counters visible from the first sample (F12) |
 | 209 | 2026-11-23 | `GeminiLlmClient` excluded from JaCoCo (needs a live model; checked by `/admin/ai/ping` and W7·D6 drills); `GET /admin/ai/status` + `POST /admin/ai/ping` (ADMIN) | Thin adapter; the logic around it is unit-tested |
+| 210 | 2026-11-23 | **Seat Finder algorithm** (`assistant.seatfinder.SeatFinder`, pure Java): filter (available, per-seat budget, sections) → per-row runs of consecutive `gridCol` (aisle/taken seat breaks a run) → sliding window of `count` → score 0–100 = **45 % row centre + 45 % row depth** (FRONT/MIDDLE/BACK; ANY peaks at 40 % back) **+ 10 % under budget**; `aisle` is a hard filter; top 3 **non-overlapping**, ties front row then leftmost | O(seats), deterministic, testable to the exact score; "together" is the point of the feature, so groups are always adjacent |
+| 211 | 2026-11-23 | `POST /api/v1/shows/{id}/seat-finder` **public** (like the seat map; suggests only, holding still needs sign-in), rate-limit policy `seat-finder` 60/min per IP, `no-store`; reads the live map via catalog's public `ShowCatalogService` (Redis holds excluded); `count` ≤ hold limit (400 `TOO_MANY_SEATS`), unknown section → 400 `UNKNOWN_SECTION` + the venue's `sections` | Module rule (#16); the AI parser (D3) and the manual form share one path; 400 bodies now carry `getProperties()` |
+| 212 | 2026-11-23 | Algorithm works on its own `SeatLayout` / `SeatPreferences` records, not catalog DTOs | Unit tests build halls directly; the D3 `SeatIntent` maps to the same `SeatPreferences` |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -307,6 +311,8 @@
 | Prod job threads after #18 | thread dump of app-1: `scheduling-1`, `scheduling-2` present; `MessageBroker-N` lines only from `WebSocketMessageBrokerStats` | `docker kill -s QUIT` + logs | 2026-11-20 |
 | First live Gemini calls (local) | 5 pings: **0.89–2.87 s** (median 1.23 s), prompt 21–25 tokens, completion 9–15; 6th ping in a minute → **429** | `/api/v1/admin/ai/ping` + `ai_requests` | 2026-11-23 |
 | Tests | ~552 (523 + 13 `AiGatewayTest` + 5 audit + 3 admin AI + 8 matrix rows; count to confirm in CI) | `mvnw verify` / CI | 2026-11-23 |
+| Seat Finder on the seed (show 5, workshop) | `{count 2, aisle, FRONT}` → A11–A12 / A13–A14 (score 84), B11–B12 (80); ₹800 budget → 0 options (cheapest ₹1,200); `BALCONY` → 400 with the venue's sections | local API | 2026-11-23 |
+| Tests | ~570 (+13 `SeatFinderTest`, +5 `SeatFinderApiIntegrationTest`; count to confirm in CI) | `mvnw verify` / CI | 2026-11-23 |
 
 ## Accounts & Config (no secrets here, only where they live)
 | Item | Status | Where stored |
@@ -1634,3 +1640,32 @@
 - Ports and adapters for third-party AI SDKs; feature flags via config defaults that keep startup safe
 - Privacy in AI audit logs (hash + length), data-use terms of free-tier APIs; metric cardinality
 **Commit:** `feat(assistant): AI gateway with Spring AI Gemini, breaker, quotas and audit (W7·D1)`
+
+### Week 7 · Day 2: Seat Finder algorithm + manual-filter API (planned Wed, Dec 23; done Mon, Nov 23, 2026)
+**Status:** ✅ Done
+**Built:**
+- `assistant.seatfinder`: `SeatFinder` (filter → runs → sliding window → score → non-overlapping top 3), `SeatPreferences`, `RowPreference`, `SeatLayout`, `SeatOption`, `SeatFinderService` (live seat map via `ShowCatalogService`, hold-limit and section checks)
+- `assistant.api`: `SeatFinderController` (`POST /api/v1/shows/{id}/seat-finder`, public, `@RateLimited("seat-finder")`, `no-store`), `SeatFinderRequest`, `SeatFinderResponse`
+- `SecurityConfig` public POST for the finder; `GlobalExceptionHandler` copies exception properties into 400 bodies; rate-limit policy `seat-finder` (60/min per IP)
+- Docs: architecture section 2m
+- Tests: `SeatFinderTest` (13), `SeatFinderApiIntegrationTest` (5, checked against the DB: adjacency, AVAILABLE, no repeats, filters, held seats excluded, errors)
+**Files created/changed:**
+- `assistant\seatfinder\{SeatFinder, SeatPreferences, RowPreference, SeatLayout, SeatOption, SeatFinderService}.java`; `assistant\api\{SeatFinderController, SeatFinderRequest, SeatFinderResponse}.java`
+- `identity\security\SecurityConfig.java`; `common\exception\GlobalExceptionHandler.java`; `application.yml`, test `application-test.yml`
+- Tests: `assistant\seatfinder\SeatFinderTest`, `assistant\api\SeatFinderApiIntegrationTest`
+- `docs\architecture.md`, `progress.md`
+**Decisions:**
+- See Decisions Log #210–#212
+**Metrics recorded:**
+- Seat Finder results on the seed; tests ~570 (see Metrics table)
+**Problems & fixes:**
+- Test compile error: AssertJ `satisfiesAnyOf` with lambdas over a captured `List<Integer>` (`contains(3)` → varargs capture mismatch) → plain boolean assertion
+- First manual run printed nothing: show 5 is a workshop (cheapest seat ₹1,200), so ₹800 correctly gave no options; PowerShell's `ErrorDetails` hid the 400 body → checks now print status + body via `Invoke-WebRequest`
+**Carry-over:**
+- None new
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- Sliding-window technique over runs; O(n) candidate generation; greedy non-overlapping selection; deterministic tie-breaking
+- Hard constraints vs soft scoring; weighted scores and testing them exactly
+- Suggest vs commit: why a finder never holds (atomic hold stays the only write)
+- Module boundaries: consuming another module's public read service; own domain records for the algorithm
+**Commit:** `feat(assistant): Seat Finder sliding-window algorithm and manual-filter API (W7·D2)`
