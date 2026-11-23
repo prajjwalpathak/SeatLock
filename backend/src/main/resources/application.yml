@@ -94,7 +94,25 @@ springdoc:
     tags-sorter: alpha
   default-produces-media-type: application/json
 
+# Input limits (W8·D1, docs/SECURITY.md). Bodies over 1 MB are refused by RequestBodyLimitFilter (413) and by Nginx.
+server:
+  max-http-request-header-size: 8KB   # Tomcat's default, explicit: request line + headers (JWT ~1 KB)
+  tomcat:
+    max-swallow-size: 1MB             # bytes read from a refused upload before the connection is closed
+    max-http-form-post-size: 64KB     # the API takes JSON, not forms
+
 seatlock:
+  http:
+    max-body-size: 1MB               # RequestBodyLimitFilter; same as Nginx client_max_body_size
+  # Nightly demo upkeep (W8·D1): seed events always have upcoming shows, the shared demo account's old bookings
+  # are refunded so its seats return to sale. Both jobs: 03:30 IST, kill switch below, off in tests (no scheduling).
+  demo:
+    reset-enabled: ${SEATLOCK_DEMO_RESET_ENABLED:true}
+    reset-cron: "0 30 3 * * *"
+    min-upcoming-shows: 3          # per published event
+    user-email: demo.user@seatlock.test
+    booking-age: PT12H             # only bookings confirmed at least this long ago are reset
+    booking-batch: 50
   build:
     revision: ${SEATLOCK_REVISION:local}      # git commit, baked into the image by CI (GET /api/v1/system/version)
   instance-id: ${SEATLOCK_INSTANCE_ID:local}   # which app instance answered (X-SeatLock-Instance, /system/version); set per container

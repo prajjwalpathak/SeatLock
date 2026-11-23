@@ -1,5 +1,6 @@
 package com.seatlock.identity.oauth;
 
+import com.seatlock.identity.security.SecurityHeaders;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
@@ -50,6 +51,7 @@ public class OAuth2LoginConfig {
                         .authorizedClientRepository(new DiscardingAuthorizedClientRepository())
                         .successHandler(handlers)    // → {frontend}/auth/callback?code=<one-time code>
                         .failureHandler(handlers));  // → {frontend}/login?error=<CODE>
+        SecurityHeaders.apply(http);
         return http.build();
     }
 }

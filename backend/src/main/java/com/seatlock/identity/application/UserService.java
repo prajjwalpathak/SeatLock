@@ -8,6 +8,7 @@ import com.seatlock.identity.domain.Role;
 import com.seatlock.identity.domain.User;
 import com.seatlock.identity.domain.UserRepository;
 import java.nio.charset.StandardCharsets;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -62,6 +63,11 @@ public class UserService {
     }
 
     @Transactional(readOnly = true)
+    /** Internal id of the account with this e-mail (any case), if it exists. Used by the demo reset (W8·D1). */
+    public Optional<Long> findIdByEmail(String email) {
+        return users.findByEmail(User.normalizeEmail(email)).map(User::getId);
+    }
+
     public User getById(long id) {
         return users.findById(id).orElseThrow(() -> new NotFoundException("User", id));
     }

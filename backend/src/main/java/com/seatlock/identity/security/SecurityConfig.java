@@ -87,6 +87,7 @@ public class SecurityConfig {
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint(problemHandler)   // no token → 401
                         .accessDeniedHandler(problemHandler));      // 403
+        SecurityHeaders.apply(http);
         return http.build();
     }
 

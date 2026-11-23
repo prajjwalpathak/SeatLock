@@ -14,6 +14,7 @@ import com.seatlock.common.exception.NotFoundException;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -23,6 +24,7 @@ import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -244,6 +246,16 @@ public class BookingService {
                     + seatIds.size() + " seats were BOOKED");
         }
         log.info("Booking {} cancelled and refunded; {} seats back on sale", booking.getPublicId(), seatIds.size());
+    }
+
+    /**
+     * Payment module API (demo reset, W8·D1): public ids of the user's CONFIRMED bookings confirmed before the cut-off,
+     * oldest first, at most {@code limit}. Read-only; the caller cancels each through the normal paid-cancellation path.
+     */
+    public List<String> confirmedBookingIds(long userId, Instant confirmedBefore, int limit) {
+        return bookings.findByUserIdAndStatusAndConfirmedAtBeforeOrderByIdAsc(userId, BookingStatus.CONFIRMED,
+                        confirmedBefore, Limit.of(limit))
+                .stream().map(b -> b.getPublicId().toString()).toList();
     }
 
     /** True if the booking (internal id) belongs to the user: ownership check for payment callbacks. */

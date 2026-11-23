@@ -4,6 +4,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
 import java.time.Instant;
 import java.util.Map;
 
@@ -17,7 +18,7 @@ import java.util.Map;
 public record CreateShowRequest(
         @NotNull Long venueId,
         @NotNull Instant startsAt,
-        @NotEmpty Map<String, @NotNull @Positive @Max(MAX_PRICE_PAISE) Long> sectionPricesPaise) {
+        @NotEmpty @Size(max = 10) Map<@Size(max = 16) String, @NotNull @Positive @Max(MAX_PRICE_PAISE) Long> sectionPricesPaise) {
 
     /** ₹1,00,000 per seat: a sanity cap against typos (paise vs rupees). */
     public static final long MAX_PRICE_PAISE = 10_000_000L;

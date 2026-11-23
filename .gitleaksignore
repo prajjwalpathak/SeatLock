@@ -1,0 +1,4 @@
+# Reviewed gitleaks false positives (W8·D1, docs/SECURITY.md section 4). One fingerprint per finding; add only after
+# checking the value by hand. Both: a made-up UUID used as an Idempotency-Key in a unit test (not a credential).
+2eabfc424e3c9177a05a29be98101a021261aa0c:backend/src/test/java/com/seatlock/common/idempotency/IdempotencyInterceptorTest.java:generic-api-key:49
+6e4106edf804ebce8847f84bff87262089a7e14c:backend/src/test/java/com/seatlock/common/idempotency/IdempotencyInterceptorTest.java:generic-api-key:49
