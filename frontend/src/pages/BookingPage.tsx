@@ -8,6 +8,7 @@ import { ErrorMessage } from '../components/ErrorMessage'
 import { CancelPaidBooking } from '../features/booking/CancelPaidBooking'
 import { STATUS_TEXT } from '../features/booking/bookingStatus'
 import { PayNowButton } from '../features/booking/PayNowButton'
+import { TicketCard } from '../features/booking/TicketCard'
 import { formatPaise, formatShowTime } from '../lib/format'
 import { formatCountdown, msUntil, useServerClockOffset } from '../lib/serverClock'
 import { useNow } from '../lib/useNow'
@@ -153,6 +154,7 @@ function BookingView({ booking, clockOffset }: { booking: Booking; clockOffset: 
         </div>
       )}
 
+      {booking.status === 'CONFIRMED' && <TicketCard booking={booking} show={show.data} />}
       {booking.status === 'CONFIRMED' && <CancelPaidBooking booking={booking} />}
 
       {paymentOutcome === 'CAPTURED_BOOKING_LOST' && (

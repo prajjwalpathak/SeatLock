@@ -65,6 +65,29 @@ class AdminAiIntegrationTest {
     }
 
     @Test
+    void policySearchAndReindexAreAdminOnly() throws Exception {
+        mvc.perform(post("/api/v1/admin/ai/policy-reindex").header(HttpHeaders.AUTHORIZATION, admin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.indexed").isNumber());
+        mvc.perform(post("/api/v1/admin/ai/policy-search").header(HttpHeaders.AUTHORIZATION, admin)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"question\":\"refund after cancelling\",\"k\":3}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(3))
+                .andExpect(jsonPath("$[0].doc").isString());
+        mvc.perform(get("/api/v1/admin/ai/status").header(HttpHeaders.AUTHORIZATION, admin))
+                .andExpect(jsonPath("$.embeddingModel").value("hashing-test"))
+                .andExpect(jsonPath("$.policyChunks").isNumber());
+
+        User user = users.save(new User("ai-user-" + UUID.randomUUID() + "@example.com", "{bcrypt}unused",
+                "AI User", Role.USER, AuthProvider.LOCAL));
+        String userToken = "Bearer " + tokens.issueAccessToken(
+                new AuthenticatedUser(user.getId(), user.getEmail(), Role.USER, "unused")).value();
+        mvc.perform(post("/api/v1/admin/ai/policy-search").header(HttpHeaders.AUTHORIZATION, userToken)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"question\":\"refund\"}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void overlongMessageIs400() throws Exception {
         mvc.perform(post("/api/v1/admin/ai/ping").header(HttpHeaders.AUTHORIZATION, admin)
                         .contentType(MediaType.APPLICATION_JSON)

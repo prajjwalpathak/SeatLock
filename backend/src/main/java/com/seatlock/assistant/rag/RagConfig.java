@@ -1,0 +1,81 @@
+package com.seatlock.assistant.rag;
+
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.ai.embedding.EmbeddingModel;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.event.EventListener;
+
+/**
+ * Chooses the embedder: the ONNX model when {@code spring.ai.model.embedding=transformers} built one, the hashing
+ * stand-in when {@code seatlock.rag.fake-embeddings=true} (tests), otherwise disabled. After startup the policies are
+ * indexed on a single background thread, so a slow first model load never delays readiness.
+ */
+@Configuration(proxyBeanMethods = false)
+public class RagConfig {
+
+    private static final Logger log = LoggerFactory.getLogger(RagConfig.class);
+
+    @Bean
+    PolicyEmbedder policyEmbedder(ObjectProvider<EmbeddingModel> model,
+                                  @Value("${seatlock.rag.fake-embeddings:false}") boolean fake) {
+        EmbeddingModel m = model.getIfAvailable();
+        if (m != null) {
+            log.info("RAG embeddings: {} via {}", OnnxPolicyEmbedder.MODEL, m.getClass().getSimpleName());
+            return new OnnxPolicyEmbedder(m);
+        }
+        if (fake) {
+            log.info("RAG embeddings: hashing stand-in (tests)");
+            return new HashingPolicyEmbedder();
+        }
+        log.info("RAG DISABLED (spring.ai.model.embedding=none): the Refund Assistant answers from its template");
+        return PolicyEmbedder.DISABLED;
+    }
+
+    /** Separate component so the listener exists only with ingest-on-startup (tests call the service directly). */
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
+            name = "seatlock.rag.ingest-on-startup", havingValue = "true", matchIfMissing = true)
+    StartupIngestion startupIngestion(PolicyIngestionService ingestion) {
+        return new StartupIngestion(ingestion);
+    }
+
+    /**
+     * Owns its single "rag-ingest" thread. Deliberately NOT an Executor bean: an Executor bean makes Boot skip its
+     * own applicationTaskExecutor (same trap as decision #157).
+     */
+    static class StartupIngestion implements org.springframework.beans.factory.DisposableBean {
+        private final PolicyIngestionService ingestion;
+        private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "rag-ingest");
+            t.setDaemon(true);
+            return t;
+        });
+
+        StartupIngestion(PolicyIngestionService ingestion) {
+            this.ingestion = ingestion;
+        }
+
+        @Override
+        public void destroy() {
+            executor.shutdownNow();
+        }
+
+        @EventListener(ApplicationReadyEvent.class)
+        void onReady() {
+            executor.submit(() -> {
+                try {
+                    ingestion.ingestAll();
+                } catch (RuntimeException e) {
+                    log.warn("Policy ingestion failed; retrieval uses whatever was indexed before ({})", e.toString());
+                }
+            });
+        }
+    }
+}

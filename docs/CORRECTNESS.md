@@ -292,6 +292,21 @@ queries before and after the candidate indexes. Warm cache, `max_parallel_worker
 - Not indexed: `refunds` (partial `ix_refunds_due` since W4·D4), `webhook_events` cleanup (daily, 30-day table),
   `idempotency_keys` (indexed since W3·D3).
 
+### 2.4 Policy vector search (W7·D4, `V14`)
+
+`ORDER BY embedding <=> :q LIMIT 4` over `policy_chunks` (40 rows, 384-dim vectors). At this size Postgres
+reads the table sequentially (it fits in a couple of pages, cheaper than the index); the HNSW index
+`ix_policy_chunks_embedding (vector_cosine_ops)` is there for growth. To see it used:
+`SET enable_seqscan = off; EXPLAIN ANALYZE SELECT ... ORDER BY embedding <=> '[...]'::vector LIMIT 4;`
+→ `Index Scan using ix_policy_chunks_embedding`. HNSW is approximate: with 40 rows the default
+`hnsw.ef_search = 40` already visits every vector, so results equal exact search; recall is measured end to end
+by `load-tests/rag-recall-eval.ps1`.
+
+Ingestion safety: content hash + model name per document (unchanged files skipped), embedding outside any
+transaction, then one transaction under `pg_advisory_xact_lock(hashtext('policy:' || doc))` that re-checks the
+hash before replacing the chunks. Two instances starting together write each document once
+(`PolicyIngestionIntegrationTest`, 4 concurrent writers).
+
 ## 3. Locking & isolation levels (W6·D5)
 
 Every transaction runs at Postgres' default **READ COMMITTED** (pinned by `IsolationIntegrationTest`). No guard relies

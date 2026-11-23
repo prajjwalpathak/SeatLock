@@ -43,10 +43,16 @@ spring:
       # Which chat model Spring AI builds: google-genai (Gemini) or none. Default none, so an environment without a
       # key (CI, prod until W7·D6) starts with AI disabled and every AI feature on its non-AI fallback (ADR-016).
       chat: ${SEATLOCK_AI_PROVIDER:none}
-      embedding: none            # local ONNX embeddings arrive on W7·D4
+      # transformers = local ONNX all-MiniLM-L6-v2 (RAG, ADR-017); none = retrieval off. Default none until the
+      # memory of 2 instances with the model is measured on the VM (W7·D6).
+      embedding: ${SEATLOCK_EMBEDDINGS:none}
     chat:
       client:
         enabled: false           # we build our own ChatClient in GeminiLlmClient; no shared builder bean needed
+    embedding:
+      transformer:
+        cache:
+          directory: ${java.io.tmpdir}/spring-ai-onnx-model   # where the model is unpacked from the jar
     google:
       genai:
         api-key: ${GEMINI_API_KEY:}           # Gemini Developer API key (AI Studio); never logged
@@ -154,6 +160,10 @@ seatlock:
       user-daily:        { capacity: 30,  refill-tokens: 30,  refill-period: 1d }   # over → 429 RATE_LIMITED
       global-per-minute: { capacity: 12,  refill-tokens: 12,  refill-period: 1m }   # under Google's 15 RPM → fallback
       global-daily:      { capacity: 400, refill-tokens: 400, refill-period: 1d }   # 80 % of 500 RPD → fallback
+  rag:
+    ingest-on-startup: true      # index classpath:policies/*.md in the background after startup (unchanged files skipped)
+    top-k: 4                     # chunks returned per question (recall@4 eval)
+    fake-embeddings: false       # tests only: deterministic hashing embedder instead of the ONNX model
   admin:
     # Bootstrap ADMIN account (created once at startup if missing). Both empty = skipped.
     email: ${SEATLOCK_ADMIN_EMAIL:}

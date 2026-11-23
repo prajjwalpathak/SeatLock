@@ -27,6 +27,7 @@ spring:
   ai:
     model:
       chat: none     # ignore SEATLOCK_AI_PROVIDER in .env: tests never call Gemini (AiGateway tests use a stub LlmClient)
+      embedding: none   # no ONNX model in tests: seatlock.rag.fake-embeddings gives a deterministic hashing embedder
 
 seatlock:
   rate-limit:
@@ -48,6 +49,9 @@ seatlock:
       webhook-secret: test-webhook-secret
   scheduling:
     enabled: false   # no background jobs during tests; they're called directly
+  rag:
+    ingest-on-startup: false   # tests call PolicyIngestionService directly
+    fake-embeddings: true
   frontend:
     base-url: http://localhost:5173
   cors:
