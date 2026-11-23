@@ -3,7 +3,12 @@ package com.seatlock.assistant.api;
 import com.seatlock.assistant.ai.AiFeature;
 import com.seatlock.assistant.ai.AiGateway;
 import com.seatlock.assistant.ai.AiResult;
+import com.seatlock.assistant.rag.PolicyEmbedder;
+import com.seatlock.assistant.rag.PolicyIngestionService;
+import com.seatlock.assistant.rag.PolicyRetriever;
 import com.seatlock.assistant.seatfinder.SeatIntentParser;
+import java.util.List;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import java.util.Set;
 import com.seatlock.common.config.OpenApiConfig;
 import com.seatlock.common.ratelimit.RateLimited;
@@ -35,16 +40,30 @@ public class AdminAiController {
 
     private final AiGateway gateway;
     private final SeatIntentParser parser;
+    private final PolicyEmbedder embedder;
+    private final PolicyRetriever retriever;
+    private final PolicyIngestionService ingestion;
+    private final JdbcClient jdbc;
 
-    public AdminAiController(AiGateway gateway, SeatIntentParser parser) {
+    public AdminAiController(AiGateway gateway, SeatIntentParser parser, PolicyEmbedder embedder,
+                             PolicyRetriever retriever, PolicyIngestionService ingestion, JdbcClient jdbc) {
         this.gateway = gateway;
         this.parser = parser;
+        this.embedder = embedder;
+        this.retriever = retriever;
+        this.ingestion = ingestion;
+        this.jdbc = jdbc;
     }
 
     @Operation(summary = "AI configuration and circuit-breaker state (ADMIN)")
     @GetMapping("/status")
     public AiStatusResponse status() {
-        return new AiStatusResponse(gateway.enabled(), gateway.model(), gateway.circuitState().name());
+        long chunks = jdbc.sql("""
+                        SELECT count(*) FROM policy_chunks c JOIN policy_documents d ON d.doc = c.doc
+                        WHERE d.embedding_model = :model""")
+                .param("model", embedder.model()).query(Long.class).single();
+        return new AiStatusResponse(gateway.enabled(), gateway.model(), gateway.circuitState().name(),
+                embedder.model(), chunks);
     }
 
     @Operation(summary = "Send one message through the AI gateway (ADMIN); returns the answer or the fallback reason")
@@ -70,5 +89,19 @@ public class AdminAiController {
             case SeatIntentParser.Outcome.Parsed p -> new SeatAskResponse(true, null, false,
                     SeatAskResponse.filtersOf(p.preferences()), p.assumptions(), null);
         };
+    }
+
+    /** Nearest policy sections for a question (local embeddings, no LLM, no quota); used by the recall@4 eval. */
+    @Operation(summary = "Top-k policy sections for a question (ADMIN, RAG check / recall eval)")
+    @PostMapping("/policy-search")
+    public List<PolicyRetriever.Match> policySearch(@Valid @RequestBody PolicySearchRequest request) {
+        return retriever.search(request.question(), request.k() == null ? 4 : request.k());
+    }
+
+    /** Re-index now (unchanged files are skipped). Normally runs by itself after startup. */
+    @Operation(summary = "Index classpath policies now; unchanged files are skipped (ADMIN)")
+    @PostMapping("/policy-reindex")
+    public PolicyIngestionService.Report reindex() {
+        return ingestion.ingestAll();
     }
 }

@@ -509,6 +509,23 @@ quota, global caps still apply, paced 5.5 s). Not part of `mvnw verify`: CI neve
 UI: `SeatFinderPanel` on the seat page (text box when signed in + manual filters for everyone); options are
 ringed on the map and "Select these seats" fills the selection. Hold stays the only step that claims seats.
 
+## 2o. Policy retrieval (RAG) and ticket QR (W7·D4, ADR-017)
+
+```mermaid
+flowchart LR
+    P[classpath:policies/*.md<br/>7 files, 40 sections] -->|startup, rag-ingest thread| I[PolicyIngestionService<br/>hash check → chunk → embed → advisory-locked tx]
+    I --> T[(policy_chunks<br/>vector 384 + HNSW)]
+    Q[question] --> E[PolicyEmbedder<br/>all-MiniLM-L6-v2 ONNX, in-process] --> S[PolicyRetriever<br/>ORDER BY embedding <=> q LIMIT 4] --> T
+    S --> R[Refund Assistant W7·D5]
+```
+
+- Embeddings run locally (ONNX Runtime; the model is inside the Spring AI jar): no network, no quota, same model
+  for ingestion and questions. `SEATLOCK_EMBEDDINGS=transformers` turns it on; default `none` (template answers).
+- Tests use `HashingPolicyEmbedder` (deterministic, lexical) so ingestion and pgvector SQL run in CI without the model.
+- Recall eval: 30 paraphrased questions → `load-tests/rag-recall-eval.ps1` (admin `policy-search`, k = 4).
+- **Ticket QR (decision #219):** CONFIRMED bookings show `TicketCard` with a QR code of the booking URL and
+  "Download ticket" (PNG drawn on a canvas in the browser). Frontend only; the QR opens the owner-only page.
+
 ## 3. Conventions
 - Internal keys are `bigint` identity. Bookings expose a random `public_id` (UUID), so IDs in URLs can't be enumerated.
 - Enums are `varchar` + `CHECK`, not Postgres `ENUM` types: easier to evolve with Flyway, and mapped with `@Enumerated(EnumType.STRING)`.

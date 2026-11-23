@@ -1,0 +1,245 @@
+{
+  "description": "RAG recall@4 eval (W7-D4): each question has exactly one expected policy section (doc = file name without .md, heading = its '## ' title). Questions are paraphrased, not copied from the documents. Run with load-tests/rag-recall-eval.ps1.",
+  "cases": [
+    {
+      "id": 1,
+      "question": "Can I get my money back if I cancel 3 days before the concert?",
+      "expected": {
+        "doc": "refund-policy",
+        "heading": "How much you get back"
+      }
+    },
+    {
+      "id": 2,
+      "question": "I want to cancel tomorrow's show, it starts in 10 hours",
+      "expected": {
+        "doc": "refund-policy",
+        "heading": "When cancellation closes"
+      }
+    },
+    {
+      "id": 3,
+      "question": "Can I cancel just one of my four seats?",
+      "expected": {
+        "doc": "refund-policy",
+        "heading": "Cancelling a paid booking"
+      }
+    },
+    {
+      "id": 4,
+      "question": "How many days until the refund shows in my bank account?",
+      "expected": {
+        "doc": "refund-policy",
+        "heading": "How long a refund takes"
+      }
+    },
+    {
+      "id": 5,
+      "question": "My payment went through after the timer ended, what happens to my money?",
+      "expected": {
+        "doc": "refund-policy",
+        "heading": "Payments that arrive too late"
+      }
+    },
+    {
+      "id": 6,
+      "question": "I was charged twice for the same tickets",
+      "expected": {
+        "doc": "refund-policy",
+        "heading": "Paying twice by mistake"
+      }
+    },
+    {
+      "id": 7,
+      "question": "Do I lose anything if I cancel before paying?",
+      "expected": {
+        "doc": "refund-policy",
+        "heading": "Cancelling before you pay"
+      }
+    },
+    {
+      "id": 8,
+      "question": "What happens to my seats after I cancel?",
+      "expected": {
+        "doc": "refund-policy",
+        "heading": "Seats after a cancellation"
+      }
+    },
+    {
+      "id": 9,
+      "question": "How long are seats reserved after I click hold?",
+      "expected": {
+        "doc": "terms",
+        "heading": "Holding seats"
+      }
+    },
+    {
+      "id": 10,
+      "question": "What is the maximum number of tickets I can hold?",
+      "expected": {
+        "doc": "terms",
+        "heading": "How many seats you can hold"
+      }
+    },
+    {
+      "id": 11,
+      "question": "Is there a booking fee or convenience charge?",
+      "expected": {
+        "doc": "terms",
+        "heading": "Prices"
+      }
+    },
+    {
+      "id": 12,
+      "question": "Is real money taken when I pay?",
+      "expected": {
+        "doc": "terms",
+        "heading": "Payment"
+      }
+    },
+    {
+      "id": 13,
+      "question": "What do I show at the entrance?",
+      "expected": {
+        "doc": "terms",
+        "heading": "Your ticket"
+      }
+    },
+    {
+      "id": 14,
+      "question": "It says too many attempts, why?",
+      "expected": {
+        "doc": "terms",
+        "heading": "Fair use and limits"
+      }
+    },
+    {
+      "id": 15,
+      "question": "Do I need to sign up to look at events?",
+      "expected": {
+        "doc": "terms",
+        "heading": "Accounts"
+      }
+    },
+    {
+      "id": 16,
+      "question": "How long do I have to pay after proceed to pay?",
+      "expected": {
+        "doc": "terms",
+        "heading": "From hold to booking"
+      }
+    },
+    {
+      "id": 17,
+      "question": "The seat I picked vanished from my selection",
+      "expected": {
+        "doc": "faq",
+        "heading": "Why did my seats disappear while I was choosing?"
+      }
+    },
+    {
+      "id": 18,
+      "question": "I paid but it still shows pending",
+      "expected": {
+        "doc": "faq",
+        "heading": "I paid but the booking still says payment pending"
+      }
+    },
+    {
+      "id": 19,
+      "question": "Can I move to different seats after booking?",
+      "expected": {
+        "doc": "faq",
+        "heading": "Can I change my seats after booking?"
+      }
+    },
+    {
+      "id": 20,
+      "question": "Can my friend use my booking instead of me?",
+      "expected": {
+        "doc": "faq",
+        "heading": "Can I transfer my booking to someone else?"
+      }
+    },
+    {
+      "id": 21,
+      "question": "Does SeatLock keep my card number?",
+      "expected": {
+        "doc": "faq",
+        "heading": "Is my card data stored by SeatLock?"
+      }
+    },
+    {
+      "id": 22,
+      "question": "Where can I see all my tickets?",
+      "expected": {
+        "doc": "faq",
+        "heading": "Where do I find my bookings?"
+      }
+    },
+    {
+      "id": 23,
+      "question": "What does the assistant that suggests seats do?",
+      "expected": {
+        "doc": "faq",
+        "heading": "What does the Seat Finder do?"
+      }
+    },
+    {
+      "id": 24,
+      "question": "My hold expired, did I get charged?",
+      "expected": {
+        "doc": "faq",
+        "heading": "My hold timer ran out. What now?"
+      }
+    },
+    {
+      "id": 25,
+      "question": "Which metro station is near Aurora Arena?",
+      "expected": {
+        "doc": "venue-aurora-arena",
+        "heading": "Location and getting there"
+      }
+    },
+    {
+      "id": 26,
+      "question": "Which seats are aisle seats at Monsoon Theatre?",
+      "expected": {
+        "doc": "venue-monsoon-theatre",
+        "heading": "Aisle seats"
+      }
+    },
+    {
+      "id": 27,
+      "question": "How many seats does Banyan Hall have?",
+      "expected": {
+        "doc": "venue-banyan-hall",
+        "heading": "Seating layout"
+      }
+    },
+    {
+      "id": 28,
+      "question": "When do doors open at Riverside Stage?",
+      "expected": {
+        "doc": "venue-riverside-stage",
+        "heading": "Entry and timings"
+      }
+    },
+    {
+      "id": 29,
+      "question": "Which rows are Gold at Aurora Arena?",
+      "expected": {
+        "doc": "venue-aurora-arena",
+        "heading": "Seating layout"
+      }
+    },
+    {
+      "id": 30,
+      "question": "How do I reach Monsoon Theatre from Churchgate station?",
+      "expected": {
+        "doc": "venue-monsoon-theatre",
+        "heading": "Location and getting there"
+      }
+    }
+  ]
+}

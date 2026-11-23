@@ -55,6 +55,13 @@
 			<groupId>org.springframework.ai</groupId>
 			<artifactId>spring-ai-starter-model-google-genai</artifactId>
 		</dependency>
+		<!-- Local embeddings for RAG (W7·D4): ONNX Runtime + all-MiniLM-L6-v2 (384 dims). The model ships inside
+		     the jar (classpath:/onnx/...), so it is baked into the image with no download. Off unless
+		     SEATLOCK_EMBEDDINGS=transformers (ADR-017). -->
+		<dependency>
+			<groupId>org.springframework.ai</groupId>
+			<artifactId>spring-ai-starter-model-transformers</artifactId>
+		</dependency>
 		<!-- Circuit breaker + time limiter around the LLM. The Boot 3 artifact must never be used: its verifier
 		     bean throws IncompatibleSpringBootVersionException on Boot 4. Registries only (no AspectJ, no annotations). -->
 		<dependency>
