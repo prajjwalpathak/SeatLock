@@ -97,7 +97,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(InvalidRequestException.class)
     ProblemDetail handleInvalidRequest(InvalidRequestException ex) {
-        return problem(HttpStatus.BAD_REQUEST, "Invalid request", ex.getMessage(), ex.getCode());
+        ProblemDetail pd = problem(HttpStatus.BAD_REQUEST, "Invalid request", ex.getMessage(), ex.getCode());
+        ex.getProperties().forEach(pd::setProperty); // e.g. the venue's sections for UNKNOWN_SECTION
+        return pd;
     }
 
     /**
