@@ -472,6 +472,22 @@ flowchart LR
     G -.every request.-> A[(ai_requests: hash + length, no text)]
 ```
 
+## 2m. Seat Finder (W7·D2)
+
+`POST /api/v1/shows/{id}/seat-finder` (public, rate-limited per IP, `no-store`) with manual filters
+`{count, maxPricePaise (per seat), sections, aisle, rows: ANY|FRONT|MIDDLE|BACK}` → up to 3 options.
+It **suggests only**: holding stays the separate atomic `POST /shows/{id}/holds`.
+
+1. Read the live seat map through catalog's public `ShowCatalogService` (DB statuses + Redis holds); only
+   AVAILABLE seats are candidates.
+2. `SeatFinder` (pure Java): filter (budget, sections) → per row, split seats into runs of consecutive
+   `gridCol` (an aisle or a taken seat breaks a run) → sliding window of `count` over each run (O(seats)).
+3. Score 0–100 = 45 % centre of the row + 45 % row depth (FRONT / MIDDLE / BACK, or ANY = peak at 40 % back)
+   + 10 % price under budget; `aisle` is a hard filter (the window must contain an aisle seat).
+4. Best first, skipping windows that share a seat with one already picked; ties → front row, then leftmost.
+
+The AI path (W7·D3) only turns free text into the same `SeatPreferences`; the manual form stays as the fallback.
+
 ## 3. Conventions
 - Internal keys are `bigint` identity. Bookings expose a random `public_id` (UUID), so IDs in URLs can't be enumerated.
 - Enums are `varchar` + `CHECK`, not Postgres `ENUM` types: easier to evolve with Flyway, and mapped with `@Enumerated(EnumType.STRING)`.

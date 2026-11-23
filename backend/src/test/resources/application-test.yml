@@ -31,6 +31,9 @@ spring:
 seatlock:
   rate-limit:
     policies:
+      seat-finder:
+        per-ip:   { capacity: 100000, refill-tokens: 100000, refill-period: 1m }
+        per-user: { capacity: 100,    refill-tokens: 100,    refill-period: 1m }
       ai:
         per-ip:   { capacity: 100000, refill-tokens: 100000, refill-period: 1m }
         per-user: { capacity: 100,    refill-tokens: 100,    refill-period: 1m }
