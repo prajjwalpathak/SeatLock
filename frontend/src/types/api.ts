@@ -326,3 +326,18 @@ export type SeatAskResult = {
   assumptions: string[]
   result: SeatFinderResult | null
 }
+
+// ---------- Refund Assistant (W7·D5) ----------
+
+export type RefundSituation = 'UNPAID' | 'PAID_CANCELLABLE' | 'PAID_CLOSED' | 'EXPIRED' | 'CANCELLED' | 'REFUNDED'
+
+export type PolicySource = { doc: string; heading: string; text: string }
+
+/** source AI = model explanation that passed the amount check; TEMPLATE = fixed answer (fallbackReason says why). */
+export type RefundAnswer = {
+  source: 'AI' | 'TEMPLATE'
+  answer: string
+  fallbackReason: AiFallbackReason | null
+  situation: RefundSituation
+  sources: PolicySource[]
+}

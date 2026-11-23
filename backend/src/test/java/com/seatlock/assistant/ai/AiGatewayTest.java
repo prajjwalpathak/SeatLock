@@ -159,6 +159,22 @@ class AiGatewayTest {
     }
 
     @Test
+    void featureWithItsOwnTimeLimitWaitsLonger() {
+        AiProperties props = new AiProperties("test-model", 300, 2, 2, Duration.ofDays(30),
+                new AiProperties.Quota(ANY, ANY, ANY));
+        TimeLimiter fast = TimeLimiter.of(TimeLimiterConfig.custom().timeoutDuration(Duration.ofMillis(150)).build());
+        TimeLimiter slow = TimeLimiter.of(TimeLimiterConfig.custom().timeoutDuration(Duration.ofSeconds(3)).build());
+        AiGateway gateway = new AiGateway(llm(() -> {
+            sleep(500);
+            return new LlmClient.LlmReply("ok", null, null);
+        }), props, limiter, breaker, fast, java.util.Map.of(AiFeature.REFUND_ASSISTANT, slow), audit, meters);
+        gateways.add(gateway);
+
+        assertThat(gateway.complete(AiFeature.REFUND_ASSISTANT, USER, "s", "can I cancel")).isInstanceOf(AiResult.Answer.class);
+        assertThat(gateway.complete(AiFeature.SEAT_FINDER, USER, "s", "2 seats")).isEqualTo(new AiResult.Fallback(AiOutcome.TIMEOUT));
+    }
+
+    @Test
     void sha256IsHexOfUtf8() {
         assertThat(AiGateway.sha256("abc"))
                 .isEqualTo("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");

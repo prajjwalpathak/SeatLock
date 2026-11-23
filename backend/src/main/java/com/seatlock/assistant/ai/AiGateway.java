@@ -53,6 +53,7 @@ public class AiGateway implements AutoCloseable {
     private final RateLimiter limiter;
     private final CircuitBreaker circuitBreaker;
     private final TimeLimiter timeLimiter;
+    private final Map<AiFeature, TimeLimiter> timeLimiterOverrides;
     private final AiAuditLog audit;
     private final ExecutorService executor;
     private final Map<AiFeature, Map<AiOutcome, Counter>> counters = new EnumMap<>(AiFeature.class);
@@ -60,6 +61,17 @@ public class AiGateway implements AutoCloseable {
 
     public AiGateway(LlmClient llm, AiProperties props, RateLimiter limiter, CircuitBreaker circuitBreaker,
                      TimeLimiter timeLimiter, AiAuditLog audit, MeterRegistry meters) {
+        this(llm, props, limiter, circuitBreaker, timeLimiter, Map.of(), audit, meters);
+    }
+
+    /**
+     * {@code timeLimiterOverrides}: features with their own limit (W7·D5: the Refund Assistant writes a few sentences
+     * for someone reading their booking and gets 8 s; the Seat Finder keeps 4 s, someone is racing for seats).
+     */
+    public AiGateway(LlmClient llm, AiProperties props, RateLimiter limiter, CircuitBreaker circuitBreaker,
+                     TimeLimiter timeLimiter, Map<AiFeature, TimeLimiter> timeLimiterOverrides, AiAuditLog audit,
+                     MeterRegistry meters) {
+        this.timeLimiterOverrides = Map.copyOf(timeLimiterOverrides);
         this.llm = llm;
         this.props = props;
         this.limiter = limiter;
@@ -155,7 +167,7 @@ public class AiGateway implements AutoCloseable {
 
     private AiResult call(Request request, String systemPrompt, String userText, Predicate<String> accept) {
         long start = System.nanoTime();
-        Callable<LlmClient.LlmReply> timed = timeLimiter.decorateFutureSupplier(
+        Callable<LlmClient.LlmReply> timed = timeLimiterOverrides.getOrDefault(request.feature(), timeLimiter).decorateFutureSupplier(
                 () -> executor.submit(() -> llm.complete(systemPrompt, userText)));
         try {
             LlmClient.LlmReply reply = circuitBreaker.executeCallable(timed);
