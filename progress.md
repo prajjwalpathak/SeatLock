@@ -3,8 +3,9 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 7 · Day 5 (not started, planned Mon Dec 28): Refund Assistant: `RefundPolicyEngine` facts + retrieved policy sections + grounded Gemini prompt + ₹-amount guardrail + template fallback; booking-page UI. Branch `w7-d5` (create with `git switch -c w7-d5 origin/main` after the W7·D4 PR is squash-merged). Nothing to prepare
-- **Last completed:** Week 7 · Day 4: policy RAG (7 policy files / 40 sections, local ONNX all-MiniLM-L6-v2, V14 pgvector + HNSW, hash-skipped advisory-locked ingestion, admin search/reindex, 30-question recall eval) + ticket QR with PNG download (planned Sat Dec 26, done Mon Nov 23)
+- **Current day:** Week 7 · Day 6 (not started, planned Tue Dec 29): AI failure drills (bad key, timeout, quota, embeddings) + Grafana AI panels + robustness carry-overs (embedding model failing to load disables RAG instead of stopping the app; index tagged with the Spring AI version; memory of 2 instances with the ONNX model on the VM → decide prod `SEATLOCK_EMBEDDINGS`; Gemini key + `SEATLOCK_AI_PROVIDER` on the VM); Week 7 review. Branch `w7-d6` (create with `git switch -c w7-d6 origin/main` after the W7·D5 PR is squash-merged). **Prepare:** SSH access to the VM (prod `.env.prod` gets the Gemini key that day, typed on the VM, never in chat)
+- **Last completed:** Week 7 · Day 5: Refund Assistant (engine facts incl. next tier, 3 RAG excerpts, Gemini explains only, ₹/% `AnswerGuard`, template fallback, booking-page UI); per-feature time limit (8 s) + Gemini thinking LOW fixed 7/9 timeouts → 4/4 OK, avg 1.7 s (planned Mon Dec 28, done Mon Nov 23)
+- **Earlier:** Week 7 · Day 4: policy RAG (7 policy files / 40 sections, local ONNX all-MiniLM-L6-v2, V14 pgvector + HNSW, hash-skipped advisory-locked ingestion, admin search/reindex, 30-question recall eval) + ticket QR with PNG download (planned Sat Dec 26, done Mon Nov 23)
 - **Before:** Week 7 · Day 3: AI Seat Finder (`SeatIntent` JSON from Gemini, validated in code, 24 h Redis cache, code-side defaults and per-seat budget, fallback to the manual form), 40-phrase eval + script, Seat Finder UI with suggested seats ringed on the map (planned Thu Dec 24, done Mon Nov 23)
 - **Earlier:** Week 7 · Day 2: Seat Finder algorithm (runs of consecutive columns, sliding window, 45/45/10 score, top 3 non-overlapping) + public `POST /shows/{id}/seat-finder` (planned Wed Dec 23, done Mon Nov 23)
 - **Before that:** Week 7 · Day 1: AI gateway (Spring AI 2.0.2 + Gemini 3.5 Flash-Lite behind an `LlmClient` port, Resilience4j breaker + 4 s time limit, 4-thread bulkhead, Bucket4j AI quotas, `ai_requests` audit, admin status/ping); first live Gemini calls OK (planned Tue Dec 22, done Mon Nov 23)
@@ -12,8 +13,8 @@
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public) · CI + Deploy badges in README · `main` protected (ruleset `protect-main`)
 - **Hosting:** Azure VM `seatlock-vm` (India South Central, B2als_v2 x64) + Vercel; images from GHCR (ADR-005, #62, #71–#74, #167); **2 app instances** since W5·D5 + Prometheus/Grafana since W6·D2; **AI off on prod** (`SEATLOCK_AI_PROVIDER` unset) until W7·D6; decommission after ~2–3 months
 - **Git workflow (from W6·D2):** **one task per day** = all plan tasks → one verify/test block → one one-line commit + push on the daily branch → PR on GitHub → squash-merge when CI is green; next branch with `git switch -c wN-dM origin/main`; never push to a branch after its PR is merged; **never use GitHub's "Update branch" / web conflict editor**; **start each day by checking prod is on `main`** (deploy.md section 3d) (#9, #75, #116, #141, #142, #176, #181, #202)
-- **Carry-overs:** **recall eval numbers** (recall@1/@4, MRR, misses) + **intent eval numbers** (run 1 total + run 2 after the prompt fix) → record at the start of W7·D5 · local `mvnw verify` / frontend build for W7·D4 not pasted → CI is the gate · app memory with the ONNX model (local, then 2 instances on the VM) → W7·D6 · W7·D1 full `mvnw verify` result not reported locally → CI on the PR is the gate · Gemini key + `SEATLOCK_AI_PROVIDER` on the VM → W7·D6 · Gemini latency vs the 4 s limit (one call 2.9 s) → check in Grafana W7·D6 · duplicate `Strict-Transport-Security` (Spring + Nginx) → W8·D1 · same-site frontend/API for privacy blockers (F7) → W8 stretch · JetBrains license · IntelliJ dependency scan · refund status webhooks (stretch) · WireMock 4.x re-check (W8·D1)
-- **Schedule:** **~33 days ahead** (W7·D4 done Mon Nov 23 instead of Sat Dec 26); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
+- **Carry-overs:** **recall eval numbers** (recall@1/@4, MRR, misses) + **intent eval numbers** (run 1 total + run 2 after the prompt fix) → record at W7·D6 (intent eval also re-run once with thinking LOW) · local `mvnw verify` / frontend build for W7·D4 not pasted → CI is the gate · app memory with the ONNX model (local, then 2 instances on the VM) → W7·D6 · W7·D1 full `mvnw verify` result not reported locally → CI on the PR is the gate · Gemini key + `SEATLOCK_AI_PROVIDER` on the VM → W7·D6 · Gemini latency vs the 4 s limit (one call 2.9 s) → check in Grafana W7·D6 · duplicate `Strict-Transport-Security` (Spring + Nginx) → W8·D1 · same-site frontend/API for privacy blockers (F7) → W8 stretch · JetBrains license · IntelliJ dependency scan · refund status webhooks (stretch) · WireMock 4.x re-check (W8·D1)
+- **Schedule:** **~35 days ahead** (W7·D5 done Mon Nov 23 instead of Mon Dec 28); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
 - **Top risk:** Week 7 AI: free-tier quota (500 RPD shared by local + prod), structured output with Spring AI 2.0 + Gemini on D3, ONNX embedding model in the image vs the 900 MB app limit on D4; keep checking prod is on `main` each morning (deploy.md section 3d, F13)
 
 ## Decisions Log (ADR summary)
@@ -244,6 +245,10 @@
 | 223 | 2026-11-23 | Recall eval: 30 paraphrased questions with one expected section each (`src/test/resources/ai-eval/rag-questions.json`), `load-tests/rag-recall-eval.ps1` → recall@1, recall@4, MRR via admin `POST /admin/ai/policy-search` | Measurable retrieval quality for the resume; venue docs are deliberately similar to test disambiguation |
 | 224 | 2026-11-23 | Ticket QR (#219) built: `TicketCard` with `qrcode` (npm) data URL of `{origin}/bookings/{publicId}`, PNG drawn on an 840×380 canvas, object URL revoked after 1 s | No backend, no screenshot library; revoking at once can cancel the download |
 | 225 | 2026-11-23 | `backend/.mvn/maven.config`: `-ntp` + resolver retries (5 × 10 s) for every `mvnw` call (CI, Docker image build, laptop) | Deploy of #28 failed in the Docker build's `mvnw package` (likely Maven Central throttling; only CI's call had retries, #180) |
+| 226 | 2026-11-23 | **ADR-018 Refund Assistant:** `RefundFactsService` (booking + payment quote + next tier from the same `RefundPolicyEngine` at tier end + 1 ms; unpaid past its deadline = EXPIRED) → 3 RAG excerpts → Gemini (`REFUND_ASSISTANT`) explains from facts + excerpts only → `AnswerGuard` → else `RefundTemplate`; response says `source: AI | TEMPLATE` + excerpts; read-only `POST /bookings/{id}/assistant` (owner only, `ai` rate limit) | Engine decides, retrieval grounds, model only explains; money in answers is always the engine's |
+| 227 | 2026-11-23 | **`AnswerGuard`:** every ₹/Rs/INR/"rupees" amount must be one the engine computed for this booking, every % this booking's or a policy tier (integers only), ≤ 900 chars; violation → `INVALID_OUTPUT` → template. Amounts formatted in code (Indian grouping, paise only when non-zero), times in IST | A wrong number can never reach the user; the model copies strings instead of formatting money |
+| 228 | 2026-11-23 | Per-feature time limits: Refund Assistant `gemini-explain` **8 s**, Seat Finder `gemini` **4 s** (shared breaker); Gemini **`thinking-level: LOW`** (`GEMINI_THINKING_LEVEL`) + `max-output-tokens: 400` | Measured 7 of 9 refund calls > 4 s while answered ones took ~1.6 s at the same prompt size (model reasoning time varies); after: 4/4 OK, avg 1.7 s, max 2.6 s |
+| 229 | 2026-11-23 | No answer cache for the Refund Assistant | Facts change with time (tiers) and booking state |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -332,6 +337,9 @@
 | Tests | ~590 (+14 `SeatIntentParserTest`, +2 `AiGatewayTest`, +4 `SeatIntentApiIntegrationTest`; count to confirm in CI) | `mvnw verify` / CI | 2026-11-23 |
 | RAG recall eval (30 questions) | to be recorded W7·D5 (recall@1, recall@4, MRR) | `load-tests/rag-recall-eval.ps1` | 2026-11-23 |
 | Tests | ~604 (+5 `RagUnitTest`, +5 `PolicyIngestionIntegrationTest`, +3 `RagConfigTest`, +1 admin AI; count to confirm in CI) | `mvnw verify` / CI | 2026-11-23 |
+| **Refund Assistant latency, before → after (#228)** | before: 2 OK (avg 1.58 s, 394 tokens in / 43 out), **7 × TIMEOUT at 4 s**, breaker opened; after: **4/4 OK, avg 1.68 s, max 2.60 s**, 0 timeouts | `ai_requests` grouped by feature/outcome | 2026-11-23 |
+| Seat Finder calls (incl. intent eval runs) | 81 OK, avg 0.94 s, max 1.98 s, 379 tokens in / 39 out | same | 2026-11-23 |
+| Tests | ~616 (+4 `RefundAssistantUnitTest`, +4 `RefundAssistantServiceTest`, +3 `RefundAssistantIntegrationTest`, +1 `AiGatewayTest`; count to confirm in CI) | `mvnw verify` / CI | 2026-11-23 |
 
 ## Accounts & Config (no secrets here, only where they live)
 | Item | Status | Where stored |
@@ -1757,3 +1765,33 @@
 - Local vs hosted embeddings: cost, latency, memory, privacy
 - Client-side image generation (canvas, blobs, object URLs) and QR codes
 **Commit:** `feat(assistant): policy RAG with ONNX embeddings, pgvector HNSW, recall eval; ticket QR (W7·D4)`
+
+### Week 7 · Day 5: Refund Assistant (planned Mon, Dec 28; done Mon, Nov 23, 2026)
+**Status:** ✅ Done (latency fix verified live)
+**Built:**
+- `assistant.refund`: `RefundSituation`, `Money` (Indian grouping, IST), `RefundFacts` (allowed amounts/percents, prompt lines), `RefundFactsService`, `AnswerGuard`, `RefundTemplate`, `RefundAssistantService`
+- `assistant.api`: `RefundAssistantController` (`POST /api/v1/bookings/{publicId}/assistant`), `RefundQuestionRequest`
+- `AiGateway` per-feature time limiters (`gemini-explain` 8 s for REFUND_ASSISTANT); Gemini `thinking-level` + `max-output-tokens`; `.env.example` `GEMINI_THINKING_LEVEL`
+- Frontend: `RefundAssistant` (suggested questions, answer + source note, policy excerpts) on every booking page; types + `api/refundAssistant.ts` (tsc + eslint clean)
+- Docs: ADR-018, ADR-016 item 10, architecture section 2p, ADR index
+- Tests: `RefundAssistantUnitTest` (4), `RefundAssistantServiceTest` (4), `RefundAssistantIntegrationTest` (3), `AiGatewayTest` (+1)
+**Files created/changed:**
+- `assistant\refund\*.java` (8); `assistant\api\{RefundAssistantController, RefundQuestionRequest}.java`; `assistant\ai\{AiGateway, AiConfig}.java`; `application.yml`
+- Tests: `assistant\refund\{RefundAssistantUnitTest, RefundAssistantServiceTest, RefundAssistantIntegrationTest}`, `assistant\ai\AiGatewayTest`
+- Frontend: `src\features\booking\RefundAssistant.tsx`, `src\api\refundAssistant.ts`, `src\types\api.ts`, `src\pages\BookingPage.tsx`
+- `.env.example`; `docs\architecture.md`, `docs\decisions\{ADR-018-refund-assistant.md, ADR-016-ai-gateway.md, README.md}`, `progress.md`
+**Decisions:**
+- See Decisions Log #226–#229
+**Metrics recorded:**
+- Refund Assistant latency before/after; Seat Finder call stats (see Metrics table)
+**Problems & fixes:**
+- 7 of 9 Refund Assistant calls timed out at 4 s (breaker opened, template shown: guardrails worked) while answered calls of the same size took ~1.6 s → own 8 s limit + thinking LOW + output cap → 4/4 OK, max 2.6 s
+**Carry-over:**
+- Eval numbers (recall@4, intent x/40, intent re-run with thinking LOW) → W7·D6; ONNX robustness + prod memory → W7·D6
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- Grounded generation: facts computed in code + retrieved excerpts; the model as explainer, not decider
+- Output validation for LLMs: extracting and checking numbers, rejecting instead of repairing, deterministic template fallback
+- Prompt injection against money statements and why a post-check beats prompt rules alone
+- Latency of reasoning models: variable thinking time, per-use-case timeouts, measuring with an audit table
+- Module boundaries: composing booking + payment public services into a read model
+**Commit:** `feat(assistant): Refund Assistant with engine facts, RAG excerpts, amount guard and template fallback (W7·D5)`
