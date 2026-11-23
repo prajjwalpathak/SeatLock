@@ -43,16 +43,12 @@ spring:
       # Which chat model Spring AI builds: google-genai (Gemini) or none. Default none, so an environment without a
       # key (CI, prod until W7·D6) starts with AI disabled and every AI feature on its non-AI fallback (ADR-016).
       chat: ${SEATLOCK_AI_PROVIDER:none}
-      # transformers = local ONNX all-MiniLM-L6-v2 (RAG, ADR-017); none = retrieval off. Default none until the
-      # memory of 2 instances with the model is measured on the VM (W7·D6).
-      embedding: ${SEATLOCK_EMBEDDINGS:none}
+      # Never auto-configured (W7·D6): RagConfig builds the ONNX model itself, so a model that fails to load turns
+      # retrieval off instead of failing startup. Switch: seatlock.rag.embeddings (SEATLOCK_EMBEDDINGS).
+      embedding: none
     chat:
       client:
         enabled: false           # we build our own ChatClient in GeminiLlmClient; no shared builder bean needed
-    embedding:
-      transformer:
-        cache:
-          directory: ${java.io.tmpdir}/spring-ai-onnx-model   # where the model is unpacked from the jar
     google:
       genai:
         api-key: ${GEMINI_API_KEY:}           # Gemini Developer API key (AI Studio); never logged
@@ -166,6 +162,11 @@ seatlock:
       global-per-minute: { capacity: 12,  refill-tokens: 12,  refill-period: 1m }   # under Google's 15 RPM → fallback
       global-daily:      { capacity: 400, refill-tokens: 400, refill-period: 1d }   # 80 % of 500 RPD → fallback
   rag:
+    embeddings: ${SEATLOCK_EMBEDDINGS:none}   # transformers = local ONNX all-MiniLM-L6-v2 (ADR-017); none = off
+    onnx:
+      model-uri: classpath:/onnx/all-MiniLM-L6-v2/model.onnx          # inside the Spring AI jar
+      tokenizer-uri: classpath:/onnx/all-MiniLM-L6-v2/tokenizer.json
+      cache-directory: ${java.io.tmpdir}/spring-ai-onnx-model          # where the model is unpacked
     ingest-on-startup: true      # index classpath:policies/*.md in the background after startup (unchanged files skipped)
     top-k: 4                     # chunks returned per question (recall@4 eval)
     fake-embeddings: false       # tests only: deterministic hashing embedder instead of the ONNX model
