@@ -452,6 +452,26 @@ flowchart LR
   payment captures after commit, open STOMP sessions; plus HTTP histograms, cache, Hikari, JVM (`docs/monitoring.md`).
 - Tags are low-cardinality only (strategy, outcome, status, URI template), never ids.
 
+## 2l. AI gateway (W7·D1, ADR-016)
+
+Every AI feature calls `AiGateway.complete(feature, userId, systemPrompt, userText)` and gets an `Answer` or a
+`Fallback(outcome)`; the model never writes data, holds seats or computes money.
+
+```mermaid
+flowchart LR
+    C[Controller<br/>@RateLimited ai: 5/min/user] --> G{AiGateway}
+    G -->|> 300 chars| E400[400]
+    G -->|no model| F1[DISABLED]
+    G -->|user 30/day spent| E429[429]
+    G -->|breaker open| F2[CIRCUIT_OPEN]
+    G -->|global 12/min or 400/day spent| F3[QUOTA]
+    G --> P[ai-call pool 4 + queue 8] -->|full| F4[BUSY]
+    P --> T[TimeLimiter 4 s] --> B[CircuitBreaker gemini] --> L[LlmClient → Spring AI ChatClient → Gemini]
+    T -->|late| F5[TIMEOUT]
+    B -->|error| F6[ERROR]
+    G -.every request.-> A[(ai_requests: hash + length, no text)]
+```
+
 ## 3. Conventions
 - Internal keys are `bigint` identity. Bookings expose a random `public_id` (UUID), so IDs in URLs can't be enumerated.
 - Enums are `varchar` + `CHECK`, not Postgres `ENUM` types: easier to evolve with Flyway, and mapped with `@Enumerated(EnumType.STRING)`.

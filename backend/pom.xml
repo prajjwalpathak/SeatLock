@@ -26,7 +26,22 @@
 		<bucket4j.version>8.22.0</bucket4j.version>
 		<!-- Test only. The standalone jar shades its own Jetty/Jackson, so it can't clash with Boot's versions. -->
 		<wiremock.version>3.13.2</wiremock.version>
+		<!-- W7·D1: Spring AI 2.0.x (Boot 4 line; 2.0.2 = latest GA, Oct 2026) -->
+		<spring-ai.version>2.0.2</spring-ai.version>
+		<!-- resilience4j-spring-boot4 is NOT in resilience4j-bom 2.4.0 (upstream issue #2427), so pinned here -->
+		<resilience4j.version>2.4.0</resilience4j.version>
 	</properties>
+	<dependencyManagement>
+		<dependencies>
+			<dependency>
+				<groupId>org.springframework.ai</groupId>
+				<artifactId>spring-ai-bom</artifactId>
+				<version>${spring-ai.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+		</dependencies>
+	</dependencyManagement>
 	<dependencies>
 		<!-- Rate limiting: token buckets stored in Redis (shared by all app instances). lettuce-core is
 		     'provided' in this module, so it uses Boot's Lettuce (7.x); RateLimiterIntegrationTest proves it works. -->
@@ -34,6 +49,18 @@
 			<groupId>com.bucket4j</groupId>
 			<artifactId>bucket4j_jdk17-lettuce</artifactId>
 			<version>${bucket4j.version}</version>
+		</dependency>
+		<!-- AI (W7): Gemini through Spring AI's ChatClient. Off unless SEATLOCK_AI_PROVIDER=google-genai (ADR-016) -->
+		<dependency>
+			<groupId>org.springframework.ai</groupId>
+			<artifactId>spring-ai-starter-model-google-genai</artifactId>
+		</dependency>
+		<!-- Circuit breaker + time limiter around the LLM. The Boot 3 artifact must never be used: its verifier
+		     bean throws IncompatibleSpringBootVersionException on Boot 4. Registries only (no AspectJ, no annotations). -->
+		<dependency>
+			<groupId>io.github.resilience4j</groupId>
+			<artifactId>resilience4j-spring-boot4</artifactId>
+			<version>${resilience4j.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -203,6 +230,9 @@
 						<exclude>com/seatlock/SeatLockApplication.class</exclude>
 						<!-- pure wiring of the job scheduler; jobs are disabled in the test profile and called directly -->
 						<exclude>com/seatlock/common/config/SchedulingConfig.class</exclude>
+						<!-- thin Spring AI adapter: needs a live model (checked by /admin/ai/ping and the W7·D6 drills);
+						     the guardrails around it are unit-tested with stub LlmClients -->
+						<exclude>com/seatlock/assistant/ai/GeminiLlmClient.class</exclude>
 					</excludes>
 				</configuration>
 				<executions>

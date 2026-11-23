@@ -38,6 +38,22 @@ spring:
             client-secret: ${GOOGLE_CLIENT_SECRET}
             scope: openid, email, profile   # basic sign-in scopes only (no Google verification needed)
 
+  ai:
+    model:
+      # Which chat model Spring AI builds: google-genai (Gemini) or none. Default none, so an environment without a
+      # key (CI, prod until W7·D6) starts with AI disabled and every AI feature on its non-AI fallback (ADR-016).
+      chat: ${SEATLOCK_AI_PROVIDER:none}
+      embedding: none            # local ONNX embeddings arrive on W7·D4
+    chat:
+      client:
+        enabled: false           # we build our own ChatClient in GeminiLlmClient; no shared builder bean needed
+    google:
+      genai:
+        api-key: ${GEMINI_API_KEY:}           # Gemini Developer API key (AI Studio); never logged
+        chat:
+          model: ${seatlock.ai.model}
+          temperature: 0.2                    # parsing/explaining, not creative writing
+
   data:
     redis:
       repositories:
@@ -96,6 +112,9 @@ seatlock:
       holds:                     # POST /api/v1/shows/{id}/holds (decision #104)
         per-ip:   { capacity: 30, refill-tokens: 30, refill-period: 1m }   # a busy NAT/office still fits
         per-user: { capacity: 5,  refill-tokens: 10, refill-period: 1m }   # burst 5, then 10 per minute
+      ai:                        # every endpoint that calls the LLM (W7); daily + global caps live in seatlock.ai.quota
+        per-ip:   { capacity: 20, refill-tokens: 20, refill-period: 1m }
+        per-user: { capacity: 5,  refill-tokens: 5,  refill-period: 1m }
   bookings:
     sweep-interval: PT30S        # BookingExpirySweeper: expire unpaid bookings past expiresAt
     sweep-batch-size: 100        # rows locked (SKIP LOCKED) and expired per transaction
@@ -122,7 +141,37 @@ seatlock:
     ttl: 24h                     # how long a key's response is replayed (decision #90)
     lease: 30s                   # an IN_PROGRESS claim older than this may be taken over by a retry
     cleanup-interval: PT1H       # IdempotencyCleanupJob: delete expired keys hourly (ISO-8601)
+  ai:
+    model: ${GEMINI_MODEL:gemini-3.5-flash-lite}   # free tier (Nov 2026): 15 RPM, 250K TPM, 500 RPD per project
+    max-input-chars: 300         # longest user text sent to the model (plan guardrail)
+    executor-threads: 4          # concurrent LLM calls per instance (bulkhead); more wait in the queue
+    executor-queue: 8            # beyond threads + queue → BUSY fallback at once
+    audit-retention: P30D        # AiRequestCleanupJob deletes older ai_requests rows daily
+    quota:                       # Bucket4j buckets in Redis, shared by both instances
+      user-daily:        { capacity: 30,  refill-tokens: 30,  refill-period: 1d }   # over → 429 RATE_LIMITED
+      global-per-minute: { capacity: 12,  refill-tokens: 12,  refill-period: 1m }   # under Google's 15 RPM → fallback
+      global-daily:      { capacity: 400, refill-tokens: 400, refill-period: 1d }   # 80 % of 500 RPD → fallback
   admin:
     # Bootstrap ADMIN account (created once at startup if missing). Both empty = skipped.
     email: ${SEATLOCK_ADMIN_EMAIL:}
     password: ${SEATLOCK_ADMIN_PASSWORD:}
+
+# Circuit breaker + time limiter around every LLM call (AiGateway, ADR-016). Instance name "gemini".
+resilience4j:
+  circuitbreaker:
+    instances:
+      gemini:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        minimum-number-of-calls: 5             # don't judge on 1–2 calls
+        failure-rate-threshold: 50             # ≥ 50 % failures (errors + timeouts) → OPEN
+        wait-duration-in-open-state: 30s       # then HALF_OPEN: 2 trial calls decide
+        permitted-number-of-calls-in-half-open-state: 2
+        automatic-transition-from-open-to-half-open-enabled: true
+        ignore-exceptions:
+          - java.util.concurrent.RejectedExecutionException   # our own queue was full; says nothing about Gemini
+  timelimiter:
+    instances:
+      gemini:
+        timeout-duration: 4s
+        cancel-running-future: true

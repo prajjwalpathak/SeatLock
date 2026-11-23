@@ -24,9 +24,16 @@ spring:
     username: unused
     password: unused
 
+  ai:
+    model:
+      chat: none     # ignore SEATLOCK_AI_PROVIDER in .env: tests never call Gemini (AiGateway tests use a stub LlmClient)
+
 seatlock:
   rate-limit:
     policies:
+      ai:
+        per-ip:   { capacity: 100000, refill-tokens: 100000, refill-period: 1m }
+        per-user: { capacity: 100,    refill-tokens: 100,    refill-period: 1m }
       holds:                     # the whole suite runs from 127.0.0.1 → generous; RateLimit*Test checks the real behaviour
         per-ip:   { capacity: 100000, refill-tokens: 100000, refill-period: 1m }
         per-user: { capacity: 20,     refill-tokens: 20,     refill-period: 1m }

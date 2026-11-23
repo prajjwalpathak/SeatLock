@@ -20,3 +20,4 @@ The full decisions log (including small ones) lives in [progress.md](../../progr
 | [013](ADR-013-seat-locking-strategy.md) | `SeatLockingStrategy`: Redis Lua holds or optimistic Postgres claims | W4 |
 | [014](ADR-014-realtime-seat-events.md) | Live seat events: STOMP topics, AFTER_COMMIT domain events, Redis versions, JWT on CONNECT | W5 |
 | [015](ADR-015-monitoring.md) | Micrometer → Prometheus → Grafana; business meters, edge-hidden scrape endpoint, Grafana at /grafana/ | W6 |
+| [016](ADR-016-ai-gateway.md) | AI gateway: Spring AI + Gemini behind a port, Resilience4j breaker + time limit, Bucket4j AI quotas, `ai_requests` audit | W7 |
