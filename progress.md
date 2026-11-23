@@ -3,16 +3,17 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 7 · Day 4 (not started, planned Sat Dec 26): pgvector migration + HNSW index, local ONNX embeddings (all-MiniLM-L6-v2, model baked into the image), policy docs, async ingestion with content hashing, retrieval + recall@4 eval (30 questions); **extra (user-approved scope addition): ticket QR code + "Download ticket" as PNG on CONFIRMED bookings**. Branch `w7-d4` (create with `git switch -c w7-d4 origin/main` after the W7·D3 PR is squash-merged). **Prepare:** download the ONNX model files (URLs given at the start of D4)
-- **Last completed:** Week 7 · Day 3: AI Seat Finder (`SeatIntent` JSON from Gemini, validated in code, 24 h Redis cache, code-side defaults and per-seat budget, fallback to the manual form), 40-phrase eval + script, Seat Finder UI with suggested seats ringed on the map (planned Thu Dec 24, done Mon Nov 23)
+- **Current day:** Week 7 · Day 5 (not started, planned Mon Dec 28): Refund Assistant: `RefundPolicyEngine` facts + retrieved policy sections + grounded Gemini prompt + ₹-amount guardrail + template fallback; booking-page UI. Branch `w7-d5` (create with `git switch -c w7-d5 origin/main` after the W7·D4 PR is squash-merged). Nothing to prepare
+- **Last completed:** Week 7 · Day 4: policy RAG (7 policy files / 40 sections, local ONNX all-MiniLM-L6-v2, V14 pgvector + HNSW, hash-skipped advisory-locked ingestion, admin search/reindex, 30-question recall eval) + ticket QR with PNG download (planned Sat Dec 26, done Mon Nov 23)
+- **Before:** Week 7 · Day 3: AI Seat Finder (`SeatIntent` JSON from Gemini, validated in code, 24 h Redis cache, code-side defaults and per-seat budget, fallback to the manual form), 40-phrase eval + script, Seat Finder UI with suggested seats ringed on the map (planned Thu Dec 24, done Mon Nov 23)
 - **Earlier:** Week 7 · Day 2: Seat Finder algorithm (runs of consecutive columns, sliding window, 45/45/10 score, top 3 non-overlapping) + public `POST /shows/{id}/seat-finder` (planned Wed Dec 23, done Mon Nov 23)
 - **Before that:** Week 7 · Day 1: AI gateway (Spring AI 2.0.2 + Gemini 3.5 Flash-Lite behind an `LlmClient` port, Resilience4j breaker + 4 s time limit, 4-thread bulkhead, Bucket4j AI quotas, `ai_requests` audit, admin status/ping); first live Gemini calls OK (planned Tue Dec 22, done Mon Nov 23)
 - **Live URLs:** Frontend https://seatlock-nu.vercel.app · Backend https://seatlock-prajjwal.duckdns.org · Swagger https://seatlock-prajjwal.duckdns.org/swagger-ui.html · Version https://seatlock-prajjwal.duckdns.org/api/v1/system/version · Grafana https://seatlock-prajjwal.duckdns.org/grafana/ (admin login)
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public) · CI + Deploy badges in README · `main` protected (ruleset `protect-main`)
 - **Hosting:** Azure VM `seatlock-vm` (India South Central, B2als_v2 x64) + Vercel; images from GHCR (ADR-005, #62, #71–#74, #167); **2 app instances** since W5·D5 + Prometheus/Grafana since W6·D2; **AI off on prod** (`SEATLOCK_AI_PROVIDER` unset) until W7·D6; decommission after ~2–3 months
 - **Git workflow (from W6·D2):** **one task per day** = all plan tasks → one verify/test block → one one-line commit + push on the daily branch → PR on GitHub → squash-merge when CI is green; next branch with `git switch -c wN-dM origin/main`; never push to a branch after its PR is merged; **never use GitHub's "Update branch" / web conflict editor**; **start each day by checking prod is on `main`** (deploy.md section 3d) (#9, #75, #116, #141, #142, #176, #181, #202)
-- **Carry-overs:** **intent eval numbers** (run 1 total + run 2 after the prompt fix: correct/40, fallbacks, p50/p95) → record at the start of W7·D4 · W7·D1 full `mvnw verify` result not reported locally → CI on the PR is the gate · Gemini key + `SEATLOCK_AI_PROVIDER` on the VM → W7·D6 · Gemini latency vs the 4 s limit (one call 2.9 s) → check in Grafana W7·D6 · duplicate `Strict-Transport-Security` (Spring + Nginx) → W8·D1 · same-site frontend/API for privacy blockers (F7) → W8 stretch · JetBrains license · IntelliJ dependency scan · refund status webhooks (stretch) · WireMock 4.x re-check (W8·D1)
-- **Schedule:** **~31 days ahead** (W7·D3 done Mon Nov 23 instead of Thu Dec 24); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
+- **Carry-overs:** **recall eval numbers** (recall@1/@4, MRR, misses) + **intent eval numbers** (run 1 total + run 2 after the prompt fix) → record at the start of W7·D5 · local `mvnw verify` / frontend build for W7·D4 not pasted → CI is the gate · app memory with the ONNX model (local, then 2 instances on the VM) → W7·D6 · W7·D1 full `mvnw verify` result not reported locally → CI on the PR is the gate · Gemini key + `SEATLOCK_AI_PROVIDER` on the VM → W7·D6 · Gemini latency vs the 4 s limit (one call 2.9 s) → check in Grafana W7·D6 · duplicate `Strict-Transport-Security` (Spring + Nginx) → W8·D1 · same-site frontend/API for privacy blockers (F7) → W8 stretch · JetBrains license · IntelliJ dependency scan · refund status webhooks (stretch) · WireMock 4.x re-check (W8·D1)
+- **Schedule:** **~33 days ahead** (W7·D4 done Mon Nov 23 instead of Sat Dec 26); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
 - **Top risk:** Week 7 AI: free-tier quota (500 RPD shared by local + prod), structured output with Spring AI 2.0 + Gemini on D3, ONNX embedding model in the image vs the 900 MB app limit on D4; keep checking prod is on `main` each morning (deploy.md section 3d, F13)
 
 ## Decisions Log (ADR summary)
@@ -237,6 +238,12 @@
 | 217 | 2026-11-23 | Prompt rule after eval run 1 (phrase 18 "best seats in the house for two" → PLATINUM/FRONT): vague quality words map to no section and row ANY; both runs recorded, run 2 marked as tuned on the same set | The finder already ranks the best view; a guessed section hides cheaper good seats; honest numbers |
 | 218 | 2026-11-23 | Seat Finder UI: text box (signed in) + manual filters (everyone) in `SeatFinderPanel`; options ringed on the map (legend "Suggested"), "Select these seats" fills the selection; understood filters pre-fill the form | Hold stays the only claiming step; the fallback is always one click away |
 | 219 | 2026-11-23 | **Scope addition (user-approved), built on W7·D4:** CONFIRMED bookings show a ticket card with a **QR code** (booking URL `{frontend}/bookings/{publicId}`) and **"Download ticket" as a PNG** (drawn on a canvas in the browser). Frontend only, `qrcode` npm package (MIT); no PDF/e-mail (still LedgerPay's), no gate-scanning/check-in endpoint | Something ticket-like for demos at almost no cost; the QR opens the owner-only booking page, so it reveals nothing to others (404) |
+| 220 | 2026-11-23 | **ADR-017 policy RAG:** Spring AI ONNX (`spring-ai-starter-model-transformers`) all-MiniLM-L6-v2, 384 dims, model inside the jar (no download/key/quota); own Flyway tables **V14** `policy_documents` (SHA-256 + model) / `policy_chunks` (`vector(384)`, **HNSW** `vector_cosine_ops`), plain SQL `<=>` via `JdbcClient` (not `PgVectorStore`); one chunk per `## ` section prefixed with the title | Local, free, same model for docs and questions; schema stays under Flyway; sections are small and self-contained |
+| 221 | 2026-11-23 | Ingestion after startup on one `rag-ingest` thread (own executor, **not an Executor bean**, #157): skip if hash + model unchanged, embed outside transactions, write under `pg_advisory_xact_lock(hashtext('policy:'||doc))` with a re-check, delete files no longer shipped; admin `POST /admin/ai/policy-reindex` | Readiness never waits for the model; 2 instances never write a document twice (4-writer test) |
+| 222 | 2026-11-23 | `spring.ai.model.embedding` from **`SEATLOCK_EMBEDDINGS`, default `none`** (local `.env` = transformers); tests use a deterministic `HashingPolicyEmbedder` (`seatlock.rag.fake-embeddings`) | ONNX native memory is outside the 70 % heap of a 900 MB container: prod waits for the W7·D6 measurement; CI runs ingestion + pgvector SQL without the model |
+| 223 | 2026-11-23 | Recall eval: 30 paraphrased questions with one expected section each (`src/test/resources/ai-eval/rag-questions.json`), `load-tests/rag-recall-eval.ps1` → recall@1, recall@4, MRR via admin `POST /admin/ai/policy-search` | Measurable retrieval quality for the resume; venue docs are deliberately similar to test disambiguation |
+| 224 | 2026-11-23 | Ticket QR (#219) built: `TicketCard` with `qrcode` (npm) data URL of `{origin}/bookings/{publicId}`, PNG drawn on an 840×380 canvas, object URL revoked after 1 s | No backend, no screenshot library; revoking at once can cancel the download |
+| 225 | 2026-11-23 | `backend/.mvn/maven.config`: `-ntp` + resolver retries (5 × 10 s) for every `mvnw` call (CI, Docker image build, laptop) | Deploy of #28 failed in the Docker build's `mvnw package` (likely Maven Central throttling; only CI's call had retries, #180) |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -323,6 +330,8 @@
 | Tests | ~570 (+13 `SeatFinderTest`, +5 `SeatFinderApiIntegrationTest`; count to confirm in CI) | `mvnw verify` / CI | 2026-11-23 |
 | Seat intent eval (40 phrases) | run 1: phrase 18 failed (guessed PLATINUM/FRONT for "best seats"); totals + run 2 to be recorded W7·D4 | `load-tests/ai-intent-eval.ps1` | 2026-11-23 |
 | Tests | ~590 (+14 `SeatIntentParserTest`, +2 `AiGatewayTest`, +4 `SeatIntentApiIntegrationTest`; count to confirm in CI) | `mvnw verify` / CI | 2026-11-23 |
+| RAG recall eval (30 questions) | to be recorded W7·D5 (recall@1, recall@4, MRR) | `load-tests/rag-recall-eval.ps1` | 2026-11-23 |
+| Tests | ~604 (+5 `RagUnitTest`, +5 `PolicyIngestionIntegrationTest`, +3 `RagConfigTest`, +1 admin AI; count to confirm in CI) | `mvnw verify` / CI | 2026-11-23 |
 
 ## Accounts & Config (no secrets here, only where they live)
 | Item | Status | Where stored |
@@ -1712,3 +1721,39 @@
 - Evaluating an LLM feature: labelled sets, scoring final outputs, overfitting the prompt to the eval, reporting honestly
 - Graceful degradation in the UI: AI path plus always-available manual path
 **Commit:** `feat(assistant): AI seat intent parser with validation, cache, eval and Seat Finder UI (W7·D3)`
+
+### Week 7 · Day 4: Policy RAG + ticket QR (planned Sat, Dec 26; done Mon, Nov 23, 2026)
+**Status:** ⚠️ Built; recall eval, local test run and memory check not yet reported (carried to W7·D5/D6)
+**Built:**
+- `V14__policy_chunks.sql` (pgvector, HNSW); `policies/*.md` (refund policy, terms, FAQ, 4 venues: 40 sections, matching the app's real rules and seed layouts)
+- `assistant.rag`: `PolicyEmbedder` (+ `OnnxPolicyEmbedder`, `HashingPolicyEmbedder`, `DISABLED`), `MarkdownChunker`, `PolicyChunk`, `PolicyVectors`, `PolicyIngestionService`, `PolicyRetriever`, `RagConfig` (embedder choice, background startup ingestion)
+- Admin: `POST /api/v1/admin/ai/policy-search`, `POST /api/v1/admin/ai/policy-reindex`; status adds `embeddingModel`, `policyChunks`
+- Eval: `src/test/resources/ai-eval/rag-questions.json` (30), `load-tests/rag-recall-eval.ps1`
+- Frontend: `features/booking/TicketCard.tsx` (QR + Download ticket), booking page wiring; `qrcode` + `@types/qrcode`
+- `backend/.mvn/maven.config` (Maven retries everywhere); `.env.example` `SEATLOCK_EMBEDDINGS`
+- Docs: ADR-017, architecture section 2o, CORRECTNESS section 2.4, ADR index
+- Tests: `RagUnitTest` (5), `PolicyIngestionIntegrationTest` (5), `RagConfigTest` (3), `AdminAiIntegrationTest` (+1)
+**Files created/changed:**
+- `backend\pom.xml`, `.mvn\maven.config`; `application.yml`, test `application-test.yml`; `db\migration\V14__policy_chunks.sql`; `resources\policies\*.md` (7)
+- `assistant\rag\*.java` (9); `assistant\api\{AdminAiController, AiStatusResponse, PolicySearchRequest}.java`
+- Tests: `assistant\rag\{RagUnitTest, PolicyIngestionIntegrationTest, RagConfigTest}`, `assistant\api\AdminAiIntegrationTest`; `src\test\resources\ai-eval\rag-questions.json`
+- `load-tests\rag-recall-eval.ps1`; frontend `src\features\booking\TicketCard.tsx`, `src\pages\BookingPage.tsx`, `package.json`, `package-lock.json`
+- `.env.example`; `docs\{architecture.md, CORRECTNESS.md}`, `docs\decisions\{ADR-017-policy-retrieval.md, README.md}`, `progress.md`
+**Decisions:**
+- See Decisions Log #219–#225
+**Metrics recorded:**
+- None yet (recall eval pending); tests ~604
+**Problems & fixes:**
+- Deploy of #28 failed in the image build (`mvnw -q package` inside Docker, no retries) → shared `.mvn/maven.config`; re-run of the deploy job
+- Planned "download the model" step not needed: Spring AI's ONNX jar contains all-MiniLM-L6-v2
+- PowerShell `$matches` is an automatic variable → renamed in the eval script before first run
+**Carry-over:**
+- Recall + intent eval numbers (W7·D5); memory with the ONNX model (W7·D6)
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- RAG pipeline: chunking, embeddings, vector similarity (cosine), top-k retrieval, grounding
+- pgvector: `vector(n)`, distance operators, HNSW vs IVFFlat, approximate search and when the planner skips the index
+- Idempotent ingestion: content hashing, model versioning, advisory locks across instances, embedding outside transactions
+- Evaluating retrieval: recall@k, MRR, paraphrased question sets
+- Local vs hosted embeddings: cost, latency, memory, privacy
+- Client-side image generation (canvas, blobs, object URLs) and QR codes
+**Commit:** `feat(assistant): policy RAG with ONNX embeddings, pgvector HNSW, recall eval; ticket QR (W7·D4)`
