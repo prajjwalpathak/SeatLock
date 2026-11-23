@@ -3,8 +3,9 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 7 · Day 6 (not started, planned Tue Dec 29): AI failure drills (bad key, timeout, quota, embeddings) + Grafana AI panels + robustness carry-overs (embedding model failing to load disables RAG instead of stopping the app; index tagged with the Spring AI version; memory of 2 instances with the ONNX model on the VM → decide prod `SEATLOCK_EMBEDDINGS`; Gemini key + `SEATLOCK_AI_PROVIDER` on the VM); Week 7 review. Branch `w7-d6` (create with `git switch -c w7-d6 origin/main` after the W7·D5 PR is squash-merged). **Prepare:** SSH access to the VM (prod `.env.prod` gets the Gemini key that day, typed on the VM, never in chat)
-- **Last completed:** Week 7 · Day 5: Refund Assistant (engine facts incl. next tier, 3 RAG excerpts, Gemini explains only, ₹/% `AnswerGuard`, template fallback, booking-page UI); per-feature time limit (8 s) + Gemini thinking LOW fixed 7/9 timeouts → 4/4 OK, avg 1.7 s (planned Mon Dec 28, done Mon Nov 23)
+- **Current day:** Week 8 · Day 1 (not started, planned Wed Dec 30): security hardening (CORS, security headers incl. the duplicate HSTS carry-over, input limits, secret scan of the repo/history, dependency scan + ADR-001 revisit, WireMock 4.x re-check), demo logins + nightly demo-data reset job. Branch `w8-d1` (create with `git switch -c w8-d1 origin/main` after the W7·D6 PR is squash-merged). Nothing to prepare
+- **Last completed:** Week 7 · Day 6: resilient embedding load (failure → RAG off, not app down), index tagged with the Spring AI version, Grafana "AI (Week 7)" row (8 panels), AI drill probe + F14 drill plan, memory measured with the model (+~130 MiB) → prod heap 60 %, AI rollout runbook (deploy.md 3e); Week 7 review (planned Tue Dec 29, done Mon Nov 23)
+- **Earlier:** Week 7 · Day 5: Refund Assistant (engine facts incl. next tier, 3 RAG excerpts, Gemini explains only, ₹/% `AnswerGuard`, template fallback, booking-page UI); per-feature time limit (8 s) + Gemini thinking LOW fixed 7/9 timeouts → 4/4 OK, avg 1.7 s (planned Mon Dec 28, done Mon Nov 23)
 - **Earlier:** Week 7 · Day 4: policy RAG (7 policy files / 40 sections, local ONNX all-MiniLM-L6-v2, V14 pgvector + HNSW, hash-skipped advisory-locked ingestion, admin search/reindex, 30-question recall eval) + ticket QR with PNG download (planned Sat Dec 26, done Mon Nov 23)
 - **Before:** Week 7 · Day 3: AI Seat Finder (`SeatIntent` JSON from Gemini, validated in code, 24 h Redis cache, code-side defaults and per-seat budget, fallback to the manual form), 40-phrase eval + script, Seat Finder UI with suggested seats ringed on the map (planned Thu Dec 24, done Mon Nov 23)
 - **Earlier:** Week 7 · Day 2: Seat Finder algorithm (runs of consecutive columns, sliding window, 45/45/10 score, top 3 non-overlapping) + public `POST /shows/{id}/seat-finder` (planned Wed Dec 23, done Mon Nov 23)
@@ -13,9 +14,9 @@
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public) · CI + Deploy badges in README · `main` protected (ruleset `protect-main`)
 - **Hosting:** Azure VM `seatlock-vm` (India South Central, B2als_v2 x64) + Vercel; images from GHCR (ADR-005, #62, #71–#74, #167); **2 app instances** since W5·D5 + Prometheus/Grafana since W6·D2; **AI off on prod** (`SEATLOCK_AI_PROVIDER` unset) until W7·D6; decommission after ~2–3 months
 - **Git workflow (from W6·D2):** **one task per day** = all plan tasks → one verify/test block → one one-line commit + push on the daily branch → PR on GitHub → squash-merge when CI is green; next branch with `git switch -c wN-dM origin/main`; never push to a branch after its PR is merged; **never use GitHub's "Update branch" / web conflict editor**; **start each day by checking prod is on `main`** (deploy.md section 3d) (#9, #75, #116, #141, #142, #176, #181, #202)
-- **Carry-overs:** **recall eval numbers** (recall@1/@4, MRR, misses) + **intent eval numbers** (run 1 total + run 2 after the prompt fix) → record at W7·D6 (intent eval also re-run once with thinking LOW) · local `mvnw verify` / frontend build for W7·D4 not pasted → CI is the gate · app memory with the ONNX model (local, then 2 instances on the VM) → W7·D6 · W7·D1 full `mvnw verify` result not reported locally → CI on the PR is the gate · Gemini key + `SEATLOCK_AI_PROVIDER` on the VM → W7·D6 · Gemini latency vs the 4 s limit (one call 2.9 s) → check in Grafana W7·D6 · duplicate `Strict-Transport-Security` (Spring + Nginx) → W8·D1 · same-site frontend/API for privacy blockers (F7) → W8 stretch · JetBrains license · IntelliJ dependency scan · refund status webhooks (stretch) · WireMock 4.x re-check (W8·D1)
-- **Schedule:** **~35 days ahead** (W7·D5 done Mon Nov 23 instead of Mon Dec 28); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
-- **Top risk:** Week 7 AI: free-tier quota (500 RPD shared by local + prod), structured output with Spring AI 2.0 + Gemini on D3, ONNX embedding model in the image vs the 900 MB app limit on D4; keep checking prod is on `main` each morning (deploy.md section 3d, F13)
+- **Carry-overs:** **prod AI rollout** (merge W7·D6 → copy `infra/` per deploy.md 3b incl. `chmod +x` → `.env.prod` AI block per 3e → one instance at a time → live check + Grafana) · **F14 drill results** (at least D1 bad key, D4 model won't load) · **recall eval numbers** (recall@1/@4, MRR, misses) + **intent eval numbers** (run 1 total + run 2 after the prompt fix) → record at W7·D6 (intent eval also re-run once with thinking LOW) · local `mvnw verify` / frontend build for W7·D4 not pasted → CI is the gate · app memory with the ONNX model (local, then 2 instances on the VM) → W7·D6 · W7·D1 full `mvnw verify` result not reported locally → CI on the PR is the gate · Gemini key + `SEATLOCK_AI_PROVIDER` on the VM → W7·D6 · Gemini latency vs the 4 s limit (one call 2.9 s) → check in Grafana W7·D6 · duplicate `Strict-Transport-Security` (Spring + Nginx) → W8·D1 · same-site frontend/API for privacy blockers (F7) → W8 stretch · JetBrains license · IntelliJ dependency scan · refund status webhooks (stretch) · WireMock 4.x re-check (W8·D1)
+- **Schedule:** **~36 days ahead** (W7·D6 done Mon Nov 23 instead of Tue Dec 29); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
+- **Top risk:** prod AI rollout (shared 500/day Gemini quota between local and prod; heap 60 % untested under load); earlier Week 7 risk notes: free-tier quota (500 RPD shared by local + prod), structured output with Spring AI 2.0 + Gemini on D3, ONNX embedding model in the image vs the 900 MB app limit on D4; keep checking prod is on `main` each morning (deploy.md section 3d, F13)
 
 ## Decisions Log (ADR summary)
 | # | Date | Decision | Why |
@@ -249,6 +250,11 @@
 | 227 | 2026-11-23 | **`AnswerGuard`:** every ₹/Rs/INR/"rupees" amount must be one the engine computed for this booking, every % this booking's or a policy tier (integers only), ≤ 900 chars; violation → `INVALID_OUTPUT` → template. Amounts formatted in code (Indian grouping, paise only when non-zero), times in IST | A wrong number can never reach the user; the model copies strings instead of formatting money |
 | 228 | 2026-11-23 | Per-feature time limits: Refund Assistant `gemini-explain` **8 s**, Seat Finder `gemini` **4 s** (shared breaker); Gemini **`thinking-level: LOW`** (`GEMINI_THINKING_LEVEL`) + `max-output-tokens: 400` | Measured 7 of 9 refund calls > 4 s while answered ones took ~1.6 s at the same prompt size (model reasoning time varies); after: 4/4 OK, avg 1.7 s, max 2.6 s |
 | 229 | 2026-11-23 | No answer cache for the Refund Assistant | Facts change with time (tiers) and booking state |
+| 230 | 2026-11-23 | Embedding model built by `RagConfig` (Spring AI auto-config `spring.ai.model.embedding: none`), switch `seatlock.rag.embeddings` (`SEATLOCK_EMBEDDINGS`), URIs `seatlock.rag.onnx.*`; load inside try/catch incl. `LinkageError` → **RAG DISABLED + ERROR log instead of failing startup**; warm-up embedding at startup (ADR-017 item 7) | One optional AI extra must never stop booking or trigger a deploy rollback |
+| 231 | 2026-11-23 | Policy index tagged **`all-MiniLM-L6-v2@<Spring AI version>`** (jar manifest; "unknown" in IDE without a manifest) | A Spring AI upgrade that swaps the bundled model re-indexes instead of mixing vectors |
+| 232 | 2026-11-23 | Grafana **"AI (Week 7)" row**: requests, fallback rate (orange 20 %, red 50 %), guard rejections, Gemini circuit state, seat-intent cache hit rate, AI p95, requests by feature/outcome, p95 by feature | Fallbacks and breaker state visible at a glance; provisioned from Git like the rest |
+| 233 | 2026-11-23 | AI drills as one probe (`load-tests/ai-drill-probe.ps1`) + one injected fault per run via OS env vars (F14: bad key, 200 ms time limit, global cap 2/min, missing model file, AI off) | Repeatable, no code changes to break things; users must always get a fallback, never a 5xx |
+| 234 | 2026-11-23 | **Prod: embeddings ON, heap `MaxRAMPercentage=60`** (prod compose only; image/local stay 70 %). Measured idle with the model: app-1 507.9 MiB, app-2 531.6 MiB (≈ +130 MiB native vs W6) | 540 MiB heap + ~130 MiB model + JVM overhead stays under 900 MB; 70 % (630 MiB heap) could hit the limit under load |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -340,6 +346,9 @@
 | **Refund Assistant latency, before → after (#228)** | before: 2 OK (avg 1.58 s, 394 tokens in / 43 out), **7 × TIMEOUT at 4 s**, breaker opened; after: **4/4 OK, avg 1.68 s, max 2.60 s**, 0 timeouts | `ai_requests` grouped by feature/outcome | 2026-11-23 |
 | Seat Finder calls (incl. intent eval runs) | 81 OK, avg 0.94 s, max 1.98 s, 379 tokens in / 39 out | same | 2026-11-23 |
 | Tests | ~616 (+4 `RefundAssistantUnitTest`, +4 `RefundAssistantServiceTest`, +3 `RefundAssistantIntegrationTest`, +1 `AiGatewayTest`; count to confirm in CI) | `mvnw verify` / CI | 2026-11-23 |
+| App memory with the ONNX model (local 2-instance stack, prod profile, idle, model loaded + indexed) | **app-1 507.9 MiB, app-2 531.6 MiB** (W6 without the model: ~370–405 MiB) | `docker stats --no-stream seatlock-app-1 seatlock-app-2` | 2026-11-23 |
+| Image build with Spring AI + ONNX (local, cold) | 171 s (go-offline 73 s, package 25 s, export 30 s) | `docker compose ... up -d --build` | 2026-11-23 |
+| Tests | ~617 (+1 `RagConfigTest`; count to confirm in CI) | `mvnw verify` / CI | 2026-11-23 |
 
 ## Accounts & Config (no secrets here, only where they live)
 | Item | Status | Where stored |
@@ -351,7 +360,7 @@
 | DuckDNS domain | ✅ `seatlock-prajjwal.duckdns.org` → VM static IP | duckdns.org (token in DuckDNS account) |
 | Razorpay test mode | ✅ account + test API keys (W4·D2); test payments via netbanking mock bank or test cards (UPI ID option not offered in this checkout) | local `.env` (`RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET`, git-ignored); prod `infra/.env.prod` on the VM (gateway `razorpay` since W4·D3, hex secrets only); webhooks: local cloudflared tunnel (delete after use) + prod `https://seatlock-prajjwal.duckdns.org/api/v1/webhooks/razorpay`, secret `RAZORPAY_WEBHOOK_SECRET` |
 | Google OAuth client | ✅ Web client "SeatLock local" (Testing mode, test user added); redirect `http://localhost:8080/login/oauth2/code/google`; prod URI `https://seatlock-prajjwal.duckdns.org/login/oauth2/code/google` added W2·D5 | `.env` (`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`, git-ignored) |
-| Gemini API key | ✅ AI Studio key (personal Google account, free tier: `gemini-3.5-flash-lite` 15 RPM / 250K TPM / 500 RPD per project, resets midnight Pacific); Groq not used | local `.env` (`GEMINI_API_KEY`, `SEATLOCK_AI_PROVIDER=google-genai`, `GEMINI_MODEL`, git-ignored); prod `infra/.env.prod` on W7·D6 |
+| Gemini API key | ✅ (prod: to be added on the VM, deploy.md 3e) AI Studio key (personal Google account, free tier: `gemini-3.5-flash-lite` 15 RPM / 250K TPM / 500 RPD per project, resets midnight Pacific); Groq not used | local `.env` (`GEMINI_API_KEY`, `SEATLOCK_AI_PROVIDER=google-genai`, `GEMINI_MODEL`, git-ignored); prod `infra/.env.prod` on W7·D6 |
 | Vercel project | ✅ imported from GitHub (root `frontend`), `https://seatlock-nu.vercel.app`; env `VITE_API_BASE_URL` | vercel.com (GitHub login) |
 | Local Postgres/Redis creds | ✅ | `.env` (git-ignored); keys documented in `.env.example` |
 | Local JWT keys + bootstrap admin | ✅ generated on W2·D1 / W2·D2 | `.env` (`JWT_*`, `SEATLOCK_ADMIN_*`, git-ignored) |
@@ -1795,3 +1804,40 @@
 - Latency of reasoning models: variable thinking time, per-use-case timeouts, measuring with an audit table
 - Module boundaries: composing booking + payment public services into a read model
 **Commit:** `feat(assistant): Refund Assistant with engine facts, RAG excerpts, amount guard and template fallback (W7·D5)`
+
+### Week 7 · Day 6: AI failure drills, Grafana AI panels, prod readiness + Week 7 review (planned Tue, Dec 29; done Mon, Nov 23, 2026)
+**Status:** ⚠️ Built and memory measured; drill results and the prod rollout carried over
+**Built:**
+- `RagConfig` builds `TransformersEmbeddingModel` itself (failure → `PolicyEmbedder.DISABLED`), warm-up embedding; `OnnxPolicyEmbedder` model id with the Spring AI version; `seatlock.rag.embeddings` / `seatlock.rag.onnx.*`; Spring AI embedding auto-config off
+- Grafana dashboard: "AI (Week 7)" row, 8 panels (ids 15–23)
+- `load-tests/ai-drill-probe.ps1`; FAILURES F14 (5 drills with exact fault variables and expectations) + summary row
+- Prod: `docker-compose.prod.yml` heap 60 %; `.env.prod.example` AI block; deploy.md section 3e (measure → configure on the VM → one instance at a time → live check), measured numbers recorded there
+- ADR-017 item 7; tests: `RagConfigTest` (4, incl. load failure and `UnsatisfiedLinkError`)
+**Files created/changed:**
+- `assistant\rag\{RagConfig, OnnxPolicyEmbedder}.java`; `application.yml`, test `application-test.yml`; test `assistant\rag\RagConfigTest`
+- `infra\grafana\dashboards\seatlock.json`; `infra\docker-compose.prod.yml`; `infra\.env.prod.example`
+- `load-tests\ai-drill-probe.ps1`; `docs\{FAILURES.md, deploy.md}`, `docs\decisions\ADR-017-policy-retrieval.md`, `progress.md`
+**Decisions:**
+- See Decisions Log #230–#234
+**Metrics recorded:**
+- Memory with the model, image build time (see Metrics table)
+**Problems & fixes:**
+- My `docker stats app-1 app-2` used service names; containers are `seatlock-app-1/2` → docs fixed
+- PowerShell `$args` (automatic variable) in the probe → renamed before the first run
+**Carry-over:**
+- F14 drill results; prod AI rollout (infra copy + `.env.prod` + live check); eval numbers (intent x/40 ×2 + one rerun with thinking LOW, recall@1/@4/MRR)
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- Failure injection via configuration; degrade vs fail-fast for optional features
+- Native memory outside the JVM heap; sizing heap percentages inside container limits
+- Observability for AI features: fallback rate, breaker state, guard rejections, latency per use case
+- Versioning derived data (embeddings) with the model that produced it
+**Commit:** `feat(assistant): AI failure drills, Grafana AI panels, resilient embedding load (W7·D6)`
+
+**Week 7 review:**
+- All 6 plan days built, ~36 days ahead: AI gateway with breaker/time limit/bulkhead/quotas/audit (D1), Seat Finder sliding-window algorithm + manual API (D2), AI seat-intent parser with validation, cache, eval and UI (D3), policy RAG with local ONNX embeddings + pgvector HNSW + recall eval, plus the ticket QR extra (D4), Refund Assistant with engine facts, excerpts, amount guard and template (D5), drills/panels/robustness/prod readiness (D6)
+- Rule kept everywhere: **AI interprets, code decides**: intents validated in code, defaults and per-seat budgets computed in code, refund amounts from the engine with a guard on every ₹ and %, AI never writes data
+- Measured: first live calls 0.9–2.9 s; Seat Finder 81 calls max 2.0 s; Refund Assistant 7/9 timeouts → 4/4 OK avg 1.7 s after per-feature limits + thinking LOW; memory +130 MiB with the model
+- ADRs: 016 AI gateway (items 1–10), 017 policy retrieval (items 1–7), 018 Refund Assistant
+- Lessons: measure per use case before setting time limits (one 4 s limit didn't fit both features); a model's reasoning time varies far more than prompt size suggests; optional features must fail closed to "off", not to "app down"; libraries can ship models inside jars (check before planning downloads); evaluate on paraphrased sets and report tuned runs as tuned
+- Open before v1.0.0: eval numbers, F14 results, prod AI rollout
+- Risks for Week 8: demo-data reset job touching live tables (must never delete real bookings mid-payment); security headers duplicated between Spring and Nginx; the final prod deploy with all features on a 4 GB VM; time for README/video
