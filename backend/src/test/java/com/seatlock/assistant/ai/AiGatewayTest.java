@@ -133,6 +133,32 @@ class AiGatewayTest {
     }
 
     @Test
+    void rejectedAnswerIsInvalidOutputWithTokensAudited() {
+        AiGateway gateway = gateway(llm(() -> new LlmClient.LlmReply("not json", 30, 4)));
+
+        AiResult result = gateway.complete(AiFeature.SEAT_FINDER, USER, "s", "2 seats",
+                AiGateway.Options.validatedBy(answer -> answer.startsWith("{")));
+
+        assertThat(result).isEqualTo(new AiResult.Fallback(AiOutcome.INVALID_OUTPUT));
+        AiAuditLog.Entry entry = lastAudit();
+        assertThat(entry.outcome()).isEqualTo(AiOutcome.INVALID_OUTPUT);
+        assertThat(entry.promptTokens()).isEqualTo(30);
+        assertThat(count(AiFeature.SEAT_FINDER, AiOutcome.INVALID_OUTPUT)).isEqualTo(1);
+        assertThat(breaker.getMetrics().getNumberOfSuccessfulCalls()).isEqualTo(1);   // the model did answer
+    }
+
+    @Test
+    void evalRunsSkipTheUserQuotaButNotTheGlobalCaps() {
+        AiGateway gateway = gateway(llm(() -> new LlmClient.LlmReply("{}", null, null)));
+
+        assertThat(gateway.complete(AiFeature.SEAT_FINDER, USER, "s", "2 seats",
+                AiGateway.Options.DEFAULT.withoutUserQuota())).isInstanceOf(AiResult.Answer.class);
+
+        verify(limiter, never()).tryConsume(startsWith("ai:user-day:"), any());
+        verify(limiter).tryConsume(eq("ai:global:day"), any());
+    }
+
+    @Test
     void sha256IsHexOfUtf8() {
         assertThat(AiGateway.sha256("abc"))
                 .isEqualTo("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");

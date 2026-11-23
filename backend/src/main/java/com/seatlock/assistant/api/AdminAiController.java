@@ -3,6 +3,8 @@ package com.seatlock.assistant.api;
 import com.seatlock.assistant.ai.AiFeature;
 import com.seatlock.assistant.ai.AiGateway;
 import com.seatlock.assistant.ai.AiResult;
+import com.seatlock.assistant.seatfinder.SeatIntentParser;
+import java.util.Set;
 import com.seatlock.common.config.OpenApiConfig;
 import com.seatlock.common.ratelimit.RateLimited;
 import com.seatlock.identity.security.CurrentUserId;
@@ -28,10 +30,15 @@ public class AdminAiController {
     private static final String PING_SYSTEM_PROMPT =
             "You are a connectivity check for the SeatLock ticketing app. Answer in one short sentence.";
 
-    private final AiGateway gateway;
+    /** Seeded venues all have these; the eval set is written against them. */
+    static final Set<String> EVAL_SECTIONS = Set.of("PLATINUM", "GOLD", "SILVER");
 
-    public AdminAiController(AiGateway gateway) {
+    private final AiGateway gateway;
+    private final SeatIntentParser parser;
+
+    public AdminAiController(AiGateway gateway, SeatIntentParser parser) {
         this.gateway = gateway;
+        this.parser = parser;
     }
 
     @Operation(summary = "AI configuration and circuit-breaker state (ADMIN)")
@@ -48,6 +55,20 @@ public class AdminAiController {
         return switch (result) {
             case AiResult.Answer a -> new AiPingResponse(a.outcome(), a.text(), a.model(), a.latencyMs());
             case AiResult.Fallback f -> new AiPingResponse(f.outcome(), null, null, null);
+        };
+    }
+
+    /**
+     * One phrase of the seat-intent eval (load-tests/ai-intent-eval.ps1): no cache, no per-user daily quota
+     * (40 phrases > 30/day), global caps still apply, so the script paces itself. Not rate-limited per minute.
+     */
+    @Operation(summary = "Parse one seat request without cache or user quota (ADMIN, for the intent eval)")
+    @PostMapping("/seat-intent")
+    public SeatAskResponse parseSeatIntent(@CurrentUserId long userId, @Valid @RequestBody SeatAskRequest request) {
+        return switch (parser.parse(userId, request.text(), EVAL_SECTIONS, true)) {
+            case SeatIntentParser.Outcome.Unavailable u -> SeatAskResponse.fallback(u.reason());
+            case SeatIntentParser.Outcome.Parsed p -> new SeatAskResponse(true, null, false,
+                    SeatAskResponse.filtersOf(p.preferences()), p.assumptions(), null);
         };
     }
 }

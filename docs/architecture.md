@@ -488,6 +488,27 @@ It **suggests only**: holding stays the separate atomic `POST /shows/{id}/holds`
 
 The AI path (W7·D3) only turns free text into the same `SeatPreferences`; the manual form stays as the fallback.
 
+## 2n. AI Seat Finder (W7·D3)
+
+`POST /api/v1/shows/{id}/seat-finder/ask {text}` (signed in, `@RateLimited("ai")`):
+
+1. `sectionsOf(show)` first (404 before any quota is spent); the prompt lists only this venue's sections.
+2. Redis cache `ai:seat-intent:v2:{sha256(normalized text | sections)}` (24 h, re-validated on read; the version is bumped with each prompt change) → hit = no model call.
+3. Miss → `AiGateway` (SEAT_FINDER) with a validation hook: the answer must be one JSON object
+   `{count, budgetRupees, budgetIsTotal, sections, aisle, rows}` with in-range values and known sections,
+   otherwise the request ends as `INVALID_OUTPUT` (audited) and the UI shows the manual form.
+4. **Code decides**: no count → 2 seats; a total budget is split per seat in paise (rounded down); both are
+   returned as `assumptions`. The model never computes money.
+5. Same `SeatFinderService.find` as the manual form → `{understood, filters, assumptions, result}`; any AI
+   failure → `{understood: false, fallbackReason}`.
+
+Eval: 40 phrases in `backend/src/test/resources/ai-eval/seat-intents.json`, scored on the final filters by
+`load-tests/ai-intent-eval.ps1` through the admin-only `POST /api/v1/admin/ai/seat-intent` (no cache, no per-user
+quota, global caps still apply, paced 5.5 s). Not part of `mvnw verify`: CI never calls the model.
+
+UI: `SeatFinderPanel` on the seat page (text box when signed in + manual filters for everyone); options are
+ringed on the map and "Select these seats" fills the selection. Hold stays the only step that claims seats.
+
 ## 3. Conventions
 - Internal keys are `bigint` identity. Bookings expose a random `public_id` (UUID), so IDs in URLs can't be enumerated.
 - Enums are `varchar` + `CHECK`, not Postgres `ENUM` types: easier to evolve with Flyway, and mapped with `@Enumerated(EnumType.STRING)`.

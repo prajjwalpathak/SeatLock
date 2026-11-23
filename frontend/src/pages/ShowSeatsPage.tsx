@@ -10,6 +10,7 @@ import { HoldPanel } from '../features/seatmap/HoldPanel'
 import { LiveBadge } from '../features/seatmap/LiveBadge'
 import { nextHoldExpiry, withExpiredHolds } from '../features/seatmap/liveSeats'
 import { forgetHold, recallHold, rememberHold } from '../features/seatmap/holdStorage'
+import { SeatFinderPanel } from '../features/seatmap/SeatFinderPanel'
 import { SeatLegend } from '../features/seatmap/SeatLegend'
 import { SeatMap } from '../features/seatmap/SeatMap'
 import { SeatMapSkeleton } from '../features/seatmap/SeatMapSkeleton'
@@ -97,6 +98,7 @@ function ShowSeatsView({ seatMap: cachedMap, liveStatus, refreshing, onRefresh }
   const started = new Date(seatMap.startsAt).getTime() <= now + clockOffset
 
   const [selectedIds, setSelectedIds] = useState<number[]>([])
+  const [suggestedIds, setSuggestedIds] = useState<number[]>([]) // Seat Finder options, ringed on the map
   const [notice, setNotice] = useState<string | null>(null)
   const [hold, setHold] = useState<Hold | null>(null)
   const [blockedUntil, setBlockedUntil] = useState(0) // 429: no new attempts before this client time
@@ -146,6 +148,7 @@ function ShowSeatsView({ seatMap: cachedMap, liveStatus, refreshing, onRefresh }
       rememberHold(showId, created.holdId)
       setHold(created)
       setSelectedIds([])
+      setSuggestedIds([])
       setNotice(null)
       refreshMap()
     },
@@ -257,12 +260,26 @@ function ShowSeatsView({ seatMap: cachedMap, liveStatus, refreshing, onRefresh }
         </p>
       )}
 
+      {!started && activeHold === null && (
+        <SeatFinderPanel
+          seatMap={seatMap}
+          signedIn={signedIn}
+          disabled={holdMutation.isPending}
+          onPick={(ids) => {
+            setSelectedIds(ids.slice(0, MAX_SELECTION))
+            setNotice(null)
+          }}
+          onSuggest={setSuggestedIds}
+        />
+      )}
+
       <SeatLegend />
       <SeatMap
         seatMap={seatMap}
         selected={selectedSet}
         onToggle={toggle}
         mine={mine}
+        suggested={activeHold === null ? new Set(suggestedIds) : undefined}
         readOnly={started || activeHold !== null || holdMutation.isPending}
       />
 

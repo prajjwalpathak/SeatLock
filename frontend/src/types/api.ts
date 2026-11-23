@@ -274,3 +274,55 @@ export type MyBookingSummary = {
   expiresAt: string
   createdAt: string
 }
+
+// ---------- Seat Finder (W7·D2–D3) ----------
+
+export type RowPreference = 'ANY' | 'FRONT' | 'MIDDLE' | 'BACK'
+
+/** Manual filters; also what the AI understood (SeatAskResult.filters). maxPricePaise is per seat. */
+export type SeatFinderFilters = {
+  count: number
+  maxPricePaise?: number | null
+  sections?: string[]
+  aisle?: boolean
+  rows?: RowPreference
+}
+
+export type SeatFinderSeat = {
+  seatId: number
+  section: string
+  rowLabel: string
+  seatNumber: number
+  pricePaise: number
+  aisle: boolean
+}
+
+export type SeatFinderOption = {
+  rank: number
+  score: number
+  rowLabel: string
+  sections: string[]
+  seatIds: number[]
+  seats: SeatFinderSeat[]
+  totalPricePaise: number
+  hasAisleSeat: boolean
+}
+
+export type SeatFinderResult = {
+  showId: number
+  holdsLive: boolean
+  options: SeatFinderOption[]
+}
+
+/** Why the AI couldn't be used; the UI falls back to the manual filters. */
+export type AiFallbackReason =
+  | 'DISABLED' | 'USER_QUOTA' | 'QUOTA' | 'CIRCUIT_OPEN' | 'TIMEOUT' | 'BUSY' | 'ERROR' | 'INVALID_OUTPUT'
+
+export type SeatAskResult = {
+  understood: boolean
+  fallbackReason: AiFallbackReason | null
+  cached: boolean
+  filters: SeatFinderFilters | null
+  assumptions: string[]
+  result: SeatFinderResult | null
+}

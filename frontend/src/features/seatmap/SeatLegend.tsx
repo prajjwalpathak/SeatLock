@@ -1,8 +1,9 @@
-import { SEAT_STYLES } from './seats'
+import { SEAT_STYLES, SUGGESTED_RING } from './seats'
 
 const ITEMS = [
   { style: SEAT_STYLES.available, symbol: '5', label: 'Available' },
   { style: SEAT_STYLES.selected, symbol: '5', label: 'Your selection' },
+  { style: `${SEAT_STYLES.available} ${SUGGESTED_RING}`, symbol: '5', label: 'Suggested' },
   { style: SEAT_STYLES.mine, symbol: '✓', label: 'Your hold' },
   { style: SEAT_STYLES.held, symbol: '–', label: 'On hold' },
   { style: SEAT_STYLES.booked, symbol: '×', label: 'Booked' },
