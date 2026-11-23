@@ -75,6 +75,11 @@ class SecurityMatrixIntegrationTest {
             "USER,      /api/v1/admin/users,         403, ACCESS_DENIED",
             "ORGANIZER, /api/v1/admin/users,         403, ACCESS_DENIED",
             "ADMIN,     /api/v1/admin/users,         200, -",
+
+            "ANONYMOUS, /api/v1/admin/ai/status,     401, AUTHENTICATION_REQUIRED",
+            "USER,      /api/v1/admin/ai/status,     403, ACCESS_DENIED",
+            "ORGANIZER, /api/v1/admin/ai/status,     403, ACCESS_DENIED",
+            "ADMIN,     /api/v1/admin/ai/status,     200, -",
     })
     void accessMatrix(String caller, String endpoint, int expectedStatus, String expectedCode) throws Exception {
         MockHttpServletRequestBuilder request = get(endpoint);
@@ -134,6 +139,26 @@ class SecurityMatrixIntegrationTest {
             mvc.perform(request)
                     .andExpect(status().is(expectedStatus))
                     .andExpect(jsonPath("$.code").value(expectedCode));
+        }
+    }
+
+    /** AI ping is a POST (a model call): only ADMIN gets past the gates; others never reach the gateway. */
+    @ParameterizedTest(name = "{0} POST /admin/ai/ping → {1}")
+    @CsvSource(nullValues = "-", value = {
+            "ANONYMOUS, 401, AUTHENTICATION_REQUIRED",
+            "USER,      403, ACCESS_DENIED",
+            "ORGANIZER, 403, ACCESS_DENIED",
+            "ADMIN,     200, -",
+    })
+    void aiPingMatrix(String caller, int expectedStatus, String expectedCode) throws Exception {
+        MockHttpServletRequestBuilder request = post("/api/v1/admin/ai/ping")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"message\":\"hello\"}");
+        if (!caller.equals("ANONYMOUS")) {
+            request.header(HttpHeaders.AUTHORIZATION, "Bearer " + tokens.get(Role.valueOf(caller)));
+        }
+        ResultActions result = mvc.perform(request).andExpect(status().is(expectedStatus));
+        if (expectedCode != null) {
+            result.andExpect(jsonPath("$.code").value(expectedCode));
         }
     }
 

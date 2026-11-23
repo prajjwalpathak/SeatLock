@@ -3,15 +3,15 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 7 · Day 1 (not started, planned Tue Dec 22): Spring AI 2.0 setup (Gemini/Groq), ChatClient, Resilience4j circuit breaker + timeout, Bucket4j AI quota + global cap, `ai_requests` audit table, as one task. Branch `w7-d1` (create with `git switch -c w7-d1 origin/main` after the W6·D6 PR is squash-merged). **Needs a Gemini or Groq API key** in `.env` (not in chat)
-- **Last completed:** Week 6 · Day 6: pool size 10 vs 20 measured (kept 10 for prod's 2 vCPUs, now explicit); prod found 3 deploys behind and fixed (F13: lost exec bit, `/bin/bash` forced command, one-request smoke test, daily prod check); Week 6 review (planned Mon Dec 21, done Fri Nov 20)
+- **Current day:** Week 7 · Day 2 (not started, planned Wed Dec 23): Seat Finder **algorithm** (sliding window + scoring, pure Java) + unit tests + manual-filter API. Branch `w7-d2` (create with `git switch -c w7-d2 origin/main` after the W7·D1 PR is squash-merged). Nothing to prepare
+- **Last completed:** Week 7 · Day 1: AI gateway (Spring AI 2.0.2 + Gemini 3.5 Flash-Lite behind an `LlmClient` port, Resilience4j breaker + 4 s time limit, 4-thread bulkhead, Bucket4j AI quotas, `ai_requests` audit, admin status/ping); first live Gemini calls OK (planned Tue Dec 22, done Mon Nov 23)
 - **Live URLs:** Frontend https://seatlock-nu.vercel.app · Backend https://seatlock-prajjwal.duckdns.org · Swagger https://seatlock-prajjwal.duckdns.org/swagger-ui.html · Version https://seatlock-prajjwal.duckdns.org/api/v1/system/version · Grafana https://seatlock-prajjwal.duckdns.org/grafana/ (admin login)
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public) · CI + Deploy badges in README · `main` protected (ruleset `protect-main`)
-- **Hosting:** Azure VM `seatlock-vm` (India South Central, B2als_v2 x64) + Vercel; images from GHCR (ADR-005, #62, #71–#74, #167); **2 app instances** since W5·D5 + Prometheus/Grafana since W6·D2; decommission after ~2–3 months
+- **Hosting:** Azure VM `seatlock-vm` (India South Central, B2als_v2 x64) + Vercel; images from GHCR (ADR-005, #62, #71–#74, #167); **2 app instances** since W5·D5 + Prometheus/Grafana since W6·D2; **AI off on prod** (`SEATLOCK_AI_PROVIDER` unset) until W7·D6; decommission after ~2–3 months
 - **Git workflow (from W6·D2):** **one task per day** = all plan tasks → one verify/test block → one one-line commit + push on the daily branch → PR on GitHub → squash-merge when CI is green; next branch with `git switch -c wN-dM origin/main`; never push to a branch after its PR is merged; **never use GitHub's "Update branch" / web conflict editor**; **start each day by checking prod is on `main`** (deploy.md section 3d) (#9, #75, #116, #141, #142, #176, #181, #202)
-- **Carry-overs:** duplicate `Strict-Transport-Security` (Spring + Nginx) → W8·D1 · same-site frontend/API for privacy blockers (F7) → W8 stretch · JetBrains license · IntelliJ dependency scan · refund status webhooks (stretch) · WireMock 4.x re-check (W8·D1)
-- **Schedule:** **~31 days ahead** (W6·D6 done Fri Nov 20 instead of Mon Dec 21); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
-- **Top risk:** Week 7 AI: free-tier key/quotas, Spring AI 2.0 APIs (newer than most tutorials), ONNX embedding model in the image vs the 900 MB app limit; and keep checking prod is on `main` each morning (deploy.md section 3d, F13)
+- **Carry-overs:** W7·D1 full `mvnw verify` result not reported locally → CI on the PR is the gate · Gemini key + `SEATLOCK_AI_PROVIDER` on the VM → W7·D6 · Gemini latency vs the 4 s limit (one call 2.9 s) → check in Grafana W7·D6 · duplicate `Strict-Transport-Security` (Spring + Nginx) → W8·D1 · same-site frontend/API for privacy blockers (F7) → W8 stretch · JetBrains license · IntelliJ dependency scan · refund status webhooks (stretch) · WireMock 4.x re-check (W8·D1)
+- **Schedule:** **~29 days ahead** (W7·D1 done Mon Nov 23 instead of Tue Dec 22); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
+- **Top risk:** Week 7 AI: free-tier quota (500 RPD shared by local + prod), structured output with Spring AI 2.0 + Gemini on D3, ONNX embedding model in the image vs the 900 MB app limit on D4; keep checking prod is on `main` each morning (deploy.md section 3d, F13)
 
 ## Decisions Log (ADR summary)
 | # | Date | Decision | Why |
@@ -218,6 +218,13 @@
 | 200 | 2026-11-20 | Hikari **`maximum-pool-size: 10` kept and made explicit** (env-overridable); bench harness accepts `strategy/threads/pool` and verifies `hikaricp_connections_max` | 20 was faster on the laptop (rush p99 −26 %, +8 % throughput) but prod Postgres has 2 shared vCPUs; 2 × 10 already exceeds (cores × 2) + 1 |
 | 201 | 2026-11-20 | CI deploy key's forced command runs **`/bin/bash …/deploy.sh`**; every infra copy ends with `chmod +x infra/scripts/*.sh` | A Windows `tar` copy dropped the exec bit and blocked 3 deploys (F13) |
 | 202 | 2026-11-20 | Smoke test: **one request per iteration** (version), then 4 readiness requests; **daily "is prod on `main`?" check** (deploy.md section 3d) | Two requests per iteration aliased with strict round robin and only ever saw one instance; red deploys went unnoticed for 18 h (F13) |
+| 203 | 2026-11-23 | **ADR-016 AI gateway:** one `AiGateway` returns a sealed `AiResult` (`Answer` / `Fallback(outcome)`); "AI unavailable" is never an exception (only 400 input / 429 user quota); model behind an `LlmClient` port (`GeminiLlmClient` adapter) | Every AI feature has a non-AI fallback; guardrails testable with stubs, no model |
+| 204 | 2026-11-23 | **Spring AI 2.0.2** + `spring-ai-starter-model-google-genai` (API key), model **`gemini-3.5-flash-lite`** (`GEMINI_MODEL`), temperature 0.2; `spring.ai.model.chat` from `SEATLOCK_AI_PROVIDER`, **default `none`**; ChatClient builder bean off, embedding `none` until D4 | CI/tests/prod without a key start normally with AI off (a startup failure would make deploy.sh roll back); free tier 15 RPM / 250K TPM / 500 RPD |
+| 205 | 2026-11-23 | **Resilience4j 2.4.0** `resilience4j-spring-boot4` (pinned: not in resilience4j-bom 2.4.0); registries from config, decorated in code (no AspectJ/annotations); breaker `gemini` count 10 / min 5 / 50 % / 30 s open / 2 half-open; time limiter 4 s with cancel; **no retries** | Boot 3 artifact's verifier fails on Boot 4; a retry spends free-tier quota twice per click |
+| 206 | 2026-11-23 | Bulkhead: LLM calls on a 4-thread `ai-call-` pool + 8-slot queue per instance, full → `BUSY` at once; `RejectedExecutionException` ignored by the breaker | Slow model can't take request threads; our own saturation says nothing about Gemini |
+| 207 | 2026-11-23 | AI quotas (Bucket4j/Redis, shared, fail-open): per user **5/min** (`@RateLimited("ai")`) + **30/day** → 429; global **12/min + 400/day** (80 % of Google's) → `QUOTA` fallback; circuit checked **before** global tokens are spent | User abuse is the user's problem; a spent global budget isn't, so it degrades instead of erroring |
+| 208 | 2026-11-23 | **V13 `ai_requests`**: feature, outcome, model, latency, tokens, input length + **SHA-256 (never the text)**; auto-committed, failures swallowed; 30-day cleanup job; `seatlock.ai.requests{feature,outcome}` registered at 0 + `seatlock.ai.latency` histogram | Free-tier prompts may train Google's models; our table must not be a second copy of user input; counters visible from the first sample (F12) |
+| 209 | 2026-11-23 | `GeminiLlmClient` excluded from JaCoCo (needs a live model; checked by `/admin/ai/ping` and W7·D6 drills); `GET /admin/ai/status` + `POST /admin/ai/ping` (ADMIN) | Thin adapter; the logic around it is unit-tested |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -298,6 +305,8 @@
 | Prod after the F13 fix | both instances on `f697b6a`, G1, hold counters at startup, Flyway 12; app-1 405.9 MiB, app-2 372.2 MiB (900 MiB limit); VM available 2.0 GiB | `/system/version`, Prometheus, `docker stats`, `free -h` | 2026-11-20 |
 | **Prod rolling deploy, new revision (#18 merge)** | **2198/2198 requests 200, 0 failures**; app-1 switched at 03:01:53, app-2 at 03:02:11 (18 s later, after app-1 was healthy); slowest request 742 ms | `deploy-watch.ps1 -Minutes 12` during the CI deploy | 2026-11-20 |
 | Prod job threads after #18 | thread dump of app-1: `scheduling-1`, `scheduling-2` present; `MessageBroker-N` lines only from `WebSocketMessageBrokerStats` | `docker kill -s QUIT` + logs | 2026-11-20 |
+| First live Gemini calls (local) | 5 pings: **0.89–2.87 s** (median 1.23 s), prompt 21–25 tokens, completion 9–15; 6th ping in a minute → **429** | `/api/v1/admin/ai/ping` + `ai_requests` | 2026-11-23 |
+| Tests | ~552 (523 + 13 `AiGatewayTest` + 5 audit + 3 admin AI + 8 matrix rows; count to confirm in CI) | `mvnw verify` / CI | 2026-11-23 |
 
 ## Accounts & Config (no secrets here, only where they live)
 | Item | Status | Where stored |
@@ -309,7 +318,7 @@
 | DuckDNS domain | ✅ `seatlock-prajjwal.duckdns.org` → VM static IP | duckdns.org (token in DuckDNS account) |
 | Razorpay test mode | ✅ account + test API keys (W4·D2); test payments via netbanking mock bank or test cards (UPI ID option not offered in this checkout) | local `.env` (`RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET`, git-ignored); prod `infra/.env.prod` on the VM (gateway `razorpay` since W4·D3, hex secrets only); webhooks: local cloudflared tunnel (delete after use) + prod `https://seatlock-prajjwal.duckdns.org/api/v1/webhooks/razorpay`, secret `RAZORPAY_WEBHOOK_SECRET` |
 | Google OAuth client | ✅ Web client "SeatLock local" (Testing mode, test user added); redirect `http://localhost:8080/login/oauth2/code/google`; prod URI `https://seatlock-prajjwal.duckdns.org/login/oauth2/code/google` added W2·D5 | `.env` (`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`, git-ignored) |
-| Gemini/Groq API key | — (W7·D1) | `.env` (git-ignored) |
+| Gemini API key | ✅ AI Studio key (personal Google account, free tier: `gemini-3.5-flash-lite` 15 RPM / 250K TPM / 500 RPD per project, resets midnight Pacific); Groq not used | local `.env` (`GEMINI_API_KEY`, `SEATLOCK_AI_PROVIDER=google-genai`, `GEMINI_MODEL`, git-ignored); prod `infra/.env.prod` on W7·D6 |
 | Vercel project | ✅ imported from GitHub (root `frontend`), `https://seatlock-nu.vercel.app`; env `VITE_API_BASE_URL` | vercel.com (GitHub login) |
 | Local Postgres/Redis creds | ✅ | `.env` (git-ignored); keys documented in `.env.example` |
 | Local JWT keys + bootstrap admin | ✅ generated on W2·D1 / W2·D2 | `.env` (`JWT_*`, `SEATLOCK_ADMIN_*`, git-ignored) |
@@ -1591,3 +1600,37 @@
 - Risks for Week 7: free-tier LLM key and quotas; Spring AI 2.0 API details; ONNX model size and memory in a 900 MB container; keeping the "AI interprets, code decides" rule testable
 **Commit:** `ci: fix deploy smoke test and exec bit; pool size measured (W6·D6)`
 
+### Week 7 · Day 1: AI gateway with guardrails (planned Tue, Dec 22; done Mon, Nov 23, 2026)
+**Status:** ✅ Done (local `mvnw verify` result not pasted; CI on the PR is the gate)
+**Built:**
+- Spring AI 2.0.2 BOM + Gemini starter; `SEATLOCK_AI_PROVIDER` (default `none`), `GEMINI_API_KEY`, `GEMINI_MODEL`; AI off in the test profile; startup log `AI enabled/DISABLED`
+- `assistant.ai`: `AiGateway` (input 1–300 chars → disabled → user daily quota → circuit → global caps → bulkhead + time limiter + breaker), `AiResult`, `AiOutcome`, `AiFeature`, `LlmClient` + `GeminiLlmClient` (ChatClient), `AiProperties`, `AiConfig`, `AiAuditLog`, `AiRequestCleanupJob`
+- Resilience4j 2.4.0 (`resilience4j-spring-boot4`) breaker + time limiter `gemini`; Bucket4j `ai` policy (5/min per user) + daily/global buckets
+- `V13__ai_requests.sql`; metrics `seatlock.ai.requests` / `seatlock.ai.latency`
+- `assistant.api.AdminAiController`: `GET /api/v1/admin/ai/status`, `POST /api/v1/admin/ai/ping` (ADMIN, rate-limited)
+- Live check: status enabled + CLOSED, real answers in 0.9–2.9 s, 6th ping → 429, audit rows with hash + length only
+- Docs: ADR-016, architecture section 2l, ADR index; `.env.example` AI block
+- Tests: `AiGatewayTest` (13), `AiAuditLogIntegrationTest` (5), `AdminAiIntegrationTest` (3), security matrix +8 rows
+**Files created/changed:**
+- `backend\pom.xml` (Spring AI BOM, Gemini starter, resilience4j-spring-boot4, JaCoCo exclude); `application.yml` (`spring.ai.*`, `seatlock.ai.*`, `ai` rate-limit policy, `resilience4j.*`); test `application-test.yml`
+- `assistant\ai\{AiFeature, AiOutcome, AiResult, LlmClient, GeminiLlmClient, AiProperties, AiGateway, AiAuditLog, AiConfig, AiRequestCleanupJob}.java`; `assistant\api\{AdminAiController, AiPingRequest, AiPingResponse, AiStatusResponse}.java`
+- `db\migration\V13__ai_requests.sql`
+- Tests: `assistant\ai\{AiGatewayTest, AiAuditLogIntegrationTest}`, `assistant\api\AdminAiIntegrationTest`, `identity\security\SecurityMatrixIntegrationTest`
+- `.env.example`; `docs\decisions\{ADR-016-ai-gateway.md, README.md}`, `docs\architecture.md`, `progress.md`
+**Decisions:**
+- See Decisions Log #203–#209
+**Metrics recorded:**
+- First live Gemini calls; tests ~552 (see Metrics table)
+**Problems & fixes:**
+- Folder access was refused once by the desktop app's auto-mode check → granted on an explicit request
+- Maven Central is blocked from Claude's workspaces → code written against the official Spring AI 2.0 docs (property paths `spring.ai.google.genai.chat.model` / `.temperature`, no `.options.`); compiled first time on the laptop
+- `resilience4j-spring-boot4` missing from the 2.4.0 BOM (upstream #2427) → version pinned in the pom
+**Carry-over:**
+- Confirm the test count in CI; Gemini key on the VM (W7·D6); latency vs 4 s limit (W7·D6)
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- Circuit breaker states and thresholds, time limiters vs HTTP timeouts, bulkheads, why not to retry rate-limited/paid calls
+- Graceful degradation: fallbacks as results instead of exceptions; "AI interprets, code decides"
+- Quotas: per-user vs global budgets, token buckets shared across instances, fail-open trade-offs
+- Ports and adapters for third-party AI SDKs; feature flags via config defaults that keep startup safe
+- Privacy in AI audit logs (hash + length), data-use terms of free-tier APIs; metric cardinality
+**Commit:** `feat(assistant): AI gateway with Spring AI Gemini, breaker, quotas and audit (W7·D1)`
