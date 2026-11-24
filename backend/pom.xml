@@ -5,7 +5,7 @@
 	<parent>
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
-		<version>4.1.2</version>
+		<version>4.1.3</version>
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>com.seatlock</groupId>
@@ -16,9 +16,11 @@
 
 	<properties>
 		<java.version>25</java.version>
-		<!-- SECURITY OVERRIDE: CVE-2026-110879 (jackson-databind PTV bypass), fixed in 3.1.8.
-     Remove once Spring Boot manages >= 3.1.8. See docs/decisions/ADR-001. -->
-		<jackson-bom.version>3.1.8</jackson-bom.version>
+		<!-- W8·D5: the jackson-bom 3.1.8 override (CVE-2026-110879) was removed: Boot 4.1.3 manages 3.1.8 (ADR-001 item 5) -->
+		<!-- SECURITY OVERRIDE: Tomcat 11.0.27 (Boot 4.1.3) → 11.0.29, same 11.0.x line. CVE-2026-116561, CVE-2026-118028,
+		     CVE-2026-116830, CVE-2026-118233, CVE-2026-118436, CVE-2026-117517, CVE-2026-106012, CVE-2026-121649,
+		     CVE-2026-116600 (WebSocket). Remove once Spring Boot manages >= 11.0.29. See docs/decisions/ADR-001. -->
+		<tomcat.version>11.0.29</tomcat.version>
 		<springdoc.version>3.2.0</springdoc.version>
 		<jacoco.version>0.8.15</jacoco.version>
 		<!-- empty default so @{argLine} resolves even when JaCoCo's agent is skipped (-Djacoco.skip) -->
@@ -26,13 +28,21 @@
 		<bucket4j.version>8.22.0</bucket4j.version>
 		<!-- Test only. The standalone jar shades its own Jetty/Jackson, so it can't clash with Boot's versions. -->
 		<wiremock.version>3.13.2</wiremock.version>
-		<!-- W7·D1: Spring AI 2.0.x (Boot 4 line; 2.0.2 = latest GA, Oct 2026) -->
-		<spring-ai.version>2.0.2</spring-ai.version>
+		<!-- W7·D1: Spring AI 2.0.x (Boot 4 line); W8·D5: 2.0.3 patch -->
+		<spring-ai.version>2.0.3</spring-ai.version>
 		<!-- resilience4j-spring-boot4 is NOT in resilience4j-bom 2.4.0 (upstream issue #2427), so pinned here -->
 		<resilience4j.version>2.4.0</resilience4j.version>
 	</properties>
 	<dependencyManagement>
 		<dependencies>
+			<!-- SECURITY OVERRIDE: CVE-2026-102554 / GHSA-xxph-c9ww-hj94 (Guava deserialization, HIGH), fixed in 33.7.2.
+			     Guava arrives transitively (AI libraries) and is not managed by Boot. Same -android flavour as before.
+			     Remove when the libraries that bring it depend on >= 33.7.2. See docs/decisions/ADR-001. -->
+			<dependency>
+				<groupId>com.google.guava</groupId>
+				<artifactId>guava</artifactId>
+				<version>33.8.0-android</version>
+			</dependency>
 			<dependency>
 				<groupId>org.springframework.ai</groupId>
 				<artifactId>spring-ai-bom</artifactId>

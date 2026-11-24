@@ -11,7 +11,8 @@ single feature, loops on GitHub without a click, and is easy to re-record when t
 - **Frontend build:** `frontend\.env.local` with `VITE_API_BASE_URL=http://localhost:8088`, then `npm run build`.
 - **Show:** Neon Bazaar, Wed 2 Dec, Monsoon Theatre (more than 48 h away, so the refund is 100 %).
 - **Account:** Demo User (one-click demo button). **Theme:** dark. Payments: Razorpay **test mode**
-  (mobile 9999999999 → Netbanking → any bank → Success).
+  (Netbanking → a bank without a "Facing issues" badge → Success). The bank page opens in a pop-up that only a
+  real click can open, so that click is done by hand.
 - **Frames:** browser screenshots (800×600 desktop, 375×812 phone), assembled with Pillow: one 256-colour palette
   per frame (a shared palette washed out the green/amber seat colours), no dithering, 1.6–3.2 s per frame.
 
@@ -22,9 +23,15 @@ single feature, loops on GitHub without a click, and is easy to re-record when t
 | `01-demo-login.gif` | 800×600 | Events + intro banner → click **Try the demo** → signed-in pill → poster cards | One-click demo login |
 | `02-live-seat-map.gif` | 1000×459 | Two halves, YOU / ANOTHER BUYER, same show: both live → you pick F9 + F10 → you hold them, the other screen shows them on hold | Two buyers, one live seat map |
 | `03-ai-seat-finder.gif` | 800×600 | Request typed → filters auto-filled + 3 options → suggestions ringed on the map → option 1 selected | AI Seat Finder |
-| `04-pay-and-ticket.gif` | 800×600 | Seats held (timer 7:59) → booking summary with **Pay ₹750** → Razorpay test checkout → **Confirmed** → QR ticket | Hold → pay → ticket |
+| `04-pay-and-ticket.gif` | 676×586 | G9 + G10 selected → held (timer 7:59) → booking summary with **Pay ₹750** → Razorpay payment options → Netbanking with **PNB** selected (ring added) → Razorpay's demo bank page → Confirming payment → **Payment Successful** → **Confirmed** → QR ticket | Hold → pay with Netbanking → ticket |
 | `05-refund-assistant.gif` | 676×586 | Ticket + cancel card → "How much will I get back?" answer (100 %, ₹750) → confirm cancel → **Cancelled · refunded** | Refund Assistant → cancel |
 | `06-phone.gif` | 375×812 | Phone header + banner + chips → poster cards → seat map (finder collapsed, swipe hint) → E9 + E10 selected | Phone layout |
+
+## The combined walkthrough
+
+`seatlock-demo.gif` (800×652, ~1.8 MB, ~1 min, 31 frames) puts a title card and the six clips in order, each
+frame scaled onto one dark canvas under a numbered caption bar ("1/6 One-click demo login" … "6/6 On a phone").
+It is rebuilt from the six clip files, so re-record a clip first, then rebuild the walkthrough.
 
 ## Re-recording a clip
 

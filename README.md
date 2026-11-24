@@ -27,11 +27,17 @@ shared, so its old bookings are refunded every night at 03:30 IST and seed event
 
 Recorded on the local two-instance stack (W8·D4). How each clip was made: [docs/demo-script.md](docs/demo-script.md).
 
+**The whole walkthrough in one minute:**
+
+![SeatLock walkthrough: demo login, live seat map, AI Seat Finder, Netbanking payment, refund, phone](docs/media/seatlock-demo.gif)
+
+Or one feature at a time:
+
 | | |
 |---|---|
 | **Two buyers, one live seat map.** You hold F9 + F10; the other screen shows them on hold within a second. | ![Two browsers on the same show: a hold on one appears on the other](docs/media/02-live-seat-map.gif) |
 | **AI Seat Finder.** *"2 seats together near the aisle, under ₹400 each"* → validated filters → 3 options from a pure-Java search. | ![Seat Finder turns a sentence into filters and highlights 3 options](docs/media/03-ai-seat-finder.gif) |
-| **Hold → pay → ticket.** 8-minute hold, server-side price, Razorpay test checkout, QR ticket. | ![Held seats, Razorpay test checkout, confirmed booking with QR ticket](docs/media/04-pay-and-ticket.gif) |
+| **Hold → pay with Netbanking → ticket.** 8-minute hold, server-side price, Razorpay test checkout (Netbanking → test bank → Success), QR ticket. | ![Held seats, Razorpay Netbanking test payment, confirmed booking with QR ticket](docs/media/04-pay-and-ticket.gif) |
 | **Refund Assistant → cancel.** The engine computes ₹750 (100 %); the AI only explains it; cancel refunds it. | ![Refund Assistant answers, then the booking is cancelled and refunded](docs/media/05-refund-assistant.gif) |
 
 <details>
@@ -101,10 +107,11 @@ modules talk only through public services and IDs. Details: [docs/architecture.m
 | Expiry sweeper at 205k bookings | **34.5 → 0.14 ms** with a partial index | `EXPLAIN (ANALYZE, BUFFERS)` |
 | Startup (JDK 25 AOT cache) | **17.5 → 12.4 s median (−29 %)** | 10 restarts each, section 7 |
 | Deploys | rolling, health-gated, auto-rollback; **2198/2198 requests OK** during a real deploy | `deploy-watch.ps1` |
-| AI guardrails | slow model, bad key, spent quota, model that won't load → a fallback (manual form / template), not a 5xx; timeouts cut 7/9 → 0/4 failures | gateway tests + live latency fix ([ADR-016](docs/decisions/ADR-016-ai-gateway.md)); live drills listed in FAILURES F14 |
+| AI guardrails | bad key, slow model (200 ms limit), global cap, model that won't load → a fallback (manual form / template), **never a 5xx**, drilled live; timeouts cut 7/9 → 0/4 failures | live drills D1–D5 in [FAILURES F14](docs/FAILURES.md); [ADR-016](docs/decisions/ADR-016-ai-gateway.md) |
+| Seat Finder intent parsing | **34/40** correct, **0 wrong parses** (6 safe fallbacks: 4 timeouts, 2 rejected outputs); p50 1.0 s | 40-phrase eval, `ai-intent-eval.ps1`, [benchmarks section 9](docs/benchmarks.md) |
 | Policy retrieval (RAG) | recall@1 **30/30**, MRR 1.0 on our policy set | `rag-recall-eval.ps1` |
 | Backups | nightly, off-site, **restore tested**: 12/12 tables in 827 ms | [deploy.md](docs/deploy.md) section 5b |
-| Tests | ~640 (unit, Testcontainers, real-HTTP races, WireMock contracts); JaCoCo gate ≥ 85 % lines / 80 % branches in CI | `mvnw verify` |
+| Tests | 642 (unit, Testcontainers, real-HTTP races, WireMock contracts); JaCoCo gate ≥ 85 % lines / 80 % branches in CI | `mvnw verify` |
 
 Things that went wrong and what they taught: [docs/FAILURES.md](docs/FAILURES.md) (15 entries, e.g. a merge that
 silently disabled rate limiting, a Serial-GC pause causing 503s, a library that shipped a Git LFS pointer instead of
@@ -181,5 +188,5 @@ behind a local load balancer: [docs/local-scale.md](docs/local-scale.md).
 
 ## Status
 
-Built in 8 weeks (Nov 2026 – Jan 2027) as a portfolio project. The Azure VM is temporary and will be decommissioned
+**v1.0.0** released 2026-11-25 ([CHANGELOG](CHANGELOG.md)). Built in 8 weeks (Nov 2026 – Jan 2027) as a portfolio project. The Azure VM is temporary and will be decommissioned
 after a few months to save cost. The code, docs and measurements stay here.
