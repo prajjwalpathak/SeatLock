@@ -59,6 +59,12 @@ services:
       - "127.0.0.1:8088:80"
     volumes:
       - ./nginx/local/seatlock-lb.conf:/etc/nginx/conf.d/default.conf:ro
+    healthcheck:                         # W8·D2: listening? (prod checks 443; the local LB is plain HTTP)
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 80 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     depends_on:
       app-1:
         condition: service_healthy

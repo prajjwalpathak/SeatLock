@@ -1,0 +1,12 @@
+# 03:00 IST, before the 03:30 demo jobs (ADR-019). Persistent: a night missed while the VM was deallocated
+# runs at the next boot.
+[Unit]
+Description=SeatLock nightly Postgres backup at 03:00 IST
+
+[Timer]
+OnCalendar=*-*-* 03:00:00 Asia/Kolkata
+Persistent=true
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target
