@@ -3,19 +3,19 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 8 · Day 5 (not started, planned Sun Jan 3): resume bullets with real numbers + SeatLock interview Q&A doc, tag `v1.0.0`. Branch `w8-d5` (`git switch -c w8-d5 origin/main` after the W8·D4 PR is squash-merged). **Before it:** W8·D4 post-merge infra copy (Grafana `GOMEMLIMIT`, deploy.md 3f steps 1–2 + `dc up -d grafana`) and check that Vercel has **no** `VITE_GOOGLE_SIGNIN`. **Prepare:** your current resume (PDF or text) so the bullets fit its format
-- **Last completed:** Week 8 · Day 4: UI polish: dark mode (class strategy, palette remap, no flash on load), District-style look (gradient poster cards per category, category chips, sticky translucent header, gradient intro banner with one-click demo), source-code + theme icons next to the account menu, phone fixes (compact header, collapsed Seat Finder, swipe hint, City behind a button), past shows marked; Google button behind a build flag; demo shows topped up at startup too; **6 demo GIFs** in `docs/media/` embedded in the README instead of a video (planned Sat Jan 2, done Wed Nov 25)
+- **Current day:** Week 8 · Day 6 (buffer, planned Mon Jan 4): optional follow-ups only (Seat Finder own ~6 s time limit + eval re-run, re-upload progress.md). **v1.0.0 is tagged** at the W8·D5 squash-merge (GitHub Release from `CHANGELOG.md`). W8·D5 Part C (resume bullets + interview Q&A) lives in private docs, not in the repo
+- **Last completed:** Week 8 · Day 5: AI failure drills D1–D3 on the local app (all fallbacks, never a 5xx), Seat Finder intent eval **34/40** (0 wrong parses), dependency triage (Spring Boot 4.1.2 → **4.1.3**, Spring AI 2.0.2 → **2.0.3**, Jackson override removed, Tomcat **11.0.29** + Guava overrides; 642 tests green), VM security updates + reboot (healthy in 59 s), clip 04 re-recorded with Netbanking + one-minute walkthrough GIF, `CHANGELOG.md`, tag `v1.0.0` (planned Sun Jan 3, done Wed Nov 25)
+- **Earlier:** Week 8 · Day 4: UI polish: dark mode (class strategy, palette remap, no flash on load), District-style look (gradient poster cards per category, category chips, sticky translucent header, gradient intro banner with one-click demo), source-code + theme icons next to the account menu, phone fixes (compact header, collapsed Seat Finder, swipe hint, City behind a button), past shows marked; Google button behind a build flag; demo shows topped up at startup too; **6 demo GIFs** in `docs/media/` embedded in the README instead of a video (planned Sat Jan 2, done Wed Nov 25)
 - **Earlier:** Week 8 · Day 3: RAG fix (checksummed model baked into the image, LFS-pointer guard, clean AOT layer 648 → 182 MB), fair startup benchmark with the model (17.52 → 12.44 s, −29 %), memory measured with the real model → embeddings stay off on prod (≈ 980 MB worst case > 850 rule), RAG recall 30/30, Grafana 512 MB, README rewritten (Mermaid architecture, results, setup), CORRECTNESS / FAILURES (F15, F14 D4–D5 observed) / ADRs final; W8·D2 Part C recorded (planned Fri Jan 1, done Tue Nov 24)
-- **Earlier:** Week 8 · Day 2: JDK 25 AOT cache trained at image build (startup median 20.91 → 14.83 s, −29 %; +256 MB image; no memory increase), healthchecks for Prometheus / Grafana / Nginx, nightly backup (`backup.sh` + systemd timer 03:00 IST → Azure Blob `daily/` 30 d + `monthly/` kept, write-only SAS, separate resource group `seatlock-backups`), restore-drill script, full-rollout runbook (deploy.md 3f, 5b) (planned Thu Dec 31, done Tue Nov 24)
-- **Before:** Week 8 · Day 1: security headers with one owner each (Spring content headers + `/api/**` CSP, Nginx HSTS), CORS exact-origin validation + methods narrowed, 1 MB body limit (413) + DTO size caps, gitleaks over full history in CI (2 false positives fingerprinted, 0 leaks), ADR-001 revisit, nightly demo upkeep (seed show top-up + demo-account full-refund reset, ADR-019) (planned Wed Dec 30, done Mon Nov 23)
-- **Before that:** Week 7 · Day 6: resilient embedding load (failure → RAG off, not app down), index tagged with the Spring AI version, Grafana "AI (Week 7)" row (8 panels), AI drill probe + F14 drill plan, memory measured with the model (+~130 MiB) → prod heap 60 %, AI rollout runbook (deploy.md 3e); Week 7 review (planned Tue Dec 29, done Mon Nov 23)
+- **Before:** Week 8 · Day 2: JDK 25 AOT cache trained at image build (startup median 20.91 → 14.83 s, −29 %; +256 MB image; no memory increase), healthchecks for Prometheus / Grafana / Nginx, nightly backup (`backup.sh` + systemd timer 03:00 IST → Azure Blob `daily/` 30 d + `monthly/` kept, write-only SAS, separate resource group `seatlock-backups`), restore-drill script, full-rollout runbook (deploy.md 3f, 5b) (planned Thu Dec 31, done Tue Nov 24)
+- **Before that:** Week 8 · Day 1: security headers with one owner each (Spring content headers + `/api/**` CSP, Nginx HSTS), CORS exact-origin validation + methods narrowed, 1 MB body limit (413) + DTO size caps, gitleaks over full history in CI (2 false positives fingerprinted, 0 leaks), ADR-001 revisit, nightly demo upkeep (seed show top-up + demo-account full-refund reset, ADR-019) (planned Wed Dec 30, done Mon Nov 23)
 - **Live URLs:** Frontend https://seatlock-nu.vercel.app · Backend https://seatlock-prajjwal.duckdns.org · Swagger https://seatlock-prajjwal.duckdns.org/swagger-ui.html · Version https://seatlock-prajjwal.duckdns.org/api/v1/system/version · Grafana https://seatlock-prajjwal.duckdns.org/grafana/ (admin login)
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public) · CI + Deploy badges in README · `main` protected (ruleset `protect-main`)
 - **Hosting:** Azure VM `seatlock-vm` (India South Central, B2als_v2 x64) + Vercel; images from GHCR; **2 app instances** + Prometheus/Grafana; infra + `.env.prod` updated W8·D2 (AI on, **embeddings off** by measurement #248, heap 60 %, backups); nightly backups to `seatlockbackups24112026` (resource group `seatlock-backups`); decommission after ~2–3 months (deploy.md section 8, backups group separately)
 - **Git workflow (from W6·D2):** **one task per day** = all plan tasks → one verify/test block → one one-line commit + push on the daily branch → PR on GitHub → squash-merge when CI is green; next branch with `git switch -c wN-dM origin/main`; never push to a branch after its PR is merged; **never use GitHub's "Update branch" / web conflict editor**; **start each day by checking prod is on `main`** (deploy.md section 3d) (#9, #75, #116, #141, #142, #176, #181, #202)
-- **Carry-overs:** W8·D4 post-merge infra copy (Grafana `GOMEMLIMIT 420MiB`) + no `VITE_GOOGLE_SIGNIN` on Vercel · **F14 drills D1–D3** (bad key, 200 ms limit, global cap) before v1.0.0 · **intent eval numbers** (x/40; no output saved from W7·D3, re-run once with thinking LOW, ≤ 40 Gemini calls, not on a demo day) · IntelliJ "Vulnerable dependencies" re-run before v1.0.0 (ADR-001) · VM package updates (25 pending, 6 security; check unattended-upgrades) · optional: heap 45 % + embeddings on prod (measured option, #248) · same-site frontend/API (F7) stretch · JetBrains license · refund status webhooks (stretch)
-- **Schedule:** **~38 days ahead** (W8·D4 done Wed Nov 25 instead of Sat Jan 2); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
-- **Top risk:** v1.0.0 with open carry-overs (F14 D1–D3, intent eval numbers, dependency scan): run them before tagging or list them as known gaps; keep checking prod is on `main` each morning (deploy.md section 3d, F13)
+- **Carry-overs:** Seat Finder own time limit (~6 s) + eval re-run (≤ 40 Gemini calls) · remove the Tomcat override once Boot manages ≥ 11.0.29 · optional: heap 45 % + embeddings on prod (measured option, #248) · same-site frontend/API (F7) stretch · JetBrains license · refund status webhooks (stretch) · decommission the VM after ~2–3 months (deploy.md section 8)
+- **Schedule:** **~39 days ahead** (W8·D5 done Wed Nov 25 instead of Sun Jan 3); planned finish Mon, Jan 4, 2027; v1.0.0 shipped
+- **Top risk:** keeping the live demo healthy until decommission (check prod is on `main`, deploy.md section 3d, F13; Gemini free quota shared with local runs)
 
 ## Decisions Log (ADR summary)
 | # | Date | Decision | Why |
@@ -279,6 +279,14 @@
 | 257 | 2026-11-25 | **Same-origin local demo mode** (`docker-compose.demo.yml` + `seatlock-lb-spa.conf`): the local LB on 8088 serves `frontend\dist` and proxies the API/WebSocket | The desktop app's browser pane blocks cross-port localhost requests; one origin also mirrors how prod looks to the browser |
 | 258 | 2026-11-25 | Grafana `GOMEMLIMIT: 420MiB` under its 512 MB limit | The Go GC collects before the container limit instead of being OOM-killed; Prometheus 3 sets its own |
 | 259 | 2026-11-25 | Phone layout: compact header (Bookings, initial avatar, sign-out icon below 640 px), Seat Finder collapsed by default, seat map centred with a swipe hint, City behind a button; past shows marked "Past" and their booking page drops the seat-map links | Signed in, the header overflowed a 375 px screen and cut off Sign out (found while recording); a past show can't be re-booked |
+| 260 | 2026-11-25 | Ran the open checks **before** tagging: F14 D1–D3 (local), intent eval, dependency scan, VM updates | "Drilled, 0 5xx" and "34/40" are evidence; "not run yet" isn't |
+| 261 | 2026-11-25 | Drill probe runs with `-Pings 4` and 60 s apart | Its calls share one user's `ai` rate limit (5/min, Redis buckets survive a restart): D1's 6th call got 429 before the fault |
+| 262 | 2026-11-25 | Seat Finder's 4 timeouts recorded as a follow-up (own ~6 s limit), not changed before v1.0.0 | Proving a change needs another 40-call eval run; the fallback (manual form) is already safe |
+| 263 | 2026-11-25 | Spring Boot **4.1.2 → 4.1.3**, Spring AI **2.0.2 → 2.0.3**; jackson-bom override removed; Guava → 33.8.0-android in `dependencyManagement` | Patch releases inside the locked lines (ADR-001 items 1, 5); Guava has a published HIGH advisory and isn't Boot-managed |
+| 264 | 2026-11-25 | **Tomcat 11.0.27 → 11.0.29** override (`tomcat.version`); Logback, commons-codec and DJL findings accepted as not applicable | IntelliJ's Mend feed gave 9 Tomcat CVEs fixed in 11.0.29 (same line, applies: HTTP upgrade, HTTP/2, WebSocket); the others need a socket receiver / SiftingAppender, Blake3, or attacker-supplied tensors/models, none of which SeatLock uses |
+| 265 | 2026-11-25 | Clip 04 re-recorded as the full Netbanking payment (PNB marked with a ring; the 5 s "Payment Successful" frame captured at half resolution); new one-minute `seatlock-demo.gif` built from the six clips | Shows the whole payment, avoids banks with a "Facing issues" badge; the bank pop-up only opens from a real click, so that click is manual |
+| 266 | 2026-11-25 | Release = annotated tag `v1.0.0` on the squash-merge commit + GitHub Release with the `CHANGELOG.md` notes | The tag must point at a commit on `main` that contains everything, docs included |
+| 267 | 2026-11-25 | Resume bullets and the interview Q&A are **private docs**, not in the public repo | Reviewers see the work and the evidence; prepared answers stay off GitHub |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -387,6 +395,10 @@
 | **Prod rollout W8·D2 (Part C)** | both instances on `45ff9ad`; exactly one of each security header (API + Grafana); apps 434 / 456 MiB; all 7 services healthy, again within 3 min of a reboot | VM checks | 2026-11-24 |
 | **First prod backup + restore drill** | 204,054-byte dump in < 1 s → `daily/`; restored in **827 ms**, 12/12 tables equal | `backup.sh`, `restore-drill.sh` | 2026-11-24 |
 | Demo GIFs (README) | 6 clips, 179–459 KB each, **~1.6 MB** total; 4–5 frames each | Pillow from browser screenshots (`docs/demo-script.md`) | 2026-11-25 |
+| **Seat Finder intent eval** | **34/40 (85 %)**, 0 wrong parses; 4 TIMEOUT + 2 INVALID_OUTPUT fallbacks; p50 999 ms, p95 2,540 ms | `ai-intent-eval.ps1`, 40 phrases, local (benchmarks section 9) | 2026-11-25 |
+| **AI failure drills D1–D3** | bad key: breaker open after 5 errors; 200 ms limit: timeouts at 200–206 ms; global cap 2/min: 3rd call QUOTA in 45 ms, exactly 2 Gemini calls; **0 HTTP 5xx** | `ai-drill-probe.ps1` (FAILURES F14) | 2026-11-25 |
+| VM reboot after OS updates | all 8 containers back, every service healthy within **59 s** | `dc ps` after `sudo reboot` | 2026-11-25 |
+| Walkthrough GIF | `seatlock-demo.gif` 1.8 MB, 31 frames, ~1 min | Pillow from the six clips | 2026-11-25 |
 
 ## Accounts & Config (no secrets here, only where they live)
 | Item | Status | Where stored |
@@ -2019,3 +2031,34 @@
 - Startup jobs with `ApplicationReadyEvent` and advisory locks across instances
 - Same-origin vs cross-origin setups (CORS, WebSocket Origin checks)
 **Commit:** `feat(frontend): dark mode, District-style UI, phone fixes and demo GIFs (W8·D4)`
+
+### Week 8 · Day 5: AI drills, intent eval, dependency triage, v1.0.0 (planned Sun, Jan 3; done Wed, Nov 25, 2026)
+**Status:** ✅ Done (tag `v1.0.0` after the squash-merge; Part C resume + Q&A in private docs)
+**Built:**
+- Intent eval on the local app: **34/40**, 0 wrong parses, 6 safe fallbacks (benchmarks section 9)
+- F14 drills D1 (bad key), D2 (200 ms limit), D3 (global cap 2/min): every fault → manual form / template, never a 5xx; rate-limit interaction documented (FAILURES F14)
+- Dependency triage: IntelliJ scan (Mend CVE details) + OSV lookup per flagged library; Boot 4.1.3, Spring AI 2.0.3, Jackson override removed, Tomcat 11.0.29 + Guava overrides, Logback/commons-codec/DJL not applicable (ADR-001 revisit W8·D5, SECURITY check log)
+- VM: `apt upgrade` + reboot, healthy in 59 s; prod already on `f47798c` from the W8·D4 merge
+- Clip 04 re-recorded (Netbanking → PNB → demo bank → Payment Successful → ticket); `seatlock-demo.gif` one-minute walkthrough at the top of "See it in action"; shot list updated
+- `CHANGELOG.md` with the v1.0.0 notes; README results (drills, intent eval, 642 tests) and Status
+**Files created/changed:**
+- `backend\pom.xml`
+- `README.md`, `CHANGELOG.md`, `docs\{FAILURES.md, benchmarks.md, SECURITY.md, demo-script.md}`, `docs\decisions\ADR-001-dependency-vulnerability-triage.md`
+- `docs\media\04-pay-and-ticket.gif`, `docs\media\seatlock-demo.gif`, `progress.md`
+**Decisions:**
+- See Decisions Log #260–#267
+**Metrics recorded:**
+- Intent eval, drills D1–D3, VM reboot, walkthrough GIF (see Metrics table)
+**Problems & fixes:**
+- D1's 6th call and the Seat Finder got HTTP 429 (per-user `ai` limit) before the fault → `-Pings 4`, 60 s between runs
+- `gh` CLI not installed → PRs on the GitHub website
+- The bank pop-up in Razorpay's checkout only opens from a real click (the browser pane blocks scripted pop-ups) → that click by hand; a second payment to catch "Payment Successful"
+- Races failed once with the demo stack + Testcontainers together (Redis timeouts) → stop the demo stack, `wsl --shutdown`, prune images and ~9 GB of build cache; 642/642 green after
+**Carry-over:**
+- Seat Finder own time limit + eval re-run; remove the Tomcat override when Boot catches up; VM decommission later
+**Interview topics covered (Q&A in a private doc, after v1.0.0):**
+- Failure injection: circuit breaker, time limiter, quotas; designing for "no answer" instead of "wrong answer"
+- Evaluating an LLM feature with a fixed set scored by code
+- Dependency vulnerability triage: patch releases, BOM-managed versions, overrides with a CVE ID, test-scope findings
+- Releases: annotated tags, changelogs, what 1.0 promises
+**Commit:** `docs: AI drills and intent eval, deps patch bump, walkthrough GIF, changelog (W8·D5)`
