@@ -268,29 +268,60 @@ explicit in `application.yml` and can be raised per environment (`SPRING_DATASOU
 hardware.
 
 
-## 7. Startup: JDK 25 AOT cache (W8·D2)
+## 7. Startup: JDK 25 AOT cache (W8·D2, corrected W8·D3)
 
 **Question:** does a JDK 25 AOT cache (JEPs 483/514/515, trained at image build with `spring.context.exit=onRefresh`,
 Dockerfile) shorten startup enough to keep? Bar set before measuring: **≥ 20 % faster median**, else revert (same rule
 as #56).
 
-**Method:** local 2-instance stack (`docker-compose.local.yml` + `docker-compose.scale.yml`, prod profile, AI +
-ONNX embeddings on, 1200 MB limits, heap 70 %), `load-tests/measure-startup.ps1`: 5 restarts × 2 instances = 10 starts
-per variant, Spring Boot's own `Started SeatLockApplication in X seconds (process running for Y)`, median. Same laptop
-session. Baseline = the **exact prod image** `sha-af35849bd299` pulled from GHCR (no rebuild); "after" = the W8·D2
-image built from the working tree. A first scripted run read the same old log line ten times (`docker logs --since`
-with a zone-less timestamp = local time) and was discarded.
+**Method:** local 2-instance stack (`docker-compose.local.yml` + `docker-compose.scale.yml`, prod profile, AI on,
+1200 MB limits), `load-tests/measure-startup.ps1`: 5 restarts × 2 instances = 10 starts per variant, Spring Boot's own
+`Started SeatLockApplication in X seconds (process running for Y)`, median.
 
-| | Baseline (`af35849`) | AOT cache | Change |
+**Run 1 (W8·D2), both variants WITHOUT the model:** baseline = the exact prod image `sha-af35849bd299`, after = the
+W8·D2 image. Neither loaded the embedding model: the Spring AI jar only holds a Git LFS pointer (FAILURES F15), so
+the load failed fast in both. Fair to each other, but not prod's real start.
+
+| | Baseline | AOT cache | Change |
 |---|---|---|---|
-| Median "Started in" | 20.91 s | **14.83 s** | **−29 %** |
-| Median incl. JVM launch | 21.35 s | **15.55 s** | −27 % |
-| Range | 18.59–24.89 s | 9.24–17.48 s | |
-| Image (uncompressed, local) | 994.2 MB | 1249.9 MB | +256 MB |
-| Idle memory after the runs (`docker stats`) | 507.9 / 531.6 MiB (W7·D6, same stack) | 471.6 / 474.8 MiB | no increase |
+| Median "Started in" | 20.91 s | 14.83 s | −29 % |
 
-**Decision:** keep (#242). The cache file is mapped (file-backed, shared pages), so it doesn't eat into the 900 MB app
-limit; one-off idle readings, so "no increase", not "saves memory". Starts got faster after a few runs (cache file warm
-in the page cache): a first start after a deploy on the VM will be nearer the slow end. Costs: +256 MB image (less
-compressed on GHCR), ~longer image build in CI (training run). Prod startup on the VM is measured after the W8·D2
-rollout (logs of the rolling deploy).
+**Run 2 (W8·D3), both variants WITH the model loading** (the result to quote): baseline = `sha-af35849bd299` with
+`SEATLOCK_RAG_ONNX_MODEL_URI` pointed at the pinned download; after = the W8·D3 image (checksummed model baked in,
+clean training layer). Logs checked: `RAG embeddings: all-MiniLM-L6-v2@2.0.2` + policy ingestion in both.
+
+| | Baseline + model | AOT cache + model | Change |
+|---|---|---|---|
+| **Median "Started in"** | **17.52 s** | **12.44 s** | **−29 %** |
+| Median incl. JVM launch | 17.94 s | 13.14 s | −27 % |
+| First start (excluded by the median) | 73.5 s (downloads 90 MB) | 54.4 s (cache file cold) | |
+| Prod VM (B2als_v2, W8·D2 image, model not loading) | n/a | 12.21 / 12.38 s | |
+
+**Image layers:** AOT cache 174 MB; model 87 MB (+90 MB download stage, cached); the W8·D3 training layer first came
+out at **648 MB** because ONNX/DJL unpacked native libraries under the build user's home, fixed by giving the training
+run its own home inside the cleaned `/tmp` → **182 MB**.
+
+**Decision:** keep (#242, #247). Varying a lot between starts (laptop): quote the median.
+
+## 8. Memory with the embedding model (W8·D3): why prod keeps embeddings off
+
+Same stack, **heap 60 %** (prod's `MaxRAMPercentage`), model loaded, `MALLOC_ARENA_MAX=2`, after 30 policy searches
+(`rag-recall-eval.ps1` through the LB; recall@1 30/30, recall@4 30/30, MRR 1.000, embed + search p50 24 ms / p95 65 ms).
+
+| | MiB per instance |
+|---|---|
+| `docker stats` | 812 / 820 |
+| Heap used (`jvm_memory_used_bytes{area="heap"}`) | ~203 |
+| Non-heap (metaspace, code cache) | ~54 |
+| AOT cache file mapped (file-backed) | ~174 |
+| **Native left** (ONNX Runtime + model file pages + thread stacks + malloc) | **~385** |
+| Same image idle, model loaded, heap 70 %, without `MALLOC_ARENA_MAX` | 761 / 774 (native ~430) |
+
+**Rule set before measuring:** enable on prod only if heap **max** + non-heap + native ≤ 850 MB of the 900 MB limit.
+540 + 54 + 385 ≈ **980 MB** → **embeddings stay off on prod** (`SEATLOCK_EMBEDDINGS=none`, #248); locally they're on.
+Even treating the model's file pages as reclaimable leaves ~890. W7·D6's "+130 MiB with the model" (#234) had been
+measured with the LFS pointer, i.e. without the model.
+
+**Option recorded, not taken:** heap 45 % (405 MB) would give ~760 MB worst case, but trades away heap headroom for
+real traffic and was only measured idle. Raising both app limits to ~1.1 GB doesn't fit next to Postgres + Grafana on
+the 3.8 GB VM.

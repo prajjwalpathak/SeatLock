@@ -1,5 +1,8 @@
 package com.seatlock.assistant.rag;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
@@ -14,6 +17,8 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.event.EventListener;
+import org.springframework.core.io.DefaultResourceLoader;
+import org.springframework.core.io.Resource;
 
 /**
  * Chooses the embedder from {@code seatlock.rag.embeddings} ({@code SEATLOCK_EMBEDDINGS}):
@@ -38,6 +43,7 @@ public class RagConfig {
                                   @Value("${seatlock.rag.onnx.tokenizer-uri}") String tokenizerUri,
                                   @Value("${seatlock.rag.onnx.cache-directory}") String cacheDirectory) {
         return choose(mode, fake, () -> {
+            rejectLfsPointer(new DefaultResourceLoader().getResource(modelUri), modelUri);
             TransformersEmbeddingModel model = new TransformersEmbeddingModel();
             model.setModelResource(modelUri);
             model.setTokenizerResource(tokenizerUri);
@@ -47,6 +53,34 @@ public class RagConfig {
             return model;
         });
     }
+
+    /**
+     * W8·D3 (FAILURES F15): spring-ai-transformers 2.0.2 ships {@code onnx/all-MiniLM-L6-v2/model.onnx} as a 133-byte
+     * Git LFS pointer, not the 90 MB model, so loading it fails deep inside ONNX with "protobuf parsing failed". Local
+     * files and classpath entries are checked up front so the log says what is actually wrong. Remote URLs are not
+     * fetched here (Spring AI downloads and caches them itself).
+     */
+    static void rejectLfsPointer(Resource model, String uri) throws IOException {
+        if (uri.startsWith("http:") || uri.startsWith("https:") || !model.exists()) {
+            return;
+        }
+        long size = model.contentLength();
+        if (size >= MIN_MODEL_BYTES) {
+            return;
+        }
+        byte[] head;
+        try (InputStream in = model.getInputStream()) {
+            head = in.readNBytes(64);
+        }
+        if (new String(head, StandardCharsets.US_ASCII).startsWith("version https://git-lfs")) {
+            throw new IllegalStateException("model " + uri + " is a Git LFS pointer (" + size + " bytes), not the "
+                    + "model: use the image's /app/models copy or the pinned download URL (FAILURES F15)");
+        }
+        throw new IllegalStateException("model " + uri + " is only " + size + " bytes; a real ONNX model is MBs");
+    }
+
+    /** A real all-MiniLM-L6-v2 is ~90 MB; anything under 1 MB can't be a model. */
+    static final long MIN_MODEL_BYTES = 1_000_000;
 
     /** Package-private for tests: the loader is only called for "transformers". */
     static PolicyEmbedder choose(String mode, boolean fake, Callable<EmbeddingModel> loader) {

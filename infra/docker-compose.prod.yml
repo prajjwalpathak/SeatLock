@@ -144,8 +144,9 @@ services:
     deploy:
       resources:
         limits:
-          # 192m starved Grafana 13 (171/192 MiB, 17.6 GB of re-reads, not listening after 7 min: W6·D2 rollout)
-          memory: 384m
+          # 192m starved Grafana 13 (171/192 MiB, 17.6 GB of re-reads, not listening after 7 min: W6·D2 rollout).
+          # 384m was tight again on W8·D2: 286-320/384 MiB and 2.5-3 GB of reads in minutes after a restart (F10 pattern).
+          memory: 512m
     logging: *default-logging
     restart: unless-stopped
 

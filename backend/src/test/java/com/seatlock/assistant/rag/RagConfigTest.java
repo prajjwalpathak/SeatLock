@@ -57,4 +57,35 @@ class RagConfigTest {
         verify(ingestion, timeout(2_000)).ingestAll();
         startup.destroy();
     }
+
+    /** F15: the jar's 133-byte Git LFS pointer is named as such instead of failing deep inside ONNX. */
+    @Test
+    void aGitLfsPointerIsRejectedWithAClearMessage() {
+        String pointer = "version https://git-lfs.github.com/spec/v1\noid sha256:e3dde332c13808c718680e7bf74a574e7e5d06f55bd6e1527e51509dcb8206f3\nsize 90387630\n";
+        org.springframework.core.io.Resource resource =
+                new org.springframework.core.io.ByteArrayResource(pointer.getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> RagConfig.rejectLfsPointer(resource, "classpath:/onnx/model.onnx"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Git LFS pointer")
+                .hasMessageContaining("133 bytes");
+        // and through choose(): RAG off, app up
+        assertThat(RagConfig.choose("transformers", false, () -> {
+            RagConfig.rejectLfsPointer(resource, "classpath:/onnx/model.onnx");
+            return mock(EmbeddingModel.class);
+        })).isSameAs(PolicyEmbedder.DISABLED);
+    }
+
+    @Test
+    void tinyFilesAreRejectedAndRealSizedOnesOrRemoteUrlsPass() throws Exception {
+        org.springframework.core.io.Resource tiny =
+                new org.springframework.core.io.ByteArrayResource(new byte[] {8, 1, 2, 3});
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> RagConfig.rejectLfsPointer(tiny, "file:/app/models/model.onnx"))
+                .hasMessageContaining("only 4 bytes");
+
+        org.springframework.core.io.Resource big =
+                new org.springframework.core.io.ByteArrayResource(new byte[(int) RagConfig.MIN_MODEL_BYTES]);
+        RagConfig.rejectLfsPointer(big, "file:/app/models/model.onnx");               // passes
+        RagConfig.rejectLfsPointer(tiny, "https://media.githubusercontent.com/x.onnx"); // remote: not fetched here
+    }
 }

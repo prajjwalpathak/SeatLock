@@ -3,71 +3,164 @@
 [![CI](https://github.com/prajjwalpathak/SeatLock/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/prajjwalpathak/SeatLock/actions/workflows/ci.yml)
 [![Deploy](https://github.com/prajjwalpathak/SeatLock/actions/workflows/deploy.yml/badge.svg)](https://github.com/prajjwalpathak/SeatLock/actions/workflows/deploy.yml)
 
-A flash-sale ticket booking platform where thousands of users rush for the same seats,
-and **nobody ever gets the same seat twice**. Includes an AI Seat Finder and Refund Assistant
-(AI interprets, code decides).
+A flash-sale ticket booking platform where hundreds of people rush for the same seats at the same moment, and
+**nobody ever gets the same seat twice**. Proven with 200-user races over real HTTP, k6 flash sales and a database
+invariant that counts double-sold seats: **0 in every run**.
 
-> 🚧 Work in progress. Full README (architecture diagram, benchmarks, demo) lands at v1.0.0.
+It also has two AI helpers that follow one rule, **AI interprets, code decides**: a Seat Finder that turns
+*"2 together near the aisle under ₹800"* into validated filters for a pure-Java search, and a Refund Assistant that
+explains what the refund engine computed (its ₹ amounts are checked against the engine's).
 
-**Live demo:** https://seatlock-nu.vercel.app · API: https://seatlock-prajjwal.duckdns.org/swagger-ui.html
-(deployment runbook: [docs/deploy.md](docs/deploy.md))
+**Live:** [seatlock-nu.vercel.app](https://seatlock-nu.vercel.app) ·
+API docs: [Swagger UI](https://seatlock-prajjwal.duckdns.org/swagger-ui.html) ·
+running version: [/api/v1/system/version](https://seatlock-prajjwal.duckdns.org/api/v1/system/version)
 
-## What works today (Weeks 1–6)
+| Try it as | E-mail | Password |
+|---|---|---|
+| User | `demo.user@seatlock.test` | `seatlock-demo` |
+| Organizer | `organizer.cinema@seatlock.test` | `seatlock-demo` |
 
-- **Catalog**: events, shows, live seat map (Redis hold overlay), full-text search, measured caching
-- **Seat holds**: atomic multi-seat holds (Redis Lua, or optimistic Postgres claims behind `SeatLockingStrategy`),
-  idempotency keys, rate limits; a DB partial unique index makes overselling impossible (200-user races, 0 double-sold)
-- **Bookings**: State-pattern lifecycle, hold → booking, expiry sweeper
-- **Payments (Razorpay test mode)**: server-side amounts, Checkout.js, signed checkout verification, deduplicated
-  HMAC webhooks, one-transaction confirm proven under callback/webhook/sweeper races, automatic refunds via an outbox,
-  cancellation policy (≥ 48 h 100 %, ≥ 24 h 50 %)
-- **Live seat map**: STOMP over WebSocket (JWT on CONNECT, subscription rules), seat events published after commit,
-  relayed across instances through Redis Pub/Sub with per-show versions; the browser resyncs on gaps or reconnects
-- **Two instances in production** behind Nginx (round robin, WebSocket upgrade), zero-downtime rolling deploys with
-  automatic rollback; failure drills (instance loss, crash mid-booking, Redis/Postgres restarts) measured in FAILURES F8
-- **My bookings** page for signed-in users
-- **Load-tested (k6, local 2-instance stack)**: 500 users rushing 10 seats → **oversells = 0 in every sale** (k6 per-seat
-  thresholds + DB invariant); browse p95 6–11 ms at 50 VUs; Redis holds **336 holds/s** vs 233 optimistic (p99 188 vs
-  310 ms); virtual threads measured and left off ([docs/benchmarks.md](docs/benchmarks.md))
-- **Observability**: Micrometer business metrics (holds by outcome, oversells blocked, double-sold seats counted from the
-  data) → Prometheus → Grafana dashboard provisioned from Git, live on prod at `/grafana/`
-- **Tuned from measurements**: G1 instead of the JVM's Serial default in small containers, Redis timeout sized for a
-  saturated CPU, partial index for the expiry sweeper (34.5 → 0.14 ms at 205k bookings); isolation levels pinned by tests
-- **Tests**: 523 (unit, Testcontainers integration, 200-user races over real HTTP, WireMock contract tests);
-  coverage **94 % lines / 81 % branches**, enforced in CI by a JaCoCo gate (≥ 85 % lines, ≥ 80 % branches)
-- Decisions: [docs/decisions](docs/decisions/README.md) · correctness proofs: [docs/CORRECTNESS.md](docs/CORRECTNESS.md) ·
-  failure drills: [docs/FAILURES.md](docs/FAILURES.md)
+Payments run in **Razorpay test mode** (no real money): pick Netbanking → any bank → *Success*. The demo account is
+shared, so its old bookings are refunded every night at 03:30 IST and seed events always get new shows.
+
+---
+
+## Architecture
+
+```mermaid
+flowchart LR
+    subgraph Browser
+        SPA["React SPA<br/>(Vercel)"]
+    end
+    subgraph VM["Azure VM (2 vCPU, 4 GB) · Docker Compose"]
+        NGX["Nginx<br/>TLS · rate limit · LB"]
+        A1["app-1<br/>Spring Boot 4.1 · Java 25"]
+        A2["app-2<br/>Spring Boot 4.1 · Java 25"]
+        PG[("PostgreSQL 16<br/>pgvector")]
+        RD[("Redis 7<br/>holds · cache · pub/sub")]
+        PR["Prometheus"] --> GF["Grafana"]
+    end
+    RZP["Razorpay<br/>(test mode)"]
+    GEM["Gemini API"]
+    BLOB[("Azure Blob<br/>nightly backups")]
+
+    SPA -- "HTTPS (REST + STOMP/WebSocket)" --> NGX
+    NGX --> A1 & A2
+    A1 & A2 --> PG
+    A1 & A2 <--> RD
+    A1 & A2 -- "orders · refunds" --> RZP
+    RZP -- "signed webhooks" --> NGX
+    A1 & A2 -- "AI calls (breaker, quota)" --> GEM
+    PR -. scrape .-> A1 & A2
+    PG -. "pg_dump 03:00 IST" .-> BLOB
+```
+
+**How a seat is sold:**
+1. **Hold.** One Redis Lua script claims all chosen seats or none, with an 8-minute TTL. A second check against
+   Postgres closes the window where a seat was just booked (F12).
+2. **Book.** The hold becomes a `HELD` booking in one transaction. A **partial unique index**
+   (`booking_seats (show_id, seat_id) WHERE active`) makes a second live claim on a seat impossible, even if Redis lost
+   everything.
+3. **Pay.** The server prices the booking and creates a Razorpay order. The browser's "success" is only a claim:
+   the checkout signature or the HMAC-signed webhook confirms it, in one transaction that locks payment then booking.
+4. **Everyone sees it.** Seat changes are published **after commit**, relayed between the two instances through Redis
+   Pub/Sub with per-show version numbers; browsers resync on any gap or reconnect.
+
+Packages are organised by feature (`identity`, `catalog`, `booking`, `payment`, `realtime`, `assistant`, `common`);
+modules talk only through public services and IDs. Details: [docs/architecture.md](docs/architecture.md).
+
+## Results (measured, not estimated)
+
+| What | Result | How |
+|---|---|---|
+| **Oversells under contention** | **0** in every race and every k6 sale (up to 500 users → 10 seats) | 200-user HTTP races A/B/C, k6 per-seat thresholds, DB invariant query ([CORRECTNESS](docs/CORRECTNESS.md)) |
+| Last line of defence alone | Redis bypassed, 200 DB transactions on one seat → **1 commit, 199 × unique violation** | race C |
+| Duplicate payment events | 10 callbacks + 10 webhooks for one payment → confirmed **once** | `PaymentConfirmRaceIntegrationTest` |
+| Locking strategy | Redis Lua **336 holds/s, p99 188 ms** vs optimistic Postgres 233 holds/s, p99 310 ms | [benchmarks](docs/benchmarks.md) section 5 |
+| Virtual threads | no gain (−3 %), worse tails → left off | section 5 |
+| Browse latency | p95 6–11 ms at 50 virtual users | k6, section 4 |
+| Expiry sweeper at 205k bookings | **34.5 → 0.14 ms** with a partial index | `EXPLAIN (ANALYZE, BUFFERS)` |
+| Startup (JDK 25 AOT cache) | **17.5 → 12.4 s median (−29 %)** | 10 restarts each, section 7 |
+| Deploys | rolling, health-gated, auto-rollback; **2198/2198 requests OK** during a real deploy | `deploy-watch.ps1` |
+| AI guardrails | slow model, bad key, spent quota, model that won't load → a fallback (manual form / template), not a 5xx; timeouts cut 7/9 → 0/4 failures | gateway tests + live latency fix ([ADR-016](docs/decisions/ADR-016-ai-gateway.md)); live drills listed in FAILURES F14 |
+| Policy retrieval (RAG) | recall@1 **30/30**, MRR 1.0 on our policy set | `rag-recall-eval.ps1` |
+| Backups | nightly, off-site, **restore tested**: 12/12 tables in 827 ms | [deploy.md](docs/deploy.md) section 5b |
+| Tests | ~640 (unit, Testcontainers, real-HTTP races, WireMock contracts); JaCoCo gate ≥ 85 % lines / 80 % branches in CI | `mvnw verify` |
+
+Things that went wrong and what they taught: [docs/FAILURES.md](docs/FAILURES.md) (15 entries, e.g. a merge that
+silently disabled rate limiting, a Serial-GC pause causing 503s, a library that shipped a Git LFS pointer instead of
+its model).
+
+## Features
+
+- **Catalog:** events with Postgres full-text search, keyset pagination, Redis caching kept only where it measured faster
+- **Live seat map:** WebSocket/STOMP with JWT on CONNECT, subscription rules, hold countdowns on the server's clock
+- **Holds and bookings:** atomic multi-seat holds, idempotency keys, Bucket4j rate limits, State-pattern booking
+  lifecycle, expiry sweeper (`FOR UPDATE SKIP LOCKED`)
+- **Payments and refunds:** Razorpay Orders + Checkout.js, signature + webhook verification with dedupe, refund
+  outbox with retries, cancellation policy (≥ 48 h: 100 %, ≥ 24 h: 50 %)
+- **Accounts:** register/login (BCrypt, RS256 JWTs), Google sign-in with a one-time code handoff, roles
+  USER ⊂ ORGANIZER ⊂ ADMIN, organizers create shows (DB-enforced: no overlapping shows in a venue)
+- **AI Seat Finder:** Gemini returns JSON intent, validated in code; a sliding-window search picks the best adjacent
+  seats; cached per phrase; manual filters always available
+- **Refund Assistant:** the policy engine decides, Gemini explains, every ₹ and % in the answer is checked against the
+  engine; template answer as fallback. Policy excerpts come from local ONNX embeddings + pgvector
+  (on locally; **off on the prod VM** because the model didn't fit the 900 MB container, [measured](docs/benchmarks.md))
+- **Operations:** Prometheus + Grafana (business metrics like double-sold seats counted from the data), security
+  headers, secret scanning of the full Git history, nightly backups with a tested restore
+
+## Design patterns
+
+| Pattern | Where |
+|---|---|
+| **State** | booking lifecycle `HELD → PAYMENT_PENDING → CONFIRMED / EXPIRED / CANCELLED / REFUNDED` (ADR-008) |
+| **Strategy** | `SeatLockingStrategy`: Redis hold vs optimistic Postgres claims, chosen by config (ADR-013) |
+| **Adapter / Strategy** | `PaymentGateway`: Razorpay vs in-process mock for tests and load tests (ADR-010) |
+| **Observer** | domain events after commit → cache eviction and WebSocket broadcasts (ADR-014) |
+| Transactional outbox | refunds (ADR-012) |
+| Ports and adapters | `LlmClient` (Gemini), `SeatHoldLookup`, `SeatEventVersionLookup` |
 
 ## Stack
 
-Java 25 · Spring Boot 4.1 · PostgreSQL 16 (pgvector) · Redis 7 · Spring Security (JWT + Google OAuth2) ·
-WebSocket/STOMP · Razorpay (test mode) · Spring AI 2.0 · Testcontainers · k6 · Prometheus/Grafana ·
-Docker · Nginx · GitHub Actions · Azure VM · Vercel · React + TypeScript + Vite
+Java 25 · Spring Boot 4.1 · Spring Security (OAuth2 resource server + client) · PostgreSQL 16 + pgvector · Flyway ·
+Redis 7 (Lettuce, Lua) · Bucket4j · WebSocket/STOMP · Razorpay (test mode) · Spring AI 2.0 (Gemini, ONNX embeddings) ·
+Resilience4j · JUnit 5, Mockito, Testcontainers, WireMock, k6 · Micrometer, Prometheus, Grafana · Docker, Nginx,
+GitHub Actions → GHCR → SSH deploy · Azure VM · React 19 + TypeScript + Vite + TanStack Query + Tailwind on Vercel
 
-## Repository layout
+## Run it locally (Windows, PowerShell)
 
-| Folder        | Purpose                                                            |
-| ------------- | ------------------------------------------------------------------ |
-| `backend/`    | Spring Boot application                                            |
-| `frontend/`   | React + TypeScript SPA                                             |
-| `infra/`      | Docker Compose, Nginx, Prometheus, Grafana, VM scripts             |
-| `load-tests/` | k6 scripts                                                         |
-| `docs/`       | Architecture, correctness proofs, failure drills, benchmarks, ADRs |
+Needs: JDK 25, Docker Desktop, Node 26, Git.
 
-## Demo accounts
+```powershell
+git clone https://github.com/prajjwalpathak/SeatLock.git; cd SeatLock
+Copy-Item .env.example .env        # then fill in: Postgres password, a JWT key pair (commands inside), admin login
+docker compose --env-file .env -f infra/docker-compose.local.yml up -d     # Postgres, Redis, Prometheus, Grafana
 
-| Role | E-mail | Password |
-|---|---|---|
-| USER | `demo.user@seatlock.test` | `seatlock-demo` |
-| ORGANIZER | `organizer.cinema@seatlock.test` | `seatlock-demo` |
-| ADMIN | not public: created at startup from `SEATLOCK_ADMIN_EMAIL` / `SEATLOCK_ADMIN_PASSWORD` | — |
+cd backend; .\mvnw.cmd spring-boot:run          # http://localhost:8080/swagger-ui.html (Flyway seeds the demo data)
 
-Demo data is reset nightly from W8 onward. You can also **Continue with Google** (the Google app
-is in testing mode, so only test users added in Google Auth Platform can use it).
+# second window
+cd frontend; Copy-Item .env.example .env.local; npm ci; npm run dev          # http://localhost:5173
+```
 
-## Local setup
+Optional, all in `.env.example`: Razorpay test keys (otherwise the mock gateway), Google sign-in client, a Gemini key
+(`SEATLOCK_AI_PROVIDER=google-genai`; without it every AI feature uses its fallback), `SEATLOCK_EMBEDDINGS=transformers`
+for policy excerpts. Tests: `cd backend; .\mvnw.cmd verify` (Docker must be running: Testcontainers). Two instances
+behind a local load balancer: [docs/local-scale.md](docs/local-scale.md).
 
-_Full guide coming soon._ For Google sign-in locally: create a **Web application** OAuth client in
-Google Auth Platform with redirect URI `http://localhost:8080/login/oauth2/code/google`, add
-yourself as a test user, and put `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` in the repo-root `.env`
-(see `.env.example`).
+## Documentation
+
+| Doc | What's in it |
+|---|---|
+| [architecture.md](docs/architecture.md) | data model (ERD), request flows with sequence diagrams per feature |
+| [CORRECTNESS.md](docs/CORRECTNESS.md) | every oversell / double-payment guard, the races that prove them, query plans, isolation levels |
+| [FAILURES.md](docs/FAILURES.md) | failure drills and real incidents with before/after numbers |
+| [benchmarks.md](docs/benchmarks.md) | method and results: caching, holds, k6, strategies, pool size, startup, memory |
+| [decisions/](docs/decisions/README.md) | 19 ADRs |
+| [SECURITY.md](docs/SECURITY.md) | headers, CORS, input limits, secret scan, dependency triage |
+| [deploy.md](docs/deploy.md) | VM setup, CI/CD, rollout, backups and restore, troubleshooting, decommission |
+| [monitoring.md](docs/monitoring.md) | metrics, dashboard, how to read it |
+
+## Status
+
+Built in 8 weeks (Nov 2026 – Jan 2027) as a portfolio project. The Azure VM is temporary and will be decommissioned
+after a few months to save cost. The code, docs and measurements stay here.

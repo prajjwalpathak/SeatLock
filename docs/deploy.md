@@ -322,10 +322,18 @@ journalctl -u seatlock-backup -n 5 --no-pager     # "backup OK: … upload: dail
 ```
 Portal → storage account → Containers → `pg-backups` → `daily/` shows the file (your portal login can read; the VM can't).
 
+⚠️ Copy the **Blob SAS token** field (starts with `sp=`), never the **Blob SAS URL** into `BACKUP_BLOB_URL`: the URL
+carries the signature, and any check that prints the URL leaks it (happened W8·D2 → key1 rotated). Check with
+`grep -c` only (deploy.md 3f).
+
 **SAS token:** container `pg-backups` → Shared access tokens → Account key, **Create + Write** only, HTTPS only,
 expiry 2027-03-31 → put the "Blob SAS token" value into `BACKUP_SAS_TOKEN` in `infra/.env.prod`. A new token can be
 generated any time; old ones stay valid until they expire (rotate = new token, then regenerate the account key
 the old one was signed with).
+
+**Measured 2026-11-24 (prod):** first dump 204,054 bytes in < 1 s, uploaded to `daily/`; drill restored it in
+**827 ms**, all 12 checked tables equal (users 5, shows 99, show_seats 25,160, bookings 9, payments 8, …); the timer
+survived a reboot (all 7 services healthy again within 3 min).
 
 **Restore drill (scratch DB, never live):** `bash ~/seatlock/infra/scripts/restore-drill.sh`, which restores the newest
 local dump into `seatlock_restore_test`, prints live vs restored row counts and the restore time, then drops it.

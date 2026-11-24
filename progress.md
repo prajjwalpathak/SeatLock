@@ -3,19 +3,19 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 8 · Day 2 **Part C** (prod rollout per deploy.md section 3f after the W8·D2 merge: infra copy, `.env.prod` AI + backup blocks, one instance at a time, live check, backup timer + first run, restore drill), then Week 8 · Day 3 (planned Fri Jan 1): README (Mermaid architecture, setup, benchmark tables), finalize CORRECTNESS / FAILURES / ADRs. Branch `w8-d3` (`git switch -c w8-d3 origin/main` after the W8·D2 PR is squash-merged). **Prepare for Part C:** SSH, Gemini key, backup SAS token generated in the portal while connected (Create + Write, HTTPS, 2027-03-31)
-- **Last completed:** Week 8 · Day 2 (code): JDK 25 AOT cache trained at image build (startup median 20.91 → 14.83 s, −29 %; +256 MB image; no memory increase), healthchecks for Prometheus / Grafana / Nginx, nightly backup (`backup.sh` + systemd timer 03:00 IST → Azure Blob `daily/` 30 d + `monthly/` kept, write-only SAS, separate resource group `seatlock-backups`), restore-drill script, full-rollout runbook (deploy.md 3f, 5b) (planned Thu Dec 31, done Tue Nov 24)
+- **Current day:** Week 8 · Day 4 (not started, planned Sat Jan 2): UI polish + record the demo video. Branch `w8-d4` (`git switch -c w8-d4 origin/main` after the W8·D3 PR is squash-merged). **Before it:** the W8·D3 post-merge step (infra copy for Grafana 512 MB, deploy.md 3f steps 1–2 + `dc up -d grafana`; `SEATLOCK_EMBEDDINGS=none` on the VM **before** the merge). **Prepare:** a screen recorder (OBS or the Xbox Game Bar), a quiet 30 min, the demo script (W8·D4)
+- **Last completed:** Week 8 · Day 3: RAG fix (checksummed model baked into the image, LFS-pointer guard, clean AOT layer 648 → 182 MB), fair startup benchmark with the model (17.52 → 12.44 s, −29 %), memory measured with the real model → embeddings stay off on prod (≈ 980 MB worst case > 850 rule), RAG recall 30/30, Grafana 512 MB, README rewritten (Mermaid architecture, results, setup), CORRECTNESS / FAILURES (F15, F14 D4–D5 observed) / ADRs final; W8·D2 Part C recorded (planned Fri Jan 1, done Tue Nov 24)
+- **Earlier:** Week 8 · Day 2: JDK 25 AOT cache trained at image build (startup median 20.91 → 14.83 s, −29 %; +256 MB image; no memory increase), healthchecks for Prometheus / Grafana / Nginx, nightly backup (`backup.sh` + systemd timer 03:00 IST → Azure Blob `daily/` 30 d + `monthly/` kept, write-only SAS, separate resource group `seatlock-backups`), restore-drill script, full-rollout runbook (deploy.md 3f, 5b) (planned Thu Dec 31, done Tue Nov 24)
 - **Earlier:** Week 8 · Day 1: security headers with one owner each (Spring content headers + `/api/**` CSP, Nginx HSTS), CORS exact-origin validation + methods narrowed, 1 MB body limit (413) + DTO size caps, gitleaks over full history in CI (2 false positives fingerprinted, 0 leaks), ADR-001 revisit, nightly demo upkeep (seed show top-up + demo-account full-refund reset, ADR-019) (planned Wed Dec 30, done Mon Nov 23)
-- **Earlier:** Week 7 · Day 6: resilient embedding load (failure → RAG off, not app down), index tagged with the Spring AI version, Grafana "AI (Week 7)" row (8 panels), AI drill probe + F14 drill plan, memory measured with the model (+~130 MiB) → prod heap 60 %, AI rollout runbook (deploy.md 3e); Week 7 review (planned Tue Dec 29, done Mon Nov 23)
-- **Before:** Week 7 · Day 5: Refund Assistant (engine facts incl. next tier, 3 RAG excerpts, Gemini explains only, ₹/% `AnswerGuard`, template fallback, booking-page UI); per-feature time limit (8 s) + Gemini thinking LOW fixed 7/9 timeouts → 4/4 OK, avg 1.7 s (planned Mon Dec 28, done Mon Nov 23)
-- **Before that:** Week 7 · Day 4: policy RAG (7 policy files / 40 sections, local ONNX all-MiniLM-L6-v2, V14 pgvector + HNSW, hash-skipped advisory-locked ingestion, admin search/reindex, 30-question recall eval) + ticket QR with PNG download (planned Sat Dec 26, done Mon Nov 23)
+- **Before:** Week 7 · Day 6: resilient embedding load (failure → RAG off, not app down), index tagged with the Spring AI version, Grafana "AI (Week 7)" row (8 panels), AI drill probe + F14 drill plan, memory measured with the model (+~130 MiB) → prod heap 60 %, AI rollout runbook (deploy.md 3e); Week 7 review (planned Tue Dec 29, done Mon Nov 23)
+- **Before that:** Week 7 · Day 5: Refund Assistant (engine facts incl. next tier, 3 RAG excerpts, Gemini explains only, ₹/% `AnswerGuard`, template fallback, booking-page UI); per-feature time limit (8 s) + Gemini thinking LOW fixed 7/9 timeouts → 4/4 OK, avg 1.7 s (planned Mon Dec 28, done Mon Nov 23)
 - **Live URLs:** Frontend https://seatlock-nu.vercel.app · Backend https://seatlock-prajjwal.duckdns.org · Swagger https://seatlock-prajjwal.duckdns.org/swagger-ui.html · Version https://seatlock-prajjwal.duckdns.org/api/v1/system/version · Grafana https://seatlock-prajjwal.duckdns.org/grafana/ (admin login)
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public) · CI + Deploy badges in README · `main` protected (ruleset `protect-main`)
-- **Hosting:** Azure VM `seatlock-vm` (India South Central, B2als_v2 x64) + Vercel; images from GHCR (ADR-005, #62, #71–#74, #167); **2 app instances** since W5·D5 + Prometheus/Grafana since W6·D2; app image auto-deploys on every merge, but **`infra/` and `.env.prod` on the VM are still the W6 copy** (AI and embeddings off) until W8·D2 Part C; backups: storage account `seatlockbackups24112026` in its own resource group `seatlock-backups` (India South Central, LRS, Cool, soft delete 7 d, lifecycle `pg-backups/daily/` 30 d); decommission after ~2–3 months
+- **Hosting:** Azure VM `seatlock-vm` (India South Central, B2als_v2 x64) + Vercel; images from GHCR; **2 app instances** + Prometheus/Grafana; infra + `.env.prod` updated W8·D2 (AI on, **embeddings off** by measurement #248, heap 60 %, backups); nightly backups to `seatlockbackups24112026` (resource group `seatlock-backups`); decommission after ~2–3 months (deploy.md section 8, backups group separately)
 - **Git workflow (from W6·D2):** **one task per day** = all plan tasks → one verify/test block → one one-line commit + push on the daily branch → PR on GitHub → squash-merge when CI is green; next branch with `git switch -c wN-dM origin/main`; never push to a branch after its PR is merged; **never use GitHub's "Update branch" / web conflict editor**; **start each day by checking prod is on `main`** (deploy.md section 3d) (#9, #75, #116, #141, #142, #176, #181, #202)
-- **Carry-overs:** **W8·D2 Part C** (rollout, prod header check → SECURITY.md section 6, prod startup + memory with the AOT cache, backup timer + first upload, restore drill timing) · **F14 drill results** (at least D1 bad key, D4 model won't load) · **eval numbers** (intent x/40 run 1 + run 2 + one rerun with thinking LOW; RAG recall@1/@4, MRR: `load-tests/results/rag-recall-eval-20261123-190133.csv` exists, to record) · Gemini latency vs limits in Grafana (after the rollout) · IntelliJ "Vulnerable dependencies" re-run before v1.0.0 (ADR-001) · same-site frontend/API for privacy blockers (F7) → W8 stretch · JetBrains license · refund status webhooks (stretch)
-- **Schedule:** **~37 days ahead** (W8·D2 code done Tue Nov 24 instead of Thu Dec 31); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
-- **Top risk:** W8·D2 Part C (first infra copy since W6, AI on with a shared 500/day Gemini quota, heap 60 % + AOT cache untested on the VM); the demo jobs' first prod run at 03:30 IST (kill switch `SEATLOCK_DEMO_RESET_ENABLED=false`); keep checking prod is on `main` each morning (deploy.md section 3d, F13)
+- **Carry-overs:** W8·D3 post-merge infra copy (Grafana 512 MB) + check RAG stays off and memory is unchanged · **F14 drills D1–D3** (bad key, 200 ms limit, global cap) before v1.0.0 · **intent eval numbers** (x/40; no output saved from W7·D3, re-run once with thinking LOW, ≤ 40 Gemini calls, not on a demo day) · IntelliJ "Vulnerable dependencies" re-run before v1.0.0 (ADR-001) · VM package updates (25 pending, 6 security; check unattended-upgrades) · optional: heap 45 % + embeddings on prod (measured option, #248) · same-site frontend/API (F7) stretch · JetBrains license · refund status webhooks (stretch)
+- **Schedule:** **~38 days ahead** (W8·D3 done Tue Nov 24 instead of Fri Jan 1); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
+- **Top risk:** demo video quality/time (W8·D4); Gemini free quota on demo day (shared 500/day with local); keep checking prod is on `main` each morning (deploy.md section 3d, F13)
 
 ## Decisions Log (ADR summary)
 | # | Date | Decision | Why |
@@ -266,6 +266,11 @@
 | 244 | 2026-11-24 | **Backups:** `backup.sh` via systemd timer 03:00 IST (`Persistent=true`): `pg_dump -Fc` → `pg_restore --list` → 7 local → **Azure Blob** `pg-backups/daily/` (lifecycle delete 30 d) + `monthly/` on the 1st IST (kept); storage account in its **own resource group**; container SAS **Create + Write only**, passed to curl via stdin | Plan's OCI Object Storage → Azure (provider swap, #54/#62); a compromised VM can't read or delete backups; deleting the VM's group keeps them; daily + monthly covers late-discovered damage; RPO ~24 h, no WAL archiving (demo) |
 | 245 | 2026-11-24 | Restore proven by `restore-drill.sh`: newest dump → scratch DB `seatlock_restore_test`, live vs restored row counts, timed, dropped | An untested backup is a claim |
 | 246 | 2026-11-24 | One **full-rollout runbook** (deploy.md 3f): infra copy with backup + `chmod +x`, `dc config --quiet`, `.env.prod` edits on the VM, app-1 → healthy → app-2 → healthy, Prometheus/Grafana up, forced Nginx recreate, live check, rollback recipe | `infra/` and `.env.prod` never deploy themselves; W7·D6 + W8·D1 + W8·D2 infra ship in one copy |
+| 247 | 2026-11-24 | **Embedding model baked into the image:** Dockerfile stage `model` downloads `model.onnx` from the Git LFS media URL pinned to Spring AI tag v2.0.2 and checks SHA-256 `e3dde332…` (the hash in the jar's own pointer); `SEATLOCK_RAG_ONNX_MODEL_URI=file:/app/models/…` in the image; the pinned URL is the default for IDE runs; `RagConfig.rejectLfsPointer` names a pointer / < 1 MB file; AOT training gets its own tmpdir **and home**, emptied in the same layer (F15) | The Spring AI 2.0.2 jar ships a 133-byte LFS pointer (#220/#230 were wrong); a mismatch fails the build, not a deploy; no network at runtime; training layer 648 → 182 MB |
+| 248 | 2026-11-24 | **Prod keeps `SEATLOCK_EMBEDDINGS=none`** (supersedes #234's "embeddings ON"); heap stays 60 %; `MALLOC_ARENA_MAX=2` in the image | Measured with the real model at 60 % heap: heap max 540 + non-heap 54 + native ~385 ≈ 980 MB > the 850 MB rule (benchmarks section 8); #234's +130 MiB was measured without the model. Heap 45 % recorded as an option, not taken |
+| 249 | 2026-11-24 | Startup benchmark redone **with the model loading in both variants**: −29 % (17.52 → 12.44 s) is the number to quote; the W8·D2 run (20.91 → 14.83 s) stays documented as "both without the model" | A published number must describe what prod does |
+| 250 | 2026-11-24 | Grafana limit **384 → 512 MB** (supersedes #187's 384) | 286–320/384 MiB and 2.5–3 GB of reads within minutes of a restart on W8·D2 (F10 pattern) |
+| 251 | 2026-11-24 | Secret-file checks print counts/names only; a SAS **URL** is a secret | W8·D2: the backup SAS URL (with signature) was put in `BACKUP_BLOB_URL` and printed by a check → key1 rotated, token regenerated from the "Blob SAS token" field |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -366,6 +371,13 @@
 | **Startup with the JDK 25 AOT cache** (local 2 instances, prod profile, AI + model on, 10 starts each) | median **20.91 → 14.83 s (−29 %)**, incl. JVM 21.35 → 15.55 s; range 18.6–24.9 → 9.2–17.5 s | `load-tests/measure-startup.ps1`, baseline = prod image `sha-af35849bd299` (`docs/benchmarks.md` section 7) | 2026-11-24 |
 | Image size with the AOT cache | 994.2 → 1249.9 MB uncompressed (+256 MB) | `docker image inspect` | 2026-11-24 |
 | Idle memory with the AOT cache (local stack) | app-1 471.6 MiB, app-2 474.8 MiB (W7·D6 without cache: 507.9 / 531.6) | `docker stats --no-stream` | 2026-11-24 |
+| **Startup with the AOT cache, model loading in both** (local, 10 starts each) | median **17.52 → 12.44 s (−29 %)**, incl. JVM 17.94 → 13.14 s; first starts 73.5 s (download) / 54.4 s (cold cache) | `measure-startup.ps1` (`docs/benchmarks.md` section 7, run 2) | 2026-11-24 |
+| Prod startup on the VM with the AOT cache (model not loading) | 12.21 / 12.38 s | W8·D2 rollout logs | 2026-11-24 |
+| **RAG recall eval (30 questions)** | **recall@1 30/30, recall@4 30/30, MRR 1.000**; embed + search p50 24 ms, p95 65 ms (venue docs written alongside the questions) | `rag-recall-eval.ps1` via the LB, real ONNX model | 2026-11-24 |
+| Memory with the real model (heap 60 %, after 30 searches) | 812 / 820 MiB: heap ~203, non-heap ~54, AOT mapped ~174, **native ~385** → prod worst case ≈ 980 MB > 850 → embeddings off on prod | `docker stats` + Prometheus `jvm_memory_used_bytes` (benchmarks section 8) | 2026-11-24 |
+| Image layers | training layer 648 → **182 MB** (own home for the training); model 87 MB; AOT cache 174 MB | `docker history` | 2026-11-24 |
+| **Prod rollout W8·D2 (Part C)** | both instances on `45ff9ad`; exactly one of each security header (API + Grafana); apps 434 / 456 MiB; all 7 services healthy, again within 3 min of a reboot | VM checks | 2026-11-24 |
+| **First prod backup + restore drill** | 204,054-byte dump in < 1 s → `daily/`; restored in **827 ms**, 12/12 tables equal | `backup.sh`, `restore-drill.sh` | 2026-11-24 |
 
 ## Accounts & Config (no secrets here, only where they live)
 | Item | Status | Where stored |
@@ -1897,7 +1909,7 @@
 **Commit:** `feat(common): security headers, input limits, secret scan, nightly demo upkeep (W8·D1)`
 
 ### Week 8 · Day 2: AOT cache, healthchecks, nightly backup + rollout runbook (planned Thu, Dec 31; done Tue, Nov 24, 2026)
-**Status:** ⚠️ Code done and measured; Part C (prod rollout, backup timer, restore drill) runs after the merge → results in W8·D3's first commit
+**Status:** ✅ Code merged (#33); Part C done the same evening (rollout, timer, first upload, restore drill, reboot test). Found RAG off on prod → F15, fixed W8·D3
 **Built:**
 - `backend/Dockerfile`: AOT training run (best effort, throwaway config) + `-XX:AOTCache` in the ENTRYPOINT
 - Compose (prod, local, scale): healthchecks for Prometheus, Grafana, Nginx / LB; Grafana `depends_on` healthy Prometheus; prod memory comment fixed (60 %)
@@ -1924,3 +1936,38 @@
 - Backups: logical dumps, RPO/RTO, 3-2-1 idea, retention (daily + monthly), least-privilege SAS tokens, restore drills
 - Measurement hygiene: baselines from the exact deployed artifact, medians, discarding a broken run
 **Commit:** `feat(infra): JDK 25 AOT cache, healthchecks, nightly Azure Blob backups (W8·D2)`
+
+### Week 8 · Day 3: RAG fix in the image, fair benchmark, README and final docs (planned Fri, Jan 1; done Tue, Nov 24, 2026)
+**Status:** ✅ Done (post-merge: small infra copy for Grafana 512 MB)
+**Built:**
+- W8·D2 Part C recorded: prod headers (SECURITY.md section 6), backup + restore numbers and the SAS-URL lesson (deploy.md 5b), rollout metrics
+- F15 root cause: `spring-ai-transformers` 2.0.2 ships `model.onnx` as a Git LFS pointer; W8·D2's AOT training had also left a cached copy in the image
+- Dockerfile: `model` stage (pinned LFS media URL + SHA-256 check), model at `/app/models/…` + `SEATLOCK_RAG_ONNX_MODEL_URI`, training with its own tmpdir **and home** (layer 648 → 182 MB), `MALLOC_ARENA_MAX=2`
+- `RagConfig.rejectLfsPointer` (+2 tests); `application.yml` default model URI = the pinned download
+- Fair startup re-benchmark with the model in both variants; memory breakdown with the real model; recall eval 30/30 (benchmarks sections 7–8)
+- Grafana 512 MB (prod compose)
+- README rewritten: what/why, live + demo logins, Mermaid architecture, how a seat is sold, measured results table, features, design patterns, stack, local setup, docs index
+- CORRECTNESS summary table completed; FAILURES F15 + F14 D4/D5 observed on prod, D1–D3 marked not run; ADR-017 item 1 corrected + item 8
+**Files created/changed:**
+- `backend\Dockerfile`; `backend\src\main\java\com\seatlock\assistant\rag\RagConfig.java`; `application.yml`; test `assistant\rag\RagConfigTest`
+- `infra\docker-compose.prod.yml`
+- `README.md`; `docs\{benchmarks.md, CORRECTNESS.md, FAILURES.md, SECURITY.md, deploy.md}`, `docs\decisions\ADR-017-policy-retrieval.md`, `progress.md`
+**Decisions:**
+- See Decisions Log #247–#251
+**Metrics recorded:**
+- Startup −29 % with the model; memory breakdown; recall 30/30; layer sizes; Part C rollout, backup and restore (see Metrics table)
+**Problems & fixes:**
+- RAG off on prod at the first real start (F15) → checksummed model in the image + guard
+- First "after" layer 648 MB (ONNX/DJL natives unpacked under the build user's home) → training home inside the cleaned `/tmp`
+- Benchmark measured before the apps were ready (502 from the LB, 200 MiB "idle") → wait for healthy + "Policy ingestion" before measuring
+- #234 (+130 MiB with the model) was measured without the model → re-measured: native ~385 MiB → embeddings stay off on prod (#248)
+**Carry-over:**
+- Post-merge Grafana infra copy; F14 D1–D3; intent eval numbers; dependency scan; VM updates
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- Supply-chain hygiene for binary artifacts: pinned URLs, checksums, Git LFS pointers
+- Docker layer contents: what build-time processes leave behind (home dirs, temp dirs), same-layer cleanup
+- JVM + native memory in containers: heap max vs used, non-heap, native libraries, malloc arenas, file-backed pages; sizing rules decided before measuring
+- Honest benchmarking: correcting a published number, comparing like with like
+- Writing a README for reviewers: claim → measurement → link
+**Commit:** `fix(assistant): checksummed ONNX model in the image, fair startup benchmark, README and final docs (W8·D3)`
+
