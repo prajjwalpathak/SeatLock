@@ -47,6 +47,7 @@ Test: `SecurityHeadersIntegrationTest`.
 - `.gitleaksignore`: individual reviewed findings by fingerprint (commit:file:rule:line), so a rule is never loosened for a whole file.
 - Public on purpose (not secrets): the demo password `seatlock-demo` and its BCrypt hash in `V5__demo_users.sql`; test-only values in `application-test.yml` / `PaymentFixtures` (`test-key-secret`, `test-webhook-secret`); throwaway RSA keys are generated per test run, never stored.
 - Never in Git: `.env`, `infra/.env.prod` (generated on the VM, #66), `*.pem`, `*.key` (`.gitignore`).
+- Checks on secret files print **counts or names, never values** (`grep -c`, `cut -d= -f1`); a SAS **URL** is a secret (it carries the signature).
 - If a real secret is ever found: **rotate it first** (deleting the commit doesn't help, the repo is public), then decide whether to rewrite history.
 
 ```powershell
@@ -65,4 +66,5 @@ Triage policy and findings: [ADR-001](decisions/ADR-001-dependency-vulnerability
 | Date | Check | Result |
 |---|---|---|
 | 2026-11-23 | gitleaks v8.30.1, full history (145 commits, 3.95 MB) | 2 findings, both `generic-api-key` on the same line: a made-up UUID used as an `Idempotency-Key` in `IdempotencyInterceptorTest` (original commit + its squash). False positive → `.gitleaksignore`. Re-run: 0 |
-| 2026-11-23 | Headers on prod (`curl.exe -sI`) | _to fill after the W8·D1 deploy_ |
+| 2026-11-24 | Headers on prod after the W8·D2 rollout (`curl -sI` on `/api/v1/system/time` and `/grafana/login`) | API: exactly one each of HSTS, nosniff, `X-Frame-Options: DENY`, Referrer-Policy, Permissions-Policy, plus the CSP. Grafana: one HSTS, one nosniff, Referrer-Policy from the Nginx default. Duplicate HSTS (W5·D5) closed |
+| 2026-11-24 | Backup SAS token | Copied the **SAS URL** (with signature) into `BACKUP_BLOB_URL`; a check printed it into a chat. Rotated key1 (invalidates every SAS signed with it), new token from the "Blob SAS token" field only; checks now count matches instead of printing values |

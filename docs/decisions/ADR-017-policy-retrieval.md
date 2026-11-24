@@ -7,8 +7,9 @@
 
 ## Decision
 1. **Embeddings:** Spring AI `spring-ai-starter-model-transformers` (ONNX Runtime) with all-MiniLM-L6-v2,
-   384 dimensions. The model ships inside the Spring AI jar (`classpath:/onnx/...`), so it is in the image with no
-   download step and no network at runtime. Same model for documents and questions. No API key, no quota.
+   384 dimensions. Same model for documents and questions. No API key, no quota. ~~The model ships inside the
+   Spring AI jar~~ **Corrected W8·D3 (item 8):** the jar only holds a Git LFS pointer; the image now bakes in a
+   checksummed copy, so there is still no network at runtime.
 2. **Store:** our own Flyway-managed tables (`V14`): `policy_documents` (content SHA-256 + model) and
    `policy_chunks` (`vector(384)`, HNSW `vector_cosine_ops`), queried with plain SQL through `JdbcClient`
    (`<=>` cosine distance). Not Spring AI's `PgVectorStore`, which creates and owns its own schema.
@@ -25,6 +26,12 @@
    a try/catch that also catches `LinkageError`: a model that fails to load disables RAG with an ERROR log instead
    of failing startup (and deploy rollbacks). One warm-up embedding at startup loads the native runtime early.
    Documents are tagged `all-MiniLM-L6-v2@<Spring AI version>` (jar manifest), so an upgrade re-indexes.
+8. **Model file (W8·D3, FAILURES F15):** `spring-ai-transformers` 2.0.2's `onnx/all-MiniLM-L6-v2/model.onnx` is a
+   133-byte Git LFS pointer. The Dockerfile downloads the real file (LFS media URL pinned to tag v2.0.2, 90,387,630
+   bytes) and checks SHA-256 `e3dde332c13808c718680e7bf74a574e7e5d06f55bd6e1527e51509dcb8206f3`, the hash the pointer
+   itself names, into `/app/models/all-MiniLM-L6-v2/model.onnx` (`SEATLOCK_RAG_ONNX_MODEL_URI=file:…`). IDE runs use
+   the same pinned URL as default and cache it. `RagConfig` rejects a local model under 1 MB with an explicit "Git
+   LFS pointer" error. URL and hash move together with `spring-ai.version`.
 
 ## Consequences
 - Image grows by the ONNX Runtime and model (~150–200 MB). The model's native memory sits outside the JVM heap

@@ -19,6 +19,7 @@ Each drill can be repeated with the commands shown.
 | F12 | Redis granted a hold on a seat booked a moment earlier (2 winners per slot, 409 at checkout) | k6 per-slot threshold `seat_wins{slot} <= 1` | a pre-check is a snapshot: re-check after a claim whenever the other side releases its claim after committing |
 | F13 | Prod stuck on W6·D2 for 18 h: 3 deploys failed (`deploy.sh: Permission denied`) + a smoke test that could only see one instance | prod check on W6·D6 (`/system/version` ≠ `main`) | red Deploy runs need an alarm or a daily check; every copy to Linux must restore exec bits; a check whose two requests alias with round robin tests nothing |
 | F14 | AI failure drills: bad key, timeouts, spent quota, embedding model failing to load (+ W7·D5: 7/9 refund answers timing out) | `load-tests/ai-drill-probe.ps1` with one fault injected per run | AI is optional by design: every fault must end in a fallback the user can act on, never a 5xx; measure latency per use case before choosing time limits |
+| F15 | RAG off on prod at the first real start with embeddings: `ORT_INVALID_PROTOBUF` | W8·D2 rollout logs; file sizes in the image and the jar | "it ships inside the jar" must be checked (a 133-byte Git LFS pointer looked like the model); bake large artifacts in with a pinned URL + checksum; build-time runs must not leave caches in the image |
 | (W4·D3) | Webhook secret with `$` cut by Compose interpolation | prod delivery logs | no `$` in env files; hex secrets; check compose warnings |
 | (W4·D5) | HTTP/2 h2c upgrade / stream resets to the provider | WireMock over real HTTP | pin provider clients to HTTP/1.1 |
 
@@ -294,13 +295,47 @@ powershell -ExecutionPolicy Bypass -File .\load-tests\ai-drill-probe.ps1 -Pings 
 
 | Drill | Fault (`$env:`) | Expected (what users get) | Result |
 |---|---|---|---|
-| D1 bad key | `GEMINI_API_KEY="invalid-key"` | pings ERROR ×5 then CIRCUIT_OPEN (no call for 30 s); Seat Finder → manual form; Refund Assistant → TEMPLATE with excerpts | _to record_ |
-| D2 slow model | `RESILIENCE4J_TIMELIMITER_INSTANCES_GEMINI_TIMEOUTDURATION="200ms"` | pings and Seat Finder TIMEOUT after 0.2 s, breaker opens; Refund Assistant (own 8 s limit) still answers until the shared breaker opens | _to record_ |
-| D3 global cap | `SEATLOCK_AI_QUOTA_GLOBALPERMINUTE_CAPACITY="2"`, `SEATLOCK_AI_QUOTA_GLOBALPERMINUTE_REFILLTOKENS="2"`; first `docker exec seatlock-redis redis-cli DEL ai:global:minute` (a bucket keeps its old size until it expires) | pings 1–2 OK, then QUOTA; no Gemini call beyond the cap | _to record_ |
-| D4 model won't load | `SEATLOCK_RAG_ONNX_MODELURI="file:/missing/model.onnx"` | app starts, ERROR log `RAG DISABLED: the embedding model failed to load`, status embeddings `none`; Refund Assistant answers with 0 excerpts; everything else unaffected | _to record_ |
-| D5 AI off | `SEATLOCK_AI_PROVIDER="none"` | DISABLED everywhere, no quota spent; Seat Finder filters + refund template work | _to record_ |
+| D1 bad key | `GEMINI_API_KEY="invalid-key"` | pings ERROR ×5 then CIRCUIT_OPEN (no call for 30 s); Seat Finder → manual form; Refund Assistant → TEMPLATE with excerpts | not run yet (planned before v1.0.0) |
+| D2 slow model | `RESILIENCE4J_TIMELIMITER_INSTANCES_GEMINI_TIMEOUTDURATION="200ms"` | pings and Seat Finder TIMEOUT after 0.2 s, breaker opens; Refund Assistant (own 8 s limit) still answers until the shared breaker opens | not run yet; the real-world version happened W7·D5 (7/9 refund answers over 4 s → breaker opened, template shown; fixed with per-feature limits) |
+| D3 global cap | `SEATLOCK_AI_QUOTA_GLOBALPERMINUTE_CAPACITY="2"`, `SEATLOCK_AI_QUOTA_GLOBALPERMINUTE_REFILLTOKENS="2"`; first `docker exec seatlock-redis redis-cli DEL ai:global:minute` (a bucket keeps its old size until it expires) | pings 1–2 OK, then QUOTA; no Gemini call beyond the cap | not run yet |
+| D4 model won't load | `SEATLOCK_RAG_ONNX_MODELURI="file:/missing/model.onnx"` | app starts, ERROR log `RAG DISABLED: the embedding model failed to load`, status embeddings `none`; Refund Assistant answers with 0 excerpts; everything else unaffected | ✅ **happened for real on prod, 2026-11-24** (F15, an LFS pointer instead of the model): both instances started and stayed healthy, ERROR `RAG DISABLED …`, ingestion skipped, Refund Assistant answered without excerpts, nothing else affected |
+| D5 AI off | `SEATLOCK_AI_PROVIDER="none"` | DISABLED everywhere, no quota spent; Seat Finder filters + refund template work | ✅ observed on prod for weeks (provider unset until W8·D2): every AI feature on its fallback, Seat Finder filters and refund template worked |
 
 **Found before the drills (W7·D5, live):** 7 of 9 Refund Assistant calls hit the 4 s limit while answered ones took
 ~1.6 s with the same prompt size. The guardrails held (template shown, breaker opened) but the feature was useless.
 Fix: own 8 s limit for the Refund Assistant, Gemini `thinking-level: LOW`, output cap 400 tokens → 4/4 OK, avg 1.7 s,
 max 2.6 s (ADR-016 item 10).
+
+## F15. The embedding model was a Git LFS pointer (W8·D2 rollout, 2026-11-24)
+
+**Symptom:** first prod start with `SEATLOCK_EMBEDDINGS=transformers` (W8·D2 Part C), both instances:
+`RAG DISABLED: the embedding model failed to load (ai.onnxruntime.OrtException: … ORT_INVALID_PROTOBUF … protobuf
+parsing failed)`. The W7·D6 fallback worked as designed: app up, Refund Assistant on its template, nothing else hit.
+
+**Investigation:**
+1. `/tmp/spring-ai-onnx-model/<hash>/model.onnx` in the running container: **133 bytes**, owned by `root`, dated the
+   image build. The W8·D2 AOT training run (embeddings on) had unpacked it during `docker build`, and every container
+   reused that copy.
+2. Hotfix with a fresh cache folder (`SEATLOCK_RAG_ONNX_CACHE_DIRECTORY`): the new copy, written by `spring` at
+   runtime, was **133 bytes too**, so the cache was not the root cause.
+3. `spring-ai-transformers-2.0.2.jar` → `onnx/all-MiniLM-L6-v2/model.onnx` = 133 bytes of text:
+   `version https://git-lfs.github.com/spec/v1 / oid sha256:e3dde332… / size 90387630`. The jar ships a **Git LFS
+   pointer**; only `tokenizer.json` (711 KB) is real. Spring AI's own default downloads the model from GitHub at first
+   start, which is why RAG worked on W7·D4 (recall eval) and broke when W7·D6 switched to `classpath:` (#220, #230
+   assumed the model was in the jar). CI never saw it: tests use the hashing embedder.
+
+**Fix (W8·D3):**
+- Dockerfile stage `model`: download from the LFS media URL **pinned to tag v2.0.2**, `sha256sum -c` against
+  `e3dde332…` (the hash the jar's pointer names), copy to `/app/models/all-MiniLM-L6-v2/model.onnx`,
+  `SEATLOCK_RAG_ONNX_MODEL_URI=file:…` in the image. A mismatch fails the image build, never a deploy.
+- `application.yml` default = the same pinned URL (IDE runs download once into the cache folder).
+- AOT training gets its own `java.io.tmpdir` and empties `/tmp` in the same layer.
+- `RagConfig.rejectLfsPointer`: local/classpath models under 1 MB are rejected with "is a Git LFS pointer" instead of
+  an ONNX protobuf error (`RagConfigTest`).
+- Startup benchmark redone with the model loading in both variants (benchmarks.md section 7: the first "after"
+  number was flattered by the model failing fast).
+
+**Lesson:** verify claims about third-party artifacts by size/hash, not by name; give big binaries an explicit,
+checksummed build step; anything a build-time run writes (caches, temp files) ends up in the image unless removed in
+the same layer; a fallback that hides a fault needs a loud log (it had one) *and* someone reading it at rollout.
+

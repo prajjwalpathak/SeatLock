@@ -182,8 +182,12 @@ seatlock:
   rag:
     embeddings: ${SEATLOCK_EMBEDDINGS:none}   # transformers = local ONNX all-MiniLM-L6-v2 (ADR-017); none = off
     onnx:
-      model-uri: classpath:/onnx/all-MiniLM-L6-v2/model.onnx          # inside the Spring AI jar
-      tokenizer-uri: classpath:/onnx/all-MiniLM-L6-v2/tokenizer.json
+      # NOT classpath: the Spring AI 2.0.2 jar only holds a Git LFS pointer for model.onnx (FAILURES F15). Default =
+      # the real file, pinned to the Spring AI tag (IDE runs download it once into cache-directory); the Docker image
+      # overrides this with its checksummed local copy (SEATLOCK_RAG_ONNX_MODEL_URI=file:/app/models/..., Dockerfile).
+      # Bump the tag together with spring-ai.version in pom.xml.
+      model-uri: https://media.githubusercontent.com/media/spring-projects/spring-ai/v2.0.2/models/spring-ai-transformers/src/main/resources/onnx/all-MiniLM-L6-v2/model.onnx
+      tokenizer-uri: classpath:/onnx/all-MiniLM-L6-v2/tokenizer.json   # really inside the jar (711 KB)
       cache-directory: ${java.io.tmpdir}/spring-ai-onnx-model          # where the model is unpacked
     ingest-on-startup: true      # index classpath:policies/*.md in the background after startup (unchanged files skipped)
     top-k: 4                     # chunks returned per question (recall@4 eval)

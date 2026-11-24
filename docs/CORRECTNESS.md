@@ -12,7 +12,9 @@ perform, with evidence. Updated as each guard and optimisation lands.
 | DB | `UNIQUE (hold_id)` on `bookings`: a hold becomes at most one booking (idempotent confirm) | Schema (`V1__init.sql`) | ✅ W1·D3 |
 | Redis | Atomic multi-seat hold in one Lua script, with TTL and `holdId` | `RedisHoldStoreIntegrationTest`, `HoldRaceIntegrationTest` (section 1d) | ✅ W3·D2 |
 | App | 200-thread concurrency tests: exactly one winner per seat, 0 double-sold, DB index holds alone | `HoldRace200IntegrationTest`, `OverlappingHoldsRaceIntegrationTest`, `LiveSeatIndexRaceIntegrationTest` (section 1h) | ✅ W3·D6 |
-| App | Optimistic locking strategy (`@Version` on `show_seats`) | — | ⏳ W4·D6 |
+| App | Optimistic claims strategy (`seat_hold_claims` conditional upserts + advisory lock; `@Version` rejected, ADR-013) | `OptimisticHoldStoreIntegrationTest`, races A/B on both strategies (section 1m) | ✅ W4·D6 |
+| App | Post-claim re-check: a hold on a seat booked a moment earlier is released (F12) | `HoldServiceTest`, k6 per-seat thresholds (section 1o) | ✅ W6·D3 |
+| Data | Double-sold seats counted from the data every minute (`seatlock.seats.double_sold` gauge) and after every k6 sale | `SeatInvariantMonitorIntegrationTest`, `run-k6.ps1` SQL | ✅ W6·D2 |
 
 ## 1b. Venue double-booking guard (W2·D4)
 
