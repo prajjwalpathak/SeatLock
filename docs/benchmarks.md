@@ -267,3 +267,30 @@ already exceed it. On 2 cores more connections mean more context switching, not 
 explicit in `application.yml` and can be raised per environment (`SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE`) on bigger
 hardware.
 
+
+## 7. Startup: JDK 25 AOT cache (W8·D2)
+
+**Question:** does a JDK 25 AOT cache (JEPs 483/514/515, trained at image build with `spring.context.exit=onRefresh`,
+Dockerfile) shorten startup enough to keep? Bar set before measuring: **≥ 20 % faster median**, else revert (same rule
+as #56).
+
+**Method:** local 2-instance stack (`docker-compose.local.yml` + `docker-compose.scale.yml`, prod profile, AI +
+ONNX embeddings on, 1200 MB limits, heap 70 %), `load-tests/measure-startup.ps1`: 5 restarts × 2 instances = 10 starts
+per variant, Spring Boot's own `Started SeatLockApplication in X seconds (process running for Y)`, median. Same laptop
+session. Baseline = the **exact prod image** `sha-af35849bd299` pulled from GHCR (no rebuild); "after" = the W8·D2
+image built from the working tree. A first scripted run read the same old log line ten times (`docker logs --since`
+with a zone-less timestamp = local time) and was discarded.
+
+| | Baseline (`af35849`) | AOT cache | Change |
+|---|---|---|---|
+| Median "Started in" | 20.91 s | **14.83 s** | **−29 %** |
+| Median incl. JVM launch | 21.35 s | **15.55 s** | −27 % |
+| Range | 18.59–24.89 s | 9.24–17.48 s | |
+| Image (uncompressed, local) | 994.2 MB | 1249.9 MB | +256 MB |
+| Idle memory after the runs (`docker stats`) | 507.9 / 531.6 MiB (W7·D6, same stack) | 471.6 / 474.8 MiB | no increase |
+
+**Decision:** keep (#242). The cache file is mapped (file-backed, shared pages), so it doesn't eat into the 900 MB app
+limit; one-off idle readings, so "no increase", not "saves memory". Starts got faster after a few runs (cache file warm
+in the page cache): a first start after a deploy on the VM will be nearer the slow end. Costs: +256 MB image (less
+compressed on GHCR), ~longer image build in CI (training run). Prod startup on the VM is measured after the W8·D2
+rollout (logs of the rolling deploy).

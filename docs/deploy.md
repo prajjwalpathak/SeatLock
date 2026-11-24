@@ -213,6 +213,53 @@ Assistant question on the live site; Grafana → "AI (Week 7)" row.
 **Quota:** local and prod share one Google project, so one 500-requests/day budget (the app's global cap is
 per environment: 400 each). Don't run the 40-phrase eval on the day of a demo.
 
+## 3f. Full rollout: infra + secrets + backups (W8·D2)
+
+The image deploys itself on every merge; `infra/` and `.env.prod` don't. Do this once after a PR that changes
+`infra/`, and its Deploy run is green. (W8·D2 brings W7·D6 heap 60 % + Grafana AI row, W8·D1 Nginx headers, W8·D2
+healthchecks + backup files.)
+
+**1. Laptop: copy `infra/`** (secrets excluded)
+```powershell
+cd D:\Prajjwal\Code\SeatLock
+git switch main; git pull
+tar --exclude=.env.prod -czf $env:TEMP\seatlock-infra.tgz infra
+scp -i $HOME\.ssh\azure_seatlock $env:TEMP\seatlock-infra.tgz ubuntu@seatlock-prajjwal.duckdns.org:~/
+```
+
+**2. VM: back up, unpack, permissions**
+```bash
+# Run on the Azure VM (via ssh)
+cd ~/seatlock && alias dc='docker compose --env-file infra/.env.prod -f infra/docker-compose.prod.yml'
+b=~/infra.bak-$(date +%F-%H%M) && cp -r infra "$b" && cp infra/.env.prod "$b/.env.prod.copy" && echo "backup: $b"
+tar -xzf ~/seatlock-infra.tgz -C ~/seatlock && chmod +x infra/scripts/*.sh     # Windows tar drops the exec bit (F13)
+dc config --quiet && echo "compose OK"
+```
+
+**3. VM: secrets** (`nano infra/.env.prod`, typed there, never in chat/Git):
+AI block (section 3e step 2) and the backup block (`BACKUP_BLOB_URL`, `BACKUP_SAS_TOKEN`, section 5b).
+
+**4. VM: apply, one piece at a time**
+```bash
+dc up -d --force-recreate --no-deps app-1 && until [ "$(docker inspect -f '{{.State.Health.Status}}' $(dc ps -q app-1))" = healthy ]; do sleep 5; done; echo app-1 healthy
+dc up -d --force-recreate --no-deps app-2 && until [ "$(docker inspect -f '{{.State.Health.Status}}' $(dc ps -q app-2))" = healthy ]; do sleep 5; done; echo app-2 healthy
+dc up -d prometheus grafana                          # new healthchecks / dashboard files
+dc up -d --force-recreate --no-deps nginx            # REQUIRED for a changed template (F7)
+dc ps                                                # everything (healthy) except certbot (no healthcheck)
+```
+
+**5. Live check**
+```bash
+for i in 1 2 3 4; do curl -s https://seatlock-prajjwal.duckdns.org/api/v1/system/version; echo; done
+curl -sI https://seatlock-prajjwal.duckdns.org/api/v1/system/time | grep -iE 'strict-transport|content-security|x-content-type|referrer|permissions'
+dc logs app-1 app-2 | grep -E "AI enabled|AI DISABLED|RAG embeddings|Policy ingestion" | tail -n 6
+docker stats --no-stream
+```
+Expected: both instances on the merged revision; exactly **one** `strict-transport-security` line plus the CSP;
+`AI enabled`, `RAG embeddings`, `Policy ingestion … indexed/unchanged`; each app under 900 MiB. Then on the live site
+one Seat Finder sentence and one Refund Assistant question, and Grafana's "AI (Week 7)" row. Rollback of `infra/`:
+`rm -rf infra && cp -r "$b" infra && mv infra/.env.prod.copy infra/.env.prod`, then step 4 again.
+
 ## 4. Change configuration / secrets
 
 ```bash
@@ -253,6 +300,45 @@ dc up -d --force-recreate app-1 app-2   # env is read only at container start (o
 
 Certificates renew automatically (certbot loop every 12 h, renews at < 30 days left; Nginx reloads every 6 h).
 Containers use `restart: unless-stopped`, so the stack comes back after a VM reboot.
+
+## 5b. Backups and restore (W8·D2)
+
+**What runs:** `seatlock-backup.timer` → `infra/scripts/backup.sh` at **03:00 IST** (before the 03:30 demo jobs):
+`pg_dump -Fc` → `pg_restore --list` check → newest **7** kept in `~/backups` → upload to Azure Blob
+`pg-backups/daily/` (expires after **30 days**, lifecycle rule) and, on the 1st (IST), also `pg-backups/monthly/`
+(kept). Storage account `seatlockbackups24112026` lives in its **own** resource group `seatlock-backups`, so
+deleting the VM's group never deletes backups. The VM's SAS token can **only create/write** (no read, list or delete).
+RPO: up to ~24 h of data. Not done on purpose: WAL archiving / point-in-time recovery (over-engineering for a demo).
+
+**Install once (VM)**
+```bash
+# Run on the Azure VM (via ssh)
+sudo apt-get install -y curl >/dev/null           # usually present
+sudo cp ~/seatlock/infra/systemd/seatlock-backup.service ~/seatlock/infra/systemd/seatlock-backup.timer /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now seatlock-backup.timer
+systemctl list-timers seatlock-backup.timer       # NEXT = tonight 03:00 IST (21:30 UTC)
+sudo systemctl start seatlock-backup.service      # one run now
+journalctl -u seatlock-backup -n 5 --no-pager     # "backup OK: … upload: daily"
+```
+Portal → storage account → Containers → `pg-backups` → `daily/` shows the file (your portal login can read; the VM can't).
+
+**SAS token:** container `pg-backups` → Shared access tokens → Account key, **Create + Write** only, HTTPS only,
+expiry 2027-03-31 → put the "Blob SAS token" value into `BACKUP_SAS_TOKEN` in `infra/.env.prod`. A new token can be
+generated any time; old ones stay valid until they expire (rotate = new token, then regenerate the account key
+the old one was signed with).
+
+**Restore drill (scratch DB, never live):** `bash ~/seatlock/infra/scripts/restore-drill.sh`, which restores the newest
+local dump into `seatlock_restore_test`, prints live vs restored row counts and the restore time, then drops it.
+
+**Real restore (after data loss)**
+```bash
+# Run on the Azure VM (via ssh). Newest local dump, or one downloaded from the portal to ~/restore.dump
+dc stop app-1 app-2
+dc exec -T postgres pg_restore -U seatlock -d seatlock --clean --if-exists --no-owner --exit-on-error < ~/backups/<file>.dump
+dc start app-1 app-2                               # Flyway sees the restored history and changes nothing
+```
+VM lost entirely: new VM (section 1), stack up with an empty volume, then the same `pg_restore` from a dump downloaded
+from the portal.
 
 ## 6. Stop / start the VM (save money)
 
@@ -296,3 +382,6 @@ The static IP survives, so DNS and the certificate keep working.
 3. DuckDNS: clear the IP. Google Console: remove the prod redirect URI. GitHub: delete the `DEPLOY_*` secrets.
 4. Vercel: keep the frontend (shows the UI) or delete the project.
 5. Update README: "deployed on Azure (decommissioned on <date> to save cost)".
+6. Backups (section 5b) are in the separate resource group `seatlock-backups`: they survive step 2 on purpose.
+   Disable the timer before step 2 (`sudo systemctl disable --now seatlock-backup.timer`); delete `seatlock-backups`
+   yourself once the data is no longer needed (monthly copies are kept until then).
