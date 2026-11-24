@@ -6,6 +6,7 @@ import { ErrorMessage } from '../components/ErrorMessage'
 import { EventDetailSkeleton } from '../features/events/EventDetailSkeleton'
 import { CATEGORY_LABELS } from '../features/events/filters'
 import { eventListPathFrom } from '../features/events/navigation'
+import { CATEGORY_POSTER } from '../features/events/posters'
 import { ShowList } from '../features/events/ShowList'
 import { formatDuration } from '../lib/format'
 import type { EventDetail } from '../types/api'
@@ -55,12 +56,20 @@ function EventDetailView({ event }: { event: EventDetail }) {
       {/* React 19 hoists <title> into <head>. */}
       <title>{`${event.title} · SeatLock`}</title>
 
-      <header>
-        <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700">
+      {/* Poster header (W8·D4), same artwork as the event's card. */}
+      <header
+        className={`relative overflow-hidden rounded-3xl bg-gradient-to-br p-6 text-white shadow-lg sm:p-10 ${CATEGORY_POSTER[event.category].gradient}`}
+      >
+        <span aria-hidden="true" className="pointer-events-none absolute -bottom-6 right-4 text-[8rem] opacity-25 sm:text-[11rem]">
+          {CATEGORY_POSTER[event.category].glyph}
+        </span>
+        <span className="rounded-full bg-black/25 px-3 py-1 text-xs font-semibold backdrop-blur-sm">
           {CATEGORY_LABELS[event.category]}
         </span>
-        <h1 className="mt-3 text-3xl font-bold tracking-tight">{event.title}</h1>
-        <p className="mt-1 text-sm text-slate-500">
+        <h1 className="relative mt-4 max-w-2xl text-3xl font-extrabold leading-tight tracking-tight sm:text-5xl">
+          {event.title}
+        </h1>
+        <p className="relative mt-2 text-sm text-white/80">
           {event.language} · {formatDuration(event.durationMinutes)}
         </p>
       </header>

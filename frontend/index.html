@@ -4,7 +4,23 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>SeatLock</title>
+    <title>SeatLock: flash-sale ticket booking, zero oversells</title>
+    <meta name="description" content="Flash-sale ticket booking where nobody gets the same seat twice: live seat maps, atomic holds, Razorpay test-mode payments and an AI seat finder. Portfolio project (Spring Boot, Redis, Postgres, React)." />
+    <meta name="theme-color" content="#0b0b10" />
+    <script>
+      // Theme before first paint (no white flash): saved choice, else the system preference. See src/lib/theme.ts.
+      (function () {
+        var t = null
+        try { t = localStorage.getItem('seatlock.theme') } catch (e) {}
+        if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+        if (t === 'dark') document.documentElement.classList.add('dark')
+      })()
+    </script>
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://seatlock-nu.vercel.app/" />
+    <meta property="og:title" content="SeatLock: nobody gets the same seat twice" />
+    <meta property="og:description" content="Live seat maps, atomic holds, test-mode payments and an AI seat finder. Try the one-click demo." />
+    <meta name="twitter:card" content="summary" />
   </head>
   <body>
     <div id="root"></div>

@@ -2,11 +2,12 @@ import { keepPreviousData, useInfiniteQuery } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router'
 import { catalogKeys, searchEvents } from '../api/catalog'
 import { ErrorMessage } from '../components/ErrorMessage'
+import { IntroBanner } from '../components/IntroBanner'
 import { EventCard } from '../features/events/EventCard'
 import { EventCardSkeleton } from '../features/events/EventCardSkeleton'
 import { EventFilters } from '../features/events/EventFilters'
-import { parseFilters, type EventFilterValues } from '../features/events/filters'
-import type { EventSearchParams } from '../types/api'
+import { CATEGORY_LABELS, parseFilters, type EventFilterValues } from '../features/events/filters'
+import { EVENT_CATEGORIES, type EventSearchParams } from '../types/api'
 
 const PAGE_SIZE = 12
 
@@ -42,8 +43,10 @@ export function EventListPage() {
 
   return (
     <section className="space-y-6">
+      <IntroBanner />
+
       <div className="flex items-baseline justify-between">
-        <h1 className="text-2xl font-semibold">Upcoming events</h1>
+        <h1 className="text-3xl font-extrabold tracking-tight sm:text-4xl">What&rsquo;s on</h1>
         {query.data && (
           <span className="text-sm text-slate-500">
             {events.length} shown{query.hasNextPage ? ', more available' : ''}
@@ -51,10 +54,32 @@ export function EventListPage() {
         )}
       </div>
 
+      {/* Category chips (W8·D4): one tap instead of a dropdown; scroll sideways on phones. */}
+      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:px-0 [&::-webkit-scrollbar]:hidden" role="group" aria-label="Category">
+        {[undefined, ...EVENT_CATEGORIES].map((category) => {
+          const active = filters.category === category
+          return (
+            <button
+              key={category ?? 'all'}
+              type="button"
+              aria-pressed={active}
+              onClick={() => updateFilters({ category })}
+              className={`shrink-0 rounded-full border px-4 py-1.5 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-indigo-300 ${
+                active
+                  ? 'border-indigo-600 bg-indigo-600 text-white'
+                  : 'border-slate-300 bg-white text-slate-700 hover:border-slate-400'
+              }`}
+            >
+              {category ? CATEGORY_LABELS[category] : 'All'}
+            </button>
+          )
+        })}
+      </div>
+
       <EventFilters values={filters} onChange={updateFilters} />
 
       {query.isPending ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 6 }, (_, i) => (
             <EventCardSkeleton key={i} />
           ))}
@@ -75,7 +100,7 @@ export function EventListPage() {
       ) : (
         <>
           <div
-            className={`grid gap-4 transition-opacity sm:grid-cols-2 lg:grid-cols-3 ${
+            className={`grid gap-5 transition-opacity sm:grid-cols-2 lg:grid-cols-3 ${
               query.isPlaceholderData ? 'opacity-50' : ''
             }`}
           >

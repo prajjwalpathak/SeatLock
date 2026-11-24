@@ -4,6 +4,7 @@ import { getMyBookings, holdKeys } from '../api/holds'
 import { ErrorMessage } from '../components/ErrorMessage'
 import { STATUS_TEXT } from '../features/booking/bookingStatus'
 import { formatPaise, formatShowTime } from '../lib/format'
+import { useNow } from '../lib/useNow'
 import type { MyBookingSummary } from '../types/api'
 
 /** The signed-in user's bookings, newest first; the page number lives in the URL (?page=2). */
@@ -20,6 +21,7 @@ export function MyBookingsPage() {
   })
 
   const goTo = (next: number) => setParams(next === 1 ? {} : { page: String(next) })
+  const now = useNow(60_000)
 
   return (
     <section className="space-y-4">
@@ -40,7 +42,11 @@ export function MyBookingsPage() {
         <>
           <ul className={`space-y-3 ${query.isPlaceholderData ? 'opacity-60' : ''}`}>
             {query.data.items.map((b) => (
-              <BookingRow key={b.publicId} booking={b} />
+              <BookingRow
+                key={b.publicId}
+                booking={b}
+                past={b.showStartsAt !== null && Date.parse(b.showStartsAt) <= now}
+              />
             ))}
           </ul>
           {query.data.totalPages > 1 && (
@@ -72,13 +78,16 @@ export function MyBookingsPage() {
   )
 }
 
-function BookingRow({ booking: b }: { booking: MyBookingSummary }) {
+/** W8·D4 audit: shows that have already started are labelled "Past" and muted, so current tickets stand out. */
+function BookingRow({ booking: b, past }: { booking: MyBookingSummary; past: boolean }) {
   const status = STATUS_TEXT[b.status]
   return (
     <li>
       <Link
         to={`/bookings/${b.publicId}`}
-        className="flex flex-col gap-1 rounded-xl border border-slate-200 bg-white p-4 hover:border-indigo-300 sm:flex-row sm:items-center sm:justify-between"
+        className={`flex flex-col gap-1 rounded-xl border border-slate-200 bg-white p-4 hover:border-indigo-300 sm:flex-row sm:items-center sm:justify-between ${
+          past ? 'opacity-70' : ''
+        }`}
       >
         <div>
           <p className="font-semibold">{b.eventTitle ?? `Show ${b.showId}`}</p>
@@ -90,8 +99,11 @@ function BookingRow({ booking: b }: { booking: MyBookingSummary }) {
             {b.seatCount} {b.seatCount === 1 ? 'seat' : 'seats'} · {formatPaise(b.totalPaise)}
           </p>
         </div>
-        <span className={`self-start rounded-full px-2.5 py-1 text-xs font-medium sm:self-center ${status.tone}`}>
-          {status.label}
+        <span className="flex gap-2 self-start sm:self-center">
+          {past && (
+            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">Past</span>
+          )}
+          <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${status.tone}`}>{status.label}</span>
         </span>
       </Link>
     </li>
