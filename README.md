@@ -23,6 +23,25 @@ running version: [/api/v1/system/version](https://seatlock-prajjwal.duckdns.org/
 Payments run in **Razorpay test mode** (no real money): pick Netbanking → any bank → *Success*. The demo account is
 shared, so its old bookings are refunded every night at 03:30 IST and seed events always get new shows.
 
+## See it in action
+
+Recorded on the local two-instance stack (W8·D4). How each clip was made: [docs/demo-script.md](docs/demo-script.md).
+
+| | |
+|---|---|
+| **Two buyers, one live seat map.** You hold F9 + F10; the other screen shows them on hold within a second. | ![Two browsers on the same show: a hold on one appears on the other](docs/media/02-live-seat-map.gif) |
+| **AI Seat Finder.** *"2 seats together near the aisle, under ₹400 each"* → validated filters → 3 options from a pure-Java search. | ![Seat Finder turns a sentence into filters and highlights 3 options](docs/media/03-ai-seat-finder.gif) |
+| **Hold → pay → ticket.** 8-minute hold, server-side price, Razorpay test checkout, QR ticket. | ![Held seats, Razorpay test checkout, confirmed booking with QR ticket](docs/media/04-pay-and-ticket.gif) |
+| **Refund Assistant → cancel.** The engine computes ₹750 (100 %); the AI only explains it; cancel refunds it. | ![Refund Assistant answers, then the booking is cancelled and refunded](docs/media/05-refund-assistant.gif) |
+
+<details>
+<summary>More: one-click demo login, phone layout</summary>
+
+![One-click demo login from the intro banner](docs/media/01-demo-login.gif)
+![Phone layout: header, category chips, poster cards, swipeable seat map](docs/media/06-phone.gif)
+
+</details>
+
 ---
 
 ## Architecture

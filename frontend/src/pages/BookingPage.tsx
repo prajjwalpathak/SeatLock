@@ -71,6 +71,8 @@ function BookingView({ booking, clockOffset }: { booking: Booking; clockOffset: 
     staleTime: 60_000,
     retry: false, // header extras only; the booking page works without them
   })
+  // W8·D4 audit: a booking for a show that has started shouldn't say "Enjoy the show!" or offer its seat map again.
+  const showOver = show.data ? Date.parse(show.data.startsAt) <= now : false
 
   const cancel = useMutation({
     mutationFn: () => cancelBooking(booking.publicId),
@@ -85,9 +87,14 @@ function BookingView({ booking, clockOffset }: { booking: Booking; clockOffset: 
     <article className="mx-auto max-w-2xl space-y-5">
       <title>{`Booking · ${show.data?.eventTitle ?? 'SeatLock'}`}</title>
 
-      {show.data && (
+      {show.data && !showOver && (
         <Link to={`/shows/${booking.showId}`} className="inline-block text-sm text-indigo-600 hover:underline">
           ← Back to the seat map
+        </Link>
+      )}
+      {showOver && (
+        <Link to="/bookings" className="inline-block text-sm text-indigo-600 hover:underline">
+          ← My bookings
         </Link>
       )}
 
@@ -101,7 +108,11 @@ function BookingView({ booking, clockOffset }: { booking: Booking; clockOffset: 
         )}
       </header>
 
-      <p className="text-slate-700">{info.text}</p>
+      <p className="text-slate-700">
+        {showOver && status === 'CONFIRMED'
+          ? 'This show has already taken place. Your ticket stays here for your records.'
+          : info.text}
+      </p>
 
       <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
         <ul className="divide-y divide-slate-100">
@@ -182,7 +193,7 @@ function BookingView({ booking, clockOffset }: { booking: Booking; clockOffset: 
         </p>
       )}
 
-      {!unpaid && (
+      {!unpaid && !showOver && (
         <Link
           to={`/shows/${booking.showId}`}
           className="inline-block rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"

@@ -3,19 +3,19 @@
 > Updated at the end of every day (when I say "next"). Keep this file in the repo root and re-upload it to Project knowledge after each update.
 
 ## Current Status
-- **Current day:** Week 8 · Day 4 (not started, planned Sat Jan 2): UI polish + record the demo video. Branch `w8-d4` (`git switch -c w8-d4 origin/main` after the W8·D3 PR is squash-merged). **Before it:** the W8·D3 post-merge step (infra copy for Grafana 512 MB, deploy.md 3f steps 1–2 + `dc up -d grafana`; `SEATLOCK_EMBEDDINGS=none` on the VM **before** the merge). **Prepare:** a screen recorder (OBS or the Xbox Game Bar), a quiet 30 min, the demo script (W8·D4)
-- **Last completed:** Week 8 · Day 3: RAG fix (checksummed model baked into the image, LFS-pointer guard, clean AOT layer 648 → 182 MB), fair startup benchmark with the model (17.52 → 12.44 s, −29 %), memory measured with the real model → embeddings stay off on prod (≈ 980 MB worst case > 850 rule), RAG recall 30/30, Grafana 512 MB, README rewritten (Mermaid architecture, results, setup), CORRECTNESS / FAILURES (F15, F14 D4–D5 observed) / ADRs final; W8·D2 Part C recorded (planned Fri Jan 1, done Tue Nov 24)
+- **Current day:** Week 8 · Day 5 (not started, planned Sun Jan 3): resume bullets with real numbers + SeatLock interview Q&A doc, tag `v1.0.0`. Branch `w8-d5` (`git switch -c w8-d5 origin/main` after the W8·D4 PR is squash-merged). **Before it:** W8·D4 post-merge infra copy (Grafana `GOMEMLIMIT`, deploy.md 3f steps 1–2 + `dc up -d grafana`) and check that Vercel has **no** `VITE_GOOGLE_SIGNIN`. **Prepare:** your current resume (PDF or text) so the bullets fit its format
+- **Last completed:** Week 8 · Day 4: UI polish: dark mode (class strategy, palette remap, no flash on load), District-style look (gradient poster cards per category, category chips, sticky translucent header, gradient intro banner with one-click demo), source-code + theme icons next to the account menu, phone fixes (compact header, collapsed Seat Finder, swipe hint, City behind a button), past shows marked; Google button behind a build flag; demo shows topped up at startup too; **6 demo GIFs** in `docs/media/` embedded in the README instead of a video (planned Sat Jan 2, done Wed Nov 25)
+- **Earlier:** Week 8 · Day 3: RAG fix (checksummed model baked into the image, LFS-pointer guard, clean AOT layer 648 → 182 MB), fair startup benchmark with the model (17.52 → 12.44 s, −29 %), memory measured with the real model → embeddings stay off on prod (≈ 980 MB worst case > 850 rule), RAG recall 30/30, Grafana 512 MB, README rewritten (Mermaid architecture, results, setup), CORRECTNESS / FAILURES (F15, F14 D4–D5 observed) / ADRs final; W8·D2 Part C recorded (planned Fri Jan 1, done Tue Nov 24)
 - **Earlier:** Week 8 · Day 2: JDK 25 AOT cache trained at image build (startup median 20.91 → 14.83 s, −29 %; +256 MB image; no memory increase), healthchecks for Prometheus / Grafana / Nginx, nightly backup (`backup.sh` + systemd timer 03:00 IST → Azure Blob `daily/` 30 d + `monthly/` kept, write-only SAS, separate resource group `seatlock-backups`), restore-drill script, full-rollout runbook (deploy.md 3f, 5b) (planned Thu Dec 31, done Tue Nov 24)
-- **Earlier:** Week 8 · Day 1: security headers with one owner each (Spring content headers + `/api/**` CSP, Nginx HSTS), CORS exact-origin validation + methods narrowed, 1 MB body limit (413) + DTO size caps, gitleaks over full history in CI (2 false positives fingerprinted, 0 leaks), ADR-001 revisit, nightly demo upkeep (seed show top-up + demo-account full-refund reset, ADR-019) (planned Wed Dec 30, done Mon Nov 23)
-- **Before:** Week 7 · Day 6: resilient embedding load (failure → RAG off, not app down), index tagged with the Spring AI version, Grafana "AI (Week 7)" row (8 panels), AI drill probe + F14 drill plan, memory measured with the model (+~130 MiB) → prod heap 60 %, AI rollout runbook (deploy.md 3e); Week 7 review (planned Tue Dec 29, done Mon Nov 23)
-- **Before that:** Week 7 · Day 5: Refund Assistant (engine facts incl. next tier, 3 RAG excerpts, Gemini explains only, ₹/% `AnswerGuard`, template fallback, booking-page UI); per-feature time limit (8 s) + Gemini thinking LOW fixed 7/9 timeouts → 4/4 OK, avg 1.7 s (planned Mon Dec 28, done Mon Nov 23)
+- **Before:** Week 8 · Day 1: security headers with one owner each (Spring content headers + `/api/**` CSP, Nginx HSTS), CORS exact-origin validation + methods narrowed, 1 MB body limit (413) + DTO size caps, gitleaks over full history in CI (2 false positives fingerprinted, 0 leaks), ADR-001 revisit, nightly demo upkeep (seed show top-up + demo-account full-refund reset, ADR-019) (planned Wed Dec 30, done Mon Nov 23)
+- **Before that:** Week 7 · Day 6: resilient embedding load (failure → RAG off, not app down), index tagged with the Spring AI version, Grafana "AI (Week 7)" row (8 panels), AI drill probe + F14 drill plan, memory measured with the model (+~130 MiB) → prod heap 60 %, AI rollout runbook (deploy.md 3e); Week 7 review (planned Tue Dec 29, done Mon Nov 23)
 - **Live URLs:** Frontend https://seatlock-nu.vercel.app · Backend https://seatlock-prajjwal.duckdns.org · Swagger https://seatlock-prajjwal.duckdns.org/swagger-ui.html · Version https://seatlock-prajjwal.duckdns.org/api/v1/system/version · Grafana https://seatlock-prajjwal.duckdns.org/grafana/ (admin login)
 - **Repo:** https://github.com/prajjwalpathak/SeatLock (public) · CI + Deploy badges in README · `main` protected (ruleset `protect-main`)
 - **Hosting:** Azure VM `seatlock-vm` (India South Central, B2als_v2 x64) + Vercel; images from GHCR; **2 app instances** + Prometheus/Grafana; infra + `.env.prod` updated W8·D2 (AI on, **embeddings off** by measurement #248, heap 60 %, backups); nightly backups to `seatlockbackups24112026` (resource group `seatlock-backups`); decommission after ~2–3 months (deploy.md section 8, backups group separately)
 - **Git workflow (from W6·D2):** **one task per day** = all plan tasks → one verify/test block → one one-line commit + push on the daily branch → PR on GitHub → squash-merge when CI is green; next branch with `git switch -c wN-dM origin/main`; never push to a branch after its PR is merged; **never use GitHub's "Update branch" / web conflict editor**; **start each day by checking prod is on `main`** (deploy.md section 3d) (#9, #75, #116, #141, #142, #176, #181, #202)
-- **Carry-overs:** W8·D3 post-merge infra copy (Grafana 512 MB) + check RAG stays off and memory is unchanged · **F14 drills D1–D3** (bad key, 200 ms limit, global cap) before v1.0.0 · **intent eval numbers** (x/40; no output saved from W7·D3, re-run once with thinking LOW, ≤ 40 Gemini calls, not on a demo day) · IntelliJ "Vulnerable dependencies" re-run before v1.0.0 (ADR-001) · VM package updates (25 pending, 6 security; check unattended-upgrades) · optional: heap 45 % + embeddings on prod (measured option, #248) · same-site frontend/API (F7) stretch · JetBrains license · refund status webhooks (stretch)
-- **Schedule:** **~38 days ahead** (W8·D3 done Tue Nov 24 instead of Fri Jan 1); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
-- **Top risk:** demo video quality/time (W8·D4); Gemini free quota on demo day (shared 500/day with local); keep checking prod is on `main` each morning (deploy.md section 3d, F13)
+- **Carry-overs:** W8·D4 post-merge infra copy (Grafana `GOMEMLIMIT 420MiB`) + no `VITE_GOOGLE_SIGNIN` on Vercel · **F14 drills D1–D3** (bad key, 200 ms limit, global cap) before v1.0.0 · **intent eval numbers** (x/40; no output saved from W7·D3, re-run once with thinking LOW, ≤ 40 Gemini calls, not on a demo day) · IntelliJ "Vulnerable dependencies" re-run before v1.0.0 (ADR-001) · VM package updates (25 pending, 6 security; check unattended-upgrades) · optional: heap 45 % + embeddings on prod (measured option, #248) · same-site frontend/API (F7) stretch · JetBrains license · refund status webhooks (stretch)
+- **Schedule:** **~38 days ahead** (W8·D4 done Wed Nov 25 instead of Sat Jan 2); target finish **Mon, Jan 4, 2027**; weeks run Tue–Mon
+- **Top risk:** v1.0.0 with open carry-overs (F14 D1–D3, intent eval numbers, dependency scan): run them before tagging or list them as known gaps; keep checking prod is on `main` each morning (deploy.md section 3d, F13)
 
 ## Decisions Log (ADR summary)
 | # | Date | Decision | Why |
@@ -271,6 +271,14 @@
 | 249 | 2026-11-24 | Startup benchmark redone **with the model loading in both variants**: −29 % (17.52 → 12.44 s) is the number to quote; the W8·D2 run (20.91 → 14.83 s) stays documented as "both without the model" | A published number must describe what prod does |
 | 250 | 2026-11-24 | Grafana limit **384 → 512 MB** (supersedes #187's 384) | 286–320/384 MiB and 2.5–3 GB of reads within minutes of a restart on W8·D2 (F10 pattern) |
 | 251 | 2026-11-24 | Secret-file checks print counts/names only; a SAS **URL** is a secret | W8·D2: the backup SAS URL (with signature) was put in `BACKUP_BLOB_URL` and printed by a check → key1 rotated, token regenerated from the "Blob SAS token" field |
+| 252 | 2026-11-25 | **Six short GIFs instead of a demo video** (`docs/media/`, embedded at the top of the README, shot list in `docs/demo-script.md`); 1.6–3.2 s per frame, one 256-colour palette per frame | Each shows one feature and plays on GitHub without a click; re-recording one clip doesn't mean re-recording 4 minutes; a shared palette washed out the green/amber seat colours |
+| 253 | 2026-11-25 | **Dark mode** with Tailwind's class strategy (`@custom-variant dark`), the slate/indigo/emerald/amber/red palette remapped via CSS variables under `.dark`, choice in `localStorage` (`seatlock.theme`), else the OS setting, applied by an inline script in `index.html` | Remapping the palette covers every existing class without `dark:` on each element; the inline script runs before React, so no light flash on load |
+| 254 | 2026-11-25 | **District-style look:** gradient poster per category (glyph + colours, no images), category chips instead of the category select, sticky translucent header, gradient intro banner; the GitHub text link replaced by a generic **code icon** next to the theme toggle and account menu | Events have no posters and copyrighted artwork is out; chips are one tap on a phone; a generic icon avoids using GitHub's logo |
+| 255 | 2026-11-25 | Google button shown only when `VITE_GOOGLE_SIGNIN=true` (set locally, not on Vercel) | The public demo signs in with the one-click demo account; a Google button visitors can't complete is worse than none |
+| 256 | 2026-11-25 | `DemoShowTopUpJob` also runs on `ApplicationReadyEvent` (only when `seatlock.scheduling.enabled`) | Opening the app after weeks off (or a fresh DB) must show upcoming shows at once, not after the next night's run; the advisory lock keeps two instances from doubling up |
+| 257 | 2026-11-25 | **Same-origin local demo mode** (`docker-compose.demo.yml` + `seatlock-lb-spa.conf`): the local LB on 8088 serves `frontend\dist` and proxies the API/WebSocket | The desktop app's browser pane blocks cross-port localhost requests; one origin also mirrors how prod looks to the browser |
+| 258 | 2026-11-25 | Grafana `GOMEMLIMIT: 420MiB` under its 512 MB limit | The Go GC collects before the container limit instead of being OOM-killed; Prometheus 3 sets its own |
+| 259 | 2026-11-25 | Phone layout: compact header (Bookings, initial avatar, sign-out icon below 640 px), Seat Finder collapsed by default, seat map centred with a swipe hint, City behind a button; past shows marked "Past" and their booking page drops the seat-map links | Signed in, the header overflowed a 375 px screen and cut off Sign out (found while recording); a past show can't be re-booked |
 
 ## Metrics Captured (resume numbers)
 | Metric | Value | How measured | Date |
@@ -378,6 +386,7 @@
 | Image layers | training layer 648 → **182 MB** (own home for the training); model 87 MB; AOT cache 174 MB | `docker history` | 2026-11-24 |
 | **Prod rollout W8·D2 (Part C)** | both instances on `45ff9ad`; exactly one of each security header (API + Grafana); apps 434 / 456 MiB; all 7 services healthy, again within 3 min of a reboot | VM checks | 2026-11-24 |
 | **First prod backup + restore drill** | 204,054-byte dump in < 1 s → `daily/`; restored in **827 ms**, 12/12 tables equal | `backup.sh`, `restore-drill.sh` | 2026-11-24 |
+| Demo GIFs (README) | 6 clips, 179–459 KB each, **~1.6 MB** total; 4–5 frames each | Pillow from browser screenshots (`docs/demo-script.md`) | 2026-11-25 |
 
 ## Accounts & Config (no secrets here, only where they live)
 | Item | Status | Where stored |
@@ -1971,3 +1980,42 @@
 - Writing a README for reviewers: claim → measurement → link
 **Commit:** `fix(assistant): checksummed ONNX model in the image, fair startup benchmark, README and final docs (W8·D3)`
 
+### Week 8 · Day 4: UI polish, dark mode, demo GIFs (planned Sat, Jan 2; done Wed, Nov 25, 2026)
+**Status:** ✅ Done (post-merge: Grafana `GOMEMLIMIT` infra copy)
+**Built:**
+- Dark mode: palette remap under `.dark`, theme toggle (moon/sun), no-flash inline script, `theme-color`, OS default
+- District-style UI: gradient poster cards and event header per category, category chips, sticky translucent header, gradient intro banner with one-click demo + dismiss, new favicon, page title/description/Open Graph tags
+- Header: generic code icon (repo link) + theme toggle next to the account menu; the banner's GitHub link removed
+- Phone fixes: compact signed-in header, City filter behind a button, Seat Finder collapsed on phones, seat map centred + swipe hint
+- My bookings: "Past" badge; booking page for a past show: no seat-map links, "← My bookings"
+- Google button behind `VITE_GOOGLE_SIGNIN`
+- `DemoShowTopUpJob` also at startup (+3 tests); Grafana `GOMEMLIMIT`
+- Same-origin demo overlay for the local LB
+- Six demo GIFs recorded and assembled (login, live seat map side by side, AI Seat Finder, pay + ticket, Refund Assistant + cancel, phone), embedded in the README; `docs/demo-script.md` is now the shot list
+**Files created/changed:**
+- `frontend\index.html`, `public\favicon.svg`, `.env.example`, `src\{index.css, env.d.ts}`, `src\lib\theme.ts`
+- `src\components\{Layout.tsx, UserMenu.tsx, HeaderIcons.tsx, IntroBanner.tsx}`
+- `src\features\events\{EventCard.tsx, EventFilters.tsx, posters.ts}`, `src\features\seatmap\SeatMap.tsx`, `src\features\auth\GoogleButton.tsx`
+- `src\pages\{EventListPage, EventDetailPage, ShowSeatsPage, BookingPage, MyBookingsPage}.tsx`
+- `backend\…\catalog\application\DemoShowTopUpJob.java` + `DemoShowTopUpJobTest`
+- `infra\docker-compose.prod.yml`, `infra\docker-compose.demo.yml`, `infra\nginx\local\seatlock-lb-spa.conf`
+- `README.md`, `docs\demo-script.md`, `docs\media\0{1..6}-*.gif`, `progress.md`
+**Decisions:**
+- See Decisions Log #252–#259
+**Metrics recorded:**
+- Demo GIFs ~1.6 MB total (see Metrics table)
+**Problems & fixes:**
+- `show` used before its declaration in `BookingPage` (TS2448) → `showOver` computed after the query
+- Browser pane blocked cross-port localhost calls (`ERR_BLOCKED_BY_CLIENT`) → same-origin demo overlay (#257)
+- GIF colours washed out with one shared palette → one palette per frame (#252)
+- Signed-in header overflowed on a 375 px phone (Sign out cut off) → compact phone header (#259)
+- PowerShell split `-Dtest=A,B` → quote the whole argument
+**Carry-over:**
+- Post-merge Grafana infra copy; F14 D1–D3; intent eval numbers; dependency scan; VM updates
+**Interview topics covered (Q&A deferred until after v1.0.0):**
+- Theming with CSS variables vs per-element dark classes; avoiding a flash of the wrong theme
+- Responsive design for small screens: what overflows and why, progressive disclosure
+- Feature flags at build time (Vite env) vs runtime
+- Startup jobs with `ApplicationReadyEvent` and advisory locks across instances
+- Same-origin vs cross-origin setups (CORS, WebSocket Origin checks)
+**Commit:** `feat(frontend): dark mode, District-style UI, phone fixes and demo GIFs (W8·D4)`

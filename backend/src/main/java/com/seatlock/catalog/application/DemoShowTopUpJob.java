@@ -8,7 +8,9 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.context.event.EventListener;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -84,17 +86,33 @@ public class DemoShowTopUpJob {
     private final ApplicationEventPublisher events;
     private final Clock clock;
     private final boolean enabled;
+    private final boolean jobsEnabled;
     private final int minUpcoming;
 
     public DemoShowTopUpJob(JdbcClient jdbc, TransactionTemplate tx, ApplicationEventPublisher events, Clock clock,
                             @Value("${seatlock.demo.reset-enabled:true}") boolean enabled,
+                            @Value("${seatlock.scheduling.enabled:true}") boolean jobsEnabled,
                             @Value("${seatlock.demo.min-upcoming-shows:3}") int minUpcoming) {
         this.jdbc = jdbc;
         this.tx = tx;
         this.events = events;
         this.clock = clock;
         this.enabled = enabled;
+        this.jobsEnabled = jobsEnabled;
         this.minUpcoming = minUpcoming;
+    }
+
+    /**
+     * Also once at startup (W8·D4): the nightly run is skipped whenever the app isn't up at 03:30 (a laptop, a VM that
+     * was stopped to save credit), and until the next night events could show no upcoming shows. Same advisory lock,
+     * so with two instances starting together only one works; idempotent; takes milliseconds. Off where jobs are off
+     * (tests: seatlock.scheduling.enabled=false).
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void onStartup() {
+        if (jobsEnabled) {
+            nightly();
+        }
     }
 
     @Scheduled(cron = "${seatlock.demo.reset-cron:0 30 3 * * *}", zone = "Asia/Kolkata")

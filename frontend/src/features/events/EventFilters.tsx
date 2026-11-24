@@ -1,6 +1,5 @@
-import type { FormEvent } from 'react'
-import { EVENT_CATEGORIES, type EventCategory } from '../../types/api'
-import { CATEGORY_LABELS, CITIES, type EventFilterValues } from './filters'
+import { useState, type FormEvent } from 'react'
+import { CITIES, type EventFilterValues } from './filters'
 
 type Props = {
   values: EventFilterValues
@@ -19,12 +18,17 @@ export function EventFilters({ values, onChange }: Props) {
   }
 
   const hasFilters = Boolean(values.q || values.city || values.category)
+  // W8·D4 audit: on phones the full form filled the first screen. City starts hidden there (always shown from `sm`
+  // up, and whenever it is set). Category is chosen with the chips above the form.
+  const [moreOpen, setMoreOpen] = useState(false)
+  const showMore = moreOpen || Boolean(values.city)
+  const moreClass = `${showMore ? 'block' : 'hidden'} sm:block sm:w-40`
 
   return (
     <form
       role="search"
       onSubmit={handleSubmit}
-      className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-end"
+      className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-end"
     >
       <label className="flex-1">
         <span className="text-xs font-medium text-slate-600">Search</span>
@@ -40,7 +44,7 @@ export function EventFilters({ values, onChange }: Props) {
         />
       </label>
 
-      <label className="sm:w-40">
+      <label className={moreClass}>
         <span className="text-xs font-medium text-slate-600">City</span>
         <select
           value={values.city ?? ''}
@@ -56,21 +60,6 @@ export function EventFilters({ values, onChange }: Props) {
         </select>
       </label>
 
-      <label className="sm:w-40">
-        <span className="text-xs font-medium text-slate-600">Category</span>
-        <select
-          value={values.category ?? ''}
-          onChange={(e) => onChange({ category: (e.target.value || undefined) as EventCategory | undefined })}
-          className={fieldClass}
-        >
-          <option value="">All categories</option>
-          {EVENT_CATEGORIES.map((category) => (
-            <option key={category} value={category}>
-              {CATEGORY_LABELS[category]}
-            </option>
-          ))}
-        </select>
-      </label>
 
       <div className="flex gap-2">
         <button
@@ -79,6 +68,16 @@ export function EventFilters({ values, onChange }: Props) {
         >
           Search
         </button>
+        {!showMore && (
+          <button
+            type="button"
+            onClick={() => setMoreOpen(true)}
+            aria-expanded="false"
+            className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-200 sm:hidden"
+          >
+            City
+          </button>
+        )}
         {hasFilters && (
           <button
             type="button"

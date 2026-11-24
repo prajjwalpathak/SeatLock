@@ -1,1 +1,97 @@
 @import "tailwindcss";
+
+/*
+ * Dark mode (W8·D4). The `.dark` class on <html> (set before React loads by the script in index.html, then by the
+ * theme toggle) switches the whole app:
+ *   1. `dark:` utilities for anything new written for dark explicitly;
+ *   2. Tailwind 4 colours are CSS variables, so the neutral scale and the light tints are re-mapped below. Every
+ *      existing `bg-slate-50`, `border-slate-200`, `text-slate-600`, `bg-amber-50`… follows without touching the
+ *      components;
+ *   3. a few targeted overrides where a utility means "white surface" or "dark accent text" in both themes.
+ * Mid accents (indigo/emerald/red 500–700 backgrounds) stay as they are: white text on them reads in both themes.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  color-scheme: light;
+  --surface: #ffffff;
+}
+
+.dark {
+  color-scheme: dark;
+  --surface: #15151c;
+
+  /* neutrals: near-black page, charcoal cards, light text */
+  --color-slate-50: #0b0b10;
+  --color-slate-100: #1a1a22;
+  --color-slate-200: #272731;
+  --color-slate-300: #3a3a47;
+  --color-slate-400: #6e6e80;
+  --color-slate-500: #9a9aad;
+  --color-slate-600: #b9b9c8;
+  --color-slate-700: #d6d6e0;
+  --color-slate-800: #e8e8ef;
+  --color-slate-900: #f6f6fa;
+
+  /* light tints → deep tints; the darkest text shades → light text */
+  --color-indigo-50: #1b1838;
+  --color-indigo-100: #24204b;
+  --color-indigo-200: #383173;
+  --color-indigo-300: #5a52b5;
+  --color-indigo-900: #e0e7ff;
+  --color-emerald-50: #0b241c;
+  --color-emerald-100: #0e3226;
+  --color-emerald-200: #134b37;
+  --color-emerald-300: #1c6b4e;
+  --color-emerald-800: #a7f3d0;
+  --color-emerald-900: #d1fae5;
+  --color-amber-50: #251c07;
+  --color-amber-100: #33270a;
+  --color-amber-200: #5a440f;
+  --color-amber-300: #7a5c14;
+  --color-amber-800: #fde68a;
+  --color-amber-900: #fef3c7;
+  --color-red-50: #2a0f13;
+  --color-red-200: #6b1d24;
+  --color-red-300: #8a242c;
+  --color-red-400: #b4323b;
+  --color-red-800: #fecaca;
+}
+
+/* "white surface" utilities */
+.dark .bg-white {
+  background-color: var(--surface);
+}
+.dark .to-white {
+  --tw-gradient-to: var(--surface);
+}
+.dark .ring-offset-1,
+.dark .ring-offset-2 {
+  --tw-ring-offset-color: var(--surface);
+}
+
+/* accent text that is dark on light: lighter on dark (backgrounds of the same colour are untouched) */
+.dark .text-indigo-600,
+.dark .text-indigo-700 {
+  color: #a5b4fc;
+}
+.dark .text-emerald-700 {
+  color: #6ee7b7;
+}
+.dark .text-amber-700 {
+  color: #fcd34d;
+}
+.dark .text-red-600,
+.dark .text-red-700 {
+  color: #fca5a5;
+}
+
+body {
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body {
+    transition: none;
+  }
+}

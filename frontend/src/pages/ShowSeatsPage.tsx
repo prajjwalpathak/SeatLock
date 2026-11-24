@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { catalogKeys, getSeatMap } from '../api/catalog'
 import { ApiError, hasCode } from '../api/client'
@@ -261,16 +261,18 @@ function ShowSeatsView({ seatMap: cachedMap, liveStatus, refreshing, onRefresh }
       )}
 
       {!started && activeHold === null && (
-        <SeatFinderPanel
-          seatMap={seatMap}
-          signedIn={signedIn}
-          disabled={holdMutation.isPending}
-          onPick={(ids) => {
-            setSelectedIds(ids.slice(0, MAX_SELECTION))
-            setNotice(null)
-          }}
-          onSuggest={setSuggestedIds}
-        />
+        <CollapsedOnPhones label="Find seats for me (describe them, or use filters)">
+          <SeatFinderPanel
+            seatMap={seatMap}
+            signedIn={signedIn}
+            disabled={holdMutation.isPending}
+            onPick={(ids) => {
+              setSelectedIds(ids.slice(0, MAX_SELECTION))
+              setNotice(null)
+            }}
+            onSuggest={setSuggestedIds}
+          />
+        </CollapsedOnPhones>
       )}
 
       <SeatLegend />
@@ -327,5 +329,27 @@ function ShowSeatsView({ seatMap: cachedMap, liveStatus, refreshing, onRefresh }
         />
       )}
     </section>
+  )
+}
+
+/**
+ * W8·D4 audit: on a phone the Seat Finder filled the first screen and pushed the seat map below it. Below the `sm`
+ * breakpoint it starts as one button; from `sm` up (and once opened) the content shows as before.
+ */
+function CollapsedOnPhones({ label, children }: { label: string; children: ReactNode }) {
+  const [open, setOpen] = useState(() => window.matchMedia('(min-width: 640px)').matches)
+  if (open) {
+    return <>{children}</>
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => setOpen(true)}
+      aria-expanded="false"
+      className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 text-left text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+    >
+      {label}
+      <span aria-hidden="true" className="text-slate-400">▸</span>
+    </button>
   )
 }

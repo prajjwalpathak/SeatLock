@@ -125,6 +125,10 @@ services:
       GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/seatlock.json
       GF_UNIFIED_ALERTING_ENABLED: "false"      # no alert rules here; saves the Alertmanager + rule engine memory
       GF_NEWS_NEWS_FEED_ENABLED: "false"
+      # W8·D4: Grafana is a Go program and grew to whatever its limit allowed (447/512 MiB, 1.1 GB of reads a minute
+      # after start). A Go soft limit makes it collect garbage before the container limit instead of thrashing.
+      # (Prometheus 3 sets its own GOMEMLIMIT from the cgroup limit by default.)
+      GOMEMLIMIT: 420MiB
     volumes:
       - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
       - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
